@@ -820,3 +820,56 @@ All 5 subsystems from the architecture spec are covered.
 - `migrate.ts` catches the Dolt "nothing to commit" error gracefully on re-runs rather than using `allowEmpty`.
 - Seed data includes 4 agents across 3 providers (Anthropic, OpenAI, local) with realistic pricing.
 - The `haol` database must be created manually before first migration (`CREATE DATABASE haol` via mysql connection).
+
+### Story 2: Agent Registry CRUD — COMPLETE
+
+**Date:** 2026-03-03
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `src/types/agent.ts` | Zod schemas: `AgentRegistration`, `CreateAgentInput`, `UpdateAgentInput`, `AgentStatus` |
+| `src/repositories/agent-registry.ts` | SQL layer: `findAll`, `findById`, `findByCapabilities`, `create`, `update`, `remove` with `parseAgentRow` helper |
+| `src/services/agent-registry.ts` | Business logic: capability validation against taxonomy, Dolt commits on mutations, `commitSafely` helper |
+| `tests/types/agent.test.ts` | 8 unit tests: schema validation, defaults, invalid inputs |
+| `tests/repositories/agent-registry.test.ts` | 6 integration tests: CRUD round-trips, filtering, soft delete |
+| `tests/services/agent-registry.test.ts` | 7 integration tests: capability validation, Dolt commits, error cases |
+
+**Files modified:**
+
+| File | Change |
+|------|--------|
+| `package.json` | Added `zod` (^4.3.6) dependency |
+
+**Test results:** 74/74 passing (21 new from Story 2).
+
+**Notes:**
+
+- `parseAgentRow()` handles mysql2 JSON column parsing (checks whether capabilities come back as string or array) and `parseFloat()` on decimal cost fields.
+- `commitSafely()` wraps `doltCommit` in try/catch to handle "nothing to commit" gracefully.
+- Integration tests use unique agent IDs with timestamps (`test-repo-*`, `test-svc-*`) and clean up in `afterAll`.
+
+### Story 3: Task Classifier (Rules Engine) — COMPLETE
+
+**Date:** 2026-03-03
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `src/types/task.ts` | Zod schemas: `TaskInput`, `TaskClassification`, `ComplexityTier` + `uuidv7()` and `sha256()` helpers |
+| `src/classifier/rules.ts` | 9 keyword-matching rules with capabilities and tier effects, `matchRules()` function |
+| `src/classifier/scoring.ts` | `computeTier()` (base + token count + rule bumps + capability count), `costCeilingForTier()` |
+| `src/classifier/classifier.ts` | `classify(input)` — full pipeline: validate → match rules → merge metadata → compute tier → generate IDs |
+| `tests/classifier/fixtures/prompts.json` | 10 test fixtures with expected tiers and capabilities |
+| `tests/classifier/rules.test.ts` | 17 unit tests: individual rule matching, deduplication, tier bump aggregation |
+| `tests/classifier/classifier.test.ts` | 22 unit tests: all fixtures, metadata overrides, hash determinism, UUID format, cost ceilings |
+
+**Test results:** 74/74 passing (39 new from Story 3).
+
+**Notes:**
+
+- `matchRules` sums tier effects (not max) so that prompts matching both `code` and `reasoning` produce T3.
+- `computeTier` uses `capabilityCount >= 3` (not > 3) so that 3-capability prompts get the +1 bump.
+- Classifier is fully stateless — no database dependency. Pure unit tests only.
