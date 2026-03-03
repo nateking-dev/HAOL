@@ -785,3 +785,38 @@ All 5 subsystems from the architecture spec are covered.
 - `vitest.config.ts` uses `fileParallelism: false` because test files share a module-level connection pool singleton.
 - `it.skipIf()` evaluates at definition time (before `beforeAll`), so tests use `ctx.skip()` inside the test body for runtime skip based on Dolt availability.
 - `execute()` required an explicit cast (`params as (string | number | null)[]`) to satisfy mysql2's `ExecuteValues` type.
+
+### Story 1: Dolt Schema + Migrations — COMPLETE
+
+**Date:** 2026-03-03
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `src/db/migrations/001_create_agent_registry.sql` | `agent_registry` table with ENUM status, JSON capabilities |
+| `src/db/migrations/002_create_capability_taxonomy.sql` | `capability_taxonomy` table |
+| `src/db/migrations/003_create_task_log.sql` | `task_log` table with ENUM status lifecycle |
+| `src/db/migrations/004_create_execution_log.sql` | `execution_log` table with ENUM outcome |
+| `src/db/migrations/005_create_routing_policy.sql` | `routing_policy` table with ENUM fallback_strategy |
+| `src/db/migrations/006_create_session_context.sql` | `session_context` table with composite PK (session_id, key) |
+| `src/db/migrations/007_create_handoff_summary.sql` | `handoff_summary` table with composite PK (task_id, from_agent_id) |
+| `src/db/migrations/008_seed_capability_taxonomy.sql` | 9 seed rows via INSERT IGNORE |
+| `src/db/migrate.ts` | Reads `.sql` files in order, applies them, commits to Dolt |
+| `src/db/seed.ts` | Seeds default routing_policy + 4 sample agents |
+| `tests/db/migrations.test.ts` | 9 tests: apply, idempotency, table existence, columns, enums, PKs, seed counts |
+
+**Files modified:**
+
+| File | Change |
+|------|--------|
+| `package.json` | Added `migrate` and `seed` scripts |
+
+**Test results:** 14/14 passing (5 from Story 0 + 9 new).
+
+**Notes:**
+
+- All migrations use `CREATE TABLE IF NOT EXISTS` and `INSERT IGNORE` for idempotency.
+- `migrate.ts` catches the Dolt "nothing to commit" error gracefully on re-runs rather than using `allowEmpty`.
+- Seed data includes 4 agents across 3 providers (Anthropic, OpenAI, local) with realistic pricing.
+- The `haol` database must be created manually before first migration (`CREATE DATABASE haol` via mysql connection).
