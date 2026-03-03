@@ -1,0 +1,172 @@
+import { classify } from "../classifier/classifier.js";
+import { select } from "../services/agent-selection.js";
+import { execute } from "../services/execution.js";
+import * as taskLog from "../repositories/task-log.js";
+import { getActivePolicy } from "../repositories/routing-policy.js";
+import { doltCommit } from "../db/dolt.js";
+import type { AgentRequest } from "../types/execution.js";
+import type { TaskClassification } from "../types/task.js";
+import type { RoutingPolicy } from "../types/selection.js";
+import type { RouterTaskInput, TaskResult } from "../types/router.js";
+import { RouterTaskInput as RouterTaskInputSchema } from "../types/router.js";
+
+async function commitSafely(message: string): Promise<void> {
+  try {
+    await doltCommit({ message, author: "haol-router <haol@system>" });
+  } catch (err) {
+    if (!(err as Error).message?.includes("nothing to commit")) {
+      throw err;
+    }
+  }
+}
+
+export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
+  const parsed = RouterTaskInputSchema.parse(input);
+
+  let taskId: string | null = null;
+  let status: TaskResult["status"] = "RECEIVED";
+
+  try {
+    // 1. Classify
+    const classification = classify({
+      prompt: parsed.prompt,
+      metadata: parsed.metadata,
+    });
+    taskId = classification.task_id;
+
+    // 2. Intake — write to task_log
+    await taskLog.create(taskId, classification.prompt_hash);
+    status = "RECEIVED";
+
+    // 3. Update classification
+    await taskLog.updateClassification(
+      taskId,
+      classification.complexity_tier,
+      classification.required_capabilities,
+      classification.cost_ceiling_usd,
+    );
+    status = "CLASSIFIED";
+
+    // 4. Select agent
+    const policy = await getActivePolicy();
+    const selection = await select(classification, policy ?? undefined);
+
+    await taskLog.updateSelection(taskId, selection.selected_agent_id, selection.rationale);
+    status = "DISPATCHED";
+
+    // 5. Execute
+    const agentRequest: AgentRequest = {
+      task_id: taskId,
+      prompt: parsed.prompt,
+      system_prompt: undefined,
+      context: {},
+      constraints: {
+        max_tokens: parsed.constraints?.max_tokens ?? 4096,
+        timeout_ms: parsed.constraints?.timeout_ms ?? 30_000,
+        temperature: parsed.constraints?.temperature,
+      },
+    };
+
+    const maxRetries = policy?.max_retries ?? 2;
+    let execResult = await execute(
+      selection.selected_agent_id,
+      agentRequest,
+      maxRetries,
+    );
+
+    // 6. Handle fallback on execution failure
+    if (execResult.outcome !== "SUCCESS" && policy?.fallback_strategy !== "ABORT") {
+      // Try next-best agent if available
+      const fallbackSelection = await tryFallbackAgent(
+        classification,
+        selection.selected_agent_id,
+        policy ?? undefined,
+      );
+
+      if (fallbackSelection) {
+        await taskLog.updateSelection(taskId, fallbackSelection.agent_id, {
+          fallback_from: selection.selected_agent_id,
+          reason: execResult.outcome,
+        });
+
+        execResult = await execute(
+          fallbackSelection.agent_id,
+          agentRequest,
+          0, // no retries on fallback
+        );
+      }
+    }
+
+    // 7. Update final status
+    if (execResult.outcome === "SUCCESS") {
+      await taskLog.updateStatus(taskId, "COMPLETED");
+      status = "COMPLETED";
+    } else {
+      await taskLog.updateStatus(taskId, "FAILED");
+      status = "FAILED";
+    }
+
+    // 8. Commit
+    const costStr = execResult.cost_usd > 0 ? `$${execResult.cost_usd.toFixed(4)}` : "$0";
+    await commitSafely(
+      `task:${taskId} | tier:T${classification.complexity_tier} | agent:${execResult.agent_id} | cost:${costStr} | ${execResult.latency_ms}ms`,
+    );
+
+    return {
+      task_id: taskId,
+      status,
+      complexity_tier: classification.complexity_tier,
+      selected_agent_id: execResult.agent_id,
+      response_content: execResult.response_content,
+      cost_usd: execResult.cost_usd,
+      latency_ms: execResult.latency_ms,
+      error: execResult.error_detail,
+    };
+  } catch (err) {
+    // On any error, mark as failed and still commit
+    if (taskId) {
+      try {
+        await taskLog.updateStatus(taskId, "FAILED");
+      } catch {
+        // best-effort status update
+      }
+      try {
+        await commitSafely(`task:${taskId} | FAILED | ${(err as Error).message}`);
+      } catch {
+        // best-effort commit
+      }
+    }
+
+    return {
+      task_id: taskId ?? "unknown",
+      status: "FAILED",
+      complexity_tier: null,
+      selected_agent_id: null,
+      response_content: null,
+      cost_usd: null,
+      latency_ms: null,
+      error: (err as Error).message,
+    };
+  }
+}
+
+async function tryFallbackAgent(
+  classification: TaskClassification,
+  excludeAgentId: string,
+  policy?: RoutingPolicy,
+): Promise<{ agent_id: string } | null> {
+  try {
+    const result = await select(classification, policy);
+    // If the same agent is selected, no point retrying
+    if (result.selected_agent_id === excludeAgentId) {
+      // Try the second-best if available
+      const secondBest = result.scored_candidates.find(
+        (c) => c.agent_id !== excludeAgentId,
+      );
+      return secondBest ? { agent_id: secondBest.agent_id } : null;
+    }
+    return { agent_id: result.selected_agent_id };
+  } catch {
+    return null;
+  }
+}

@@ -924,3 +924,27 @@ All 5 subsystems from the architecture spec are covered.
 - Cost formula: `(input_tokens / 1000 * cost_per_1k_input) + (output_tokens / 1000 * cost_per_1k_output)`.
 - Exponential backoff: 1s, 2s, 4s between retries.
 - Provider tests mock `globalThis.fetch` and restore in `afterEach`.
+
+### Story 6: Router Pipeline (Full Lifecycle) — COMPLETE
+
+**Date:** 2026-03-03
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `src/types/router.ts` | Zod schemas: `TaskStatus`, `RouterTaskInput`, `TaskResult` |
+| `src/repositories/task-log.ts` | `create`, `updateClassification`, `updateSelection`, `updateStatus`, `findById` — full task_log lifecycle |
+| `src/router/router.ts` | `routeTask(input)` — classify → select → execute → commit pipeline with fallback handling |
+| `tests/repositories/task-log.test.ts` | 5 integration tests: create, classify, select, complete, find-not-found |
+| `tests/router/router.test.ts` | 6 integration tests: full lifecycle, task_log progression, execution_log linkage, provider failure, tier override, no-agent-available |
+
+**Test results:** 108/108 passing (11 new from Story 6).
+
+**Notes:**
+
+- `routeTask` catches all errors and still commits to Dolt for audit trail even on failure.
+- `tryFallbackAgent()` picks the second-best candidate if the primary agent fails execution.
+- Provider-failure test takes ~3s due to retry exponential backoff (1s + 2s) — this is correct behavior.
+- Test isolation: disables non-`rtr-*` agents in `beforeAll`, re-enables seed agents in `afterAll`.
+- Fetch mock is URL-aware: returns Anthropic, OpenAI, or Ollama response format based on the URL being called.
