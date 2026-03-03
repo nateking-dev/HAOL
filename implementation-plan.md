@@ -873,3 +873,54 @@ All 5 subsystems from the architecture spec are covered.
 - `matchRules` sums tier effects (not max) so that prompts matching both `code` and `reasoning` produce T3.
 - `computeTier` uses `capabilityCount >= 3` (not > 3) so that 3-capability prompts get the +1 bump.
 - Classifier is fully stateless — no database dependency. Pure unit tests only.
+
+### Story 4: Agent Selection Algorithm — COMPLETE
+
+**Date:** 2026-03-03
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `src/types/selection.ts` | Zod schemas: `ScoredCandidate`, `SelectionResult`, `RoutingPolicy` |
+| `src/repositories/routing-policy.ts` | `getActivePolicy()` — queries active routing policy, parses DECIMAL/BOOLEAN |
+| `src/services/agent-selection.ts` | `select(classification, policy?)` — filter → score → select with NEXT_BEST/TIER_UP/ABORT fallbacks |
+| `tests/services/agent-selection.test.ts` | 7 integration tests: default weights, capability-heavy, NEXT_BEST fallback, ABORT, single candidate, rationale shape, tiebreak |
+
+**Test results:** 97/97 passing (7 new from Story 4).
+
+**Notes:**
+
+- Cost estimation: `1 * cost_per_1k_input + 0.5 * cost_per_1k_output` (assumes 1000 input, 500 output tokens).
+- Min-max normalization falls back to 1.0 when all candidates have identical cost/latency.
+- Alphabetical `agent_id` tiebreak for deterministic selection when scores are equal.
+- Test isolation: `beforeAll` disables non-`sel-*` agents; `afterAll` cleans up and re-enables seed agents.
+
+### Story 5: Execution Engine (Providers + Retry) — COMPLETE
+
+**Date:** 2026-03-03
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `src/types/execution.ts` | Interfaces: `AgentProvider`, `AgentRequest`, `AgentResponse`, `HealthStatus`; Zod: `ExecutionRecord`, `ExecutionOutcome` |
+| `src/providers/provider.ts` | Re-exports provider interfaces for convenience |
+| `src/providers/anthropic.ts` | `AnthropicProvider` — raw fetch to Anthropic Messages API with AbortController timeout |
+| `src/providers/openai.ts` | `OpenAIProvider` — raw fetch to OpenAI Chat Completions API |
+| `src/providers/local.ts` | `LocalProvider` — raw fetch to Ollama API (localhost:11434) |
+| `src/repositories/execution-log.ts` | `insertExecution()`, `findByTaskId()` — execution_log table CRUD |
+| `src/services/execution.ts` | `execute(agentId, request, maxRetries)` — retry loop with exponential backoff, cost computation, DB logging |
+| `tests/providers/anthropic.test.ts` | 5 unit tests: success, system prompt, timeout, API error, token estimation |
+| `tests/providers/openai.test.ts` | 5 unit tests: same pattern |
+| `tests/services/execution.test.ts` | 6 tests: cost calc, agent not found, retry-then-succeed, exhausted retries (ERROR + TIMEOUT), DB integration |
+
+**Test results:** 97/97 passing (23 new from Stories 4+5).
+
+**Notes:**
+
+- All provider adapters use raw `fetch` with `AbortController` — no SDK dependencies.
+- Retry loop: intermediate failures logged as `FALLBACK` outcome; final failure as `TIMEOUT` or `ERROR`.
+- Cost formula: `(input_tokens / 1000 * cost_per_1k_input) + (output_tokens / 1000 * cost_per_1k_output)`.
+- Exponential backoff: 1s, 2s, 4s between retries.
+- Provider tests mock `globalThis.fetch` and restore in `afterEach`.
