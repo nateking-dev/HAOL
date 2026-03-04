@@ -948,3 +948,138 @@ All 5 subsystems from the architecture spec are covered.
 - Provider-failure test takes ~3s due to retry exponential backoff (1s + 2s) — this is correct behavior.
 - Test isolation: disables non-`rtr-*` agents in `beforeAll`, re-enables seed agents in `afterAll`.
 - Fetch mock is URL-aware: returns Anthropic, OpenAI, or Ollama response format based on the URL being called.
+
+### Story 7: Memory Manager (Session Branches) — COMPLETE
+
+**Date:** 2026-03-04
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `src/repositories/session-context.ts` | CRUD for `session_context` table: `upsert`, `findBySessionId`, `findByKey`, `deleteBySessionId` |
+| `src/repositories/handoff-summary.ts` | CRUD for `handoff_summary` table: `insert`, `findByTaskId`, `findLatest` |
+| `src/memory/session-manager.ts` | Session lifecycle: `createSession`, `writeContext`, `readContext`, `commitSession`, `discardSession`, `writeHandoffSummary`, `readHandoffSummary` |
+| `src/memory/branch-cleanup.ts` | `pruneSessionBranches(retentionDays)` — queries `dolt_branches` for `session/*` branches and deletes expired ones |
+| `tests/memory/session-manager.test.ts` | 8 integration tests: create session, write/read context, commit, discard, concurrent sessions, handoff round-trip |
+| `tests/memory/branch-cleanup.test.ts` | 2 integration tests: prune with retention=0 deletes all, retention window preserves recent branches |
+
+**Test results:** 133/133 passing (10 new from Story 7).
+
+**Notes:**
+
+- `readContext` uses Dolt's `AS OF` syntax to read from session branches without checkout, avoiding branch-switching overhead.
+- `parseJsonValue()` helper handles both JSON-parsed objects and raw strings from the JSON column, using try/catch for robustness.
+- `commitSession` merges session branch to main and deletes the branch. `discardSession` preserves the branch for debugging.
+- Branch cleanup uses `retentionDays=0` as "prune all" (null cutoff) to handle clock skew between Dolt and system time.
+- Concurrent session test verifies two independent branches can write and commit without interference.
+
+### Story 8: API Layer (Hono + OpenAPI) — COMPLETE
+
+**Date:** 2026-03-04
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `src/api/app.ts` | Hono app creation, middleware registration, route mounting |
+| `src/api/middleware/error-handler.ts` | `errorHandler` + domain error classes (`ValidationError`, `NotFoundError`, `NoAgentAvailableError`) → HTTP status mapping |
+| `src/api/middleware/request-id.ts` | `requestId` middleware — generates or passes through `X-Request-ID` header |
+| `src/api/routes/health.ts` | `GET /health` — Dolt connectivity check, returns `{ status, dolt }` |
+| `src/api/routes/agents.ts` | `GET /agents`, `POST /agents`, `PUT /agents/:id`, `DELETE /agents/:id` — full agent CRUD |
+| `src/api/routes/tasks.ts` | `POST /tasks` (submit + route), `GET /tasks/:id` (status + execution log) |
+| `tests/api/health.test.ts` | 3 tests: 200 when connected, X-Request-ID generated, X-Request-ID passthrough |
+| `tests/api/agents.test.ts` | 8 tests: create, reject invalid, list, filter by capability, update, 404 on update, soft-delete, 404 on delete |
+| `tests/api/tasks.test.ts` | 4 tests: submit task → 201, reject empty prompt → 400, get task status, 404 for missing task |
+
+**Files modified:**
+
+| File | Change |
+|------|--------|
+| `src/index.ts` | Updated to start Hono server via `@hono/node-server` with configurable `PORT` |
+| `package.json` | Added `hono` and `@hono/node-server` dependencies |
+
+**Test results:** 133/133 passing (15 new from Story 8).
+
+**Notes:**
+
+- Uses Hono's built-in `app.request()` for in-process testing — no HTTP server needed in tests.
+- Error handler maps domain errors to HTTP codes: `ValidationError` → 400, `NotFoundError` → 404, `NoAgentAvailableError` → 503.
+- Tasks API test seeds its own `api-task-*` agents and mocks `globalThis.fetch` for provider responses, following the same isolation pattern as the router tests.
+- All Zod validation errors from request body parsing are caught and returned as 400 responses.
+- `POST /tasks` returns 201 on success, 500 on pipeline failure (with error details in the response body).
+
+### Story 9: CLI Interface — COMPLETE
+
+**Date:** 2026-03-04
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `src/cli/index.ts` | CLI entry point: `run(argv)` with `parseArgs` from `node:util`, routes to commands |
+| `src/cli/output.ts` | Output formatters: `formatTable`, `formatJson`, `formatMinimal`, `formatOutput` |
+| `src/cli/commands/task.ts` | `taskCommand` — POST /tasks, display result in table/json/minimal |
+| `src/cli/commands/agents.ts` | `agentsListCommand`, `agentsUpdateCommand`, `agentsRemoveCommand` — GET/PUT/DELETE /agents |
+| `src/cli/commands/status.ts` | `statusCommand` — GET /tasks/:id, display lifecycle with execution details |
+| `src/cli/commands/history.ts` | `historyCommand` — GET /audit/commits (gracefully handles Story 10 not yet implemented) |
+| `src/bin/haol.ts` | Shebang entry point: `#!/usr/bin/env node`, imports `cli/index` |
+| `tests/cli/task.test.ts` | 8 unit tests: table/json/minimal output, error display, metadata flags, CLI entry |
+| `tests/cli/agents.test.ts` | 10 unit tests: list, filter, JSON output, update, remove, CLI entry, error cases |
+| `tests/cli/status.test.ts` | 10 unit tests: lifecycle display, json/minimal, 404 error, URL correctness, help/usage |
+
+**Files modified:**
+
+| File | Change |
+|------|--------|
+| `package.json` | Added `bin.haol` entry pointing to `dist/bin/haol.js` |
+
+**Test results:** 161/161 passing (28 new from Story 9).
+
+**Notes:**
+
+- CLI is a pure HTTP client — calls the API via `fetch`, no direct DB access. This validates the API layer and keeps the CLI thin.
+- Uses `parseArgs` from `node:util` (zero dependencies) for argument parsing with support for `--tier`, `--cap`, `--status`, `--last`, `--agent`, `--format`, `--base-url`.
+- Output formats: `--format table` (default, padded columns), `--format json` (valid JSON), `--format min` (tab-separated minimal).
+- `formatTable` auto-computes column widths from data. Capabilities are joined with commas for table display.
+- History command gracefully handles missing `/audit/commits` endpoint (Story 10) with an informative message.
+- All tests are pure unit tests with mocked `globalThis.fetch` — no server or DB needed.
+
+### Story 10: Observability + Audit Queries — COMPLETE
+
+**Date:** 2026-03-04
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `src/observability/queries.ts` | 7 canned SQL queries: `costByAgent`, `costCeilingBreaches`, `tasksByTier`, `avgLatencyByAgent`, `failureRate`, `agentRegistryDiff`, `commitHistory` |
+| `src/observability/dashboard.ts` | `getDashboard(hours)` — aggregates all queries into a single dashboard object with totals |
+| `src/api/routes/observability.ts` | 8 API routes: `GET /stats`, `/stats/cost`, `/stats/latency`, `/stats/failures`, `/stats/tiers`, `/stats/breaches`, `/audit/agents`, `/audit/commits` |
+| `src/cli/commands/stats.ts` | `statsCommand` — formatted dashboard output with cost/latency/failure/tier sections |
+| `src/cli/commands/audit.ts` | `auditAgentsCommand`, `auditCommitsCommand` — agent registry diffs and Dolt commit history |
+| `tests/observability/queries.test.ts` | 8 integration tests: all 7 query functions + empty data handling |
+| `tests/observability/dashboard.test.ts` | 2 integration tests: full dashboard shape + empty time window |
+| `tests/cli/stats.test.ts` | 6 unit tests: dashboard display, JSON output, hours param, CLI entry |
+| `tests/cli/audit.test.ts` | 12 unit tests: agents/commits display, params, empty results, JSON output, CLI entry |
+
+**Files modified:**
+
+| File | Change |
+|------|--------|
+| `src/api/app.ts` | Added `observability` route import and mount |
+| `src/cli/index.ts` | Added `stats` and `audit` commands with `--hours` and `--since` options |
+
+**Test results:** 189/189 passing (28 new from Story 10).
+
+**Notes:**
+
+- All observability queries use `DATE_SUB(NOW(), INTERVAL ? HOUR)` for time-window filtering, with mysql2 parameterized queries.
+- `agentRegistryDiff` uses `dolt_diff_agent_registry` joined with `dolt_log` for time-based commit filtering. `parseDurationToHours()` parses `7d`, `24h`, `1m` duration strings.
+- `commitHistory` handles Dolt's `date` column which may return as a Date object or string, normalizing to ISO string.
+- `getDashboard` runs all 4 time-windowed queries in parallel via `Promise.all` for efficiency.
+- `costCeilingBreaches` uses a HAVING clause to compare per-task execution cost sums against the task's cost ceiling.
+- `failureRate` counts TIMEOUT and ERROR outcomes as failures; FALLBACK is excluded since it's an intermediate retry state.
+- CLI `stats` command produces a human-readable dashboard with sections for cost, latency, failures, and tiers.
+- All numeric aggregates handle mysql2's DECIMAL-as-string parsing with explicit `parseFloat`/`parseInt`.
+- Integration tests seed known `execution_log` and `task_log` data with unique prefixed IDs and verify exact query results.

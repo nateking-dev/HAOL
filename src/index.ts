@@ -1,5 +1,7 @@
+import { serve } from "@hono/node-server";
 import { loadConfig } from "./config.js";
-import { createPool, healthCheck, destroy } from "./db/connection.js";
+import { createPool, healthCheck } from "./db/connection.js";
+import { createApp } from "./api/app.js";
 
 async function main() {
   const config = loadConfig();
@@ -13,7 +15,12 @@ async function main() {
     process.exit(1);
   }
 
-  await destroy();
+  const app = createApp();
+  const port = parseInt(process.env.PORT ?? "3000", 10);
+
+  serve({ fetch: app.fetch, port }, (info) => {
+    console.log("HAOL API server listening on http://localhost:%d", info.port);
+  });
 }
 
 main();
