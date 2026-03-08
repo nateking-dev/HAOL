@@ -1,4 +1,5 @@
 import { classify } from "../classifier/classifier.js";
+import { classifyCascade } from "../cascade-router/classify.js";
 import { select } from "../services/agent-selection.js";
 import { execute } from "../services/execution.js";
 import * as taskLog from "../repositories/task-log.js";
@@ -27,11 +28,19 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
   let status: TaskResult["status"] = "RECEIVED";
 
   try {
-    // 1. Classify
-    const classification = classify({
-      prompt: parsed.prompt,
-      metadata: parsed.metadata,
-    });
+    // 1. Classify — try cascade router, fall back to old classifier
+    let classification: TaskClassification;
+    try {
+      classification = await classifyCascade({
+        prompt: parsed.prompt,
+        metadata: parsed.metadata,
+      });
+    } catch {
+      classification = classify({
+        prompt: parsed.prompt,
+        metadata: parsed.metadata,
+      });
+    }
     taskId = classification.task_id;
 
     // 2. Intake — write to task_log

@@ -38,16 +38,16 @@ describe("migrations", () => {
   it("applies all migration files without error", async ({ skip }) => {
     if (!doltAvailable) skip();
     const applied = await runMigrations();
-    expect(applied.length).toBe(8);
+    expect(applied.length).toBe(9);
     expect(applied[0]).toBe("001_create_agent_registry.sql");
-    expect(applied[7]).toBe("008_seed_capability_taxonomy.sql");
+    expect(applied[8]).toBe("009_create_cascade_router.sql");
   });
 
   it("is idempotent — running twice produces no errors", async ({ skip }) => {
     if (!doltAvailable) skip();
     // Second run should not throw
     const applied = await runMigrations();
-    expect(applied.length).toBe(8);
+    expect(applied.length).toBe(9);
   });
 
   it("creates all 7 tables", async ({ skip }) => {
