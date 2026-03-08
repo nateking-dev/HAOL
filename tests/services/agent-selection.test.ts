@@ -101,9 +101,11 @@ describe("agent-selection service", () => {
 
     const result = await select(classification, capHeavyPolicy);
 
-    // sel-mini has all 4 required capabilities
+    // sel-mini has all 4 required capabilities, no bonus capabilities beyond required
     expect(result.selected_agent_id).toBe("sel-mini");
-    expect(result.rationale.capability_score).toBe(1.0);
+    // capability_score = 0.6 (base for having all required) + 0.4 * bonus ratio
+    // No agent has bonus capabilities for this query, so bonus = 0
+    expect(result.rationale.capability_score).toBe(0.6);
   });
 
   it("no capable agents with low cost ceiling — NEXT_BEST fallback relaxes cost", async ({ skip }) => {
@@ -170,12 +172,13 @@ describe("agent-selection service", () => {
 
     expect(result.selected_agent_id).toBe("sel-llama");
 
-    // With a single candidate, normalization gives 1.0 for all dimensions
+    // With a single candidate, cost and latency normalize to 1.0.
+    // Capability = 0.6 base (has all required) + 0.4 * bonus (0 bonus caps) = 0.6
     const winner = result.scored_candidates.find(
       (c) => c.agent_id === "sel-llama",
     );
     expect(winner).toBeDefined();
-    expect(winner!.capability_score).toBe(1.0);
+    expect(winner!.capability_score).toBe(0.6);
     expect(winner!.cost_score).toBe(1.0);
     expect(winner!.latency_score).toBe(1.0);
   });
@@ -205,6 +208,37 @@ describe("agent-selection service", () => {
     expect(result.rationale.cost_score).toBeLessThanOrEqual(1);
     expect(result.rationale.latency_score).toBeGreaterThanOrEqual(0);
     expect(result.rationale.latency_score).toBeLessThanOrEqual(1);
+  });
+
+  it("TIER_UP fallback — unlocks higher-tier agents, not just higher cost ceiling", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const tierUpPolicy: RoutingPolicy = {
+      policy_id: "tier-up",
+      weight_capability: 0.5,
+      weight_cost: 0.3,
+      weight_latency: 0.2,
+      fallback_strategy: "TIER_UP",
+      max_retries: 0,
+      active: true,
+    };
+
+    // T1 task requiring code_generation — sel-llama (tier_ceiling 1) doesn't have it,
+    // so no T1-eligible agent qualifies. TIER_UP should raise to T2 and find sel-sonnet
+    // (tier_ceiling 3) or sel-haiku (tier_ceiling 2).
+    const classification: TaskClassification = {
+      task_id: "test-tier-up",
+      complexity_tier: 1,
+      required_capabilities: ["code_generation"],
+      cost_ceiling_usd: 0.01,
+      prompt_hash: "tierup123",
+    };
+
+    const result = await select(classification, tierUpPolicy);
+
+    expect(result.fallback_applied).toBe("TIER_UP");
+    // sel-sonnet is the only agent with code_generation and tier_ceiling >= 2
+    expect(result.selected_agent_id).toBe("sel-sonnet");
   });
 
   it("tiebreak — identical scores, lower alphabetical agent_id wins", async ({ skip }) => {

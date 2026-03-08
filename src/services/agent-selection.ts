@@ -1,9 +1,10 @@
 import { query } from "../db/connection.js";
 import { parseAgentRow } from "../repositories/agent-registry.js";
 import { getActivePolicy } from "../repositories/routing-policy.js";
+import { costCeilingForTier } from "../classifier/scoring.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type { AgentRegistration } from "../types/agent.js";
-import type { TaskClassification } from "../types/task.js";
+import type { ComplexityTier, TaskClassification } from "../types/task.js";
 import type { RoutingPolicy, ScoredCandidate, SelectionResult } from "../types/selection.js";
 
 interface AgentRow extends RowDataPacket {
@@ -68,12 +69,19 @@ function scoreCandidates(
   const costRange = maxCost - minCost;
   const latencyRange = maxLatency - minLatency;
 
+  // Count bonus capabilities (beyond required) for each candidate
+  const bonusCounts = candidates.map(
+    (agent) => agent.capabilities.filter((cap) => !requiredCapabilities.includes(cap)).length,
+  );
+  const maxBonus = Math.max(...bonusCounts);
+
   return candidates.map((agent, i) => {
-    const capabilityScore =
-      requiredCapabilities.length === 0
-        ? 1.0
-        : requiredCapabilities.filter((cap) => agent.capabilities.includes(cap)).length /
-          requiredCapabilities.length;
+    // Base: all candidates have required capabilities (guaranteed by filter).
+    // Differentiate by bonus capabilities the agent offers beyond requirements.
+    const bonusScore = maxBonus === 0 ? 0 : bonusCounts[i] / maxBonus;
+    const capabilityScore = requiredCapabilities.length === 0
+      ? (maxBonus === 0 ? 1.0 : bonusScore)
+      : 0.6 + 0.4 * bonusScore;
 
     const costScore = costRange === 0 ? 1.0 : 1 - (costs[i] - minCost) / costRange;
 
@@ -142,11 +150,12 @@ export async function select(
       sorted = sortCandidates(scored);
       fallbackApplied = "NEXT_BEST";
     } else if (policy.fallback_strategy === "TIER_UP") {
-      const higherTier = Math.min(classification.complexity_tier + 1, 4);
+      const higherTier = Math.min(classification.complexity_tier + 1, 4) as ComplexityTier;
+      const relaxedCeiling = costCeilingForTier(higherTier);
       candidates = await filterCandidates(
         higherTier,
         classification.required_capabilities,
-        classification.cost_ceiling_usd,
+        relaxedCeiling,
       );
       scored = scoreCandidates(candidates, classification.required_capabilities, policy);
       sorted = sortCandidates(scored);

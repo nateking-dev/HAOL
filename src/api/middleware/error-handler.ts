@@ -34,6 +34,10 @@ export function errorHandler(err: Error, c: Context) {
     return c.json({ error: err.message }, 503);
   }
 
+  if ("code" in err && (err as { code: string }).code === "ER_DUP_ENTRY") {
+    return c.json({ error: "Resource already exists" }, 409);
+  }
+
   console.error("Unhandled error:", err);
   return c.json({ error: "Internal server error" }, 500);
 }
