@@ -61,10 +61,7 @@ export async function writeContext(
   }
 }
 
-export async function readContext(
-  session: SessionHandle,
-  key?: string,
-): Promise<unknown> {
+export async function readContext(session: SessionHandle, key?: string): Promise<unknown> {
   // Read from the session branch using AS OF syntax for read-without-checkout
   const pool = getPool();
   if (key) {
@@ -77,10 +74,10 @@ export async function readContext(
     return parseJsonValue(result[0].value);
   }
 
-  const [rows] = await pool.query(
-    `SELECT * FROM session_context AS OF ? WHERE session_id = ?`,
-    [session.branch, session.taskId],
-  );
+  const [rows] = await pool.query(`SELECT * FROM session_context AS OF ? WHERE session_id = ?`, [
+    session.branch,
+    session.taskId,
+  ]);
   const result = rows as Record<string, unknown>[];
   const entries: Record<string, unknown> = {};
   for (const row of result) {

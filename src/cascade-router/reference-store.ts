@@ -49,7 +49,9 @@ export async function loadRules(): Promise<RoutingRule[]> {
     rule_type: r.rule_type as RoutingRule["rule_type"],
     pattern: r.pattern,
     capabilities: r.capabilities
-      ? (typeof r.capabilities === "string" ? JSON.parse(r.capabilities) : r.capabilities)
+      ? typeof r.capabilities === "string"
+        ? JSON.parse(r.capabilities)
+        : r.capabilities
       : null,
     priority: r.priority,
     enabled: Boolean(r.enabled),
@@ -83,18 +85,26 @@ const CONFIG_DEFAULTS: RouterConfig = {
 };
 
 export async function loadConfig(): Promise<RouterConfig> {
-  const rows = await query<ConfigRow[]>(
-    `SELECT config_key, config_value FROM router_config`,
-  );
+  const rows = await query<ConfigRow[]>(`SELECT config_key, config_value FROM router_config`);
   const map = new Map(rows.map((r) => [r.config_key, r.config_value]));
 
   return {
     embedding_model: map.get("embedding_model") ?? CONFIG_DEFAULTS.embedding_model,
-    embedding_dimensions: parseInt(map.get("embedding_dimensions") ?? String(CONFIG_DEFAULTS.embedding_dimensions), 10),
-    similarity_threshold: parseFloat(map.get("similarity_threshold") ?? String(CONFIG_DEFAULTS.similarity_threshold)),
-    escalation_threshold: parseFloat(map.get("escalation_threshold") ?? String(CONFIG_DEFAULTS.escalation_threshold)),
+    embedding_dimensions: parseInt(
+      map.get("embedding_dimensions") ?? String(CONFIG_DEFAULTS.embedding_dimensions),
+      10,
+    ),
+    similarity_threshold: parseFloat(
+      map.get("similarity_threshold") ?? String(CONFIG_DEFAULTS.similarity_threshold),
+    ),
+    escalation_threshold: parseFloat(
+      map.get("escalation_threshold") ?? String(CONFIG_DEFAULTS.escalation_threshold),
+    ),
     escalation_model: map.get("escalation_model") ?? CONFIG_DEFAULTS.escalation_model,
-    default_tier: parseInt(map.get("default_tier") ?? String(CONFIG_DEFAULTS.default_tier), 10) as TierId,
+    default_tier: parseInt(
+      map.get("default_tier") ?? String(CONFIG_DEFAULTS.default_tier),
+      10,
+    ) as TierId,
     top_k: parseInt(map.get("top_k") ?? String(CONFIG_DEFAULTS.top_k), 10),
     enable_escalation: (map.get("enable_escalation") ?? "true") === "true",
   };

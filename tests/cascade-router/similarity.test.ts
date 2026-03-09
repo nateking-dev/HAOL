@@ -25,9 +25,7 @@ describe("cosineSimilarity", () => {
   });
 
   it("throws on dimension mismatch", () => {
-    expect(() => cosineSimilarity([1, 2], [1, 2, 3])).toThrow(
-      "Dimension mismatch",
-    );
+    expect(() => cosineSimilarity([1, 2], [1, 2, 3])).toThrow("Dimension mismatch");
   });
 
   it("handles normalized vectors correctly", () => {

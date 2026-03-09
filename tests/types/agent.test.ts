@@ -34,9 +34,7 @@ describe("CreateAgentInput schema", () => {
 
   it("fails when required fields are missing", () => {
     expect(() => CreateAgentInput.parse({})).toThrow();
-    expect(() =>
-      CreateAgentInput.parse({ agent_id: "x" }),
-    ).toThrow();
+    expect(() => CreateAgentInput.parse({ agent_id: "x" })).toThrow();
     expect(() =>
       CreateAgentInput.parse({
         agent_id: "x",

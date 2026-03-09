@@ -66,8 +66,6 @@ export async function listAgents(filters?: {
   return repo.findAll(filters);
 }
 
-export async function findAgentsByCapabilities(
-  caps: string[],
-): Promise<AgentRegistration[]> {
+export async function findAgentsByCapabilities(caps: string[]): Promise<AgentRegistration[]> {
   return repo.findByCapabilities(caps);
 }

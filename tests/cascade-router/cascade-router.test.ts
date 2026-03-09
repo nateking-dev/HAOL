@@ -19,9 +19,24 @@ vi.mock("../../src/cascade-router/reference-store.js", () => ({
 vi.mock("../../src/db/connection.js", () => ({
   query: vi.fn().mockResolvedValue([
     { tier_id: 1, tier_name: "Simple", description: "Basic tasks", default_agent: "local-llama" },
-    { tier_id: 2, tier_name: "Moderate", description: "Moderate tasks", default_agent: "gpt-4o-mini" },
-    { tier_id: 3, tier_name: "Complex", description: "Complex tasks", default_agent: "claude-sonnet-4-5" },
-    { tier_id: 4, tier_name: "Expert", description: "Expert tasks", default_agent: "claude-sonnet-4-5" },
+    {
+      tier_id: 2,
+      tier_name: "Moderate",
+      description: "Moderate tasks",
+      default_agent: "gpt-4o-mini",
+    },
+    {
+      tier_id: 3,
+      tier_name: "Complex",
+      description: "Complex tasks",
+      default_agent: "claude-sonnet-4-5",
+    },
+    {
+      tier_id: 4,
+      tier_name: "Expert",
+      description: "Expert tasks",
+      default_agent: "claude-sonnet-4-5",
+    },
   ]),
   execute: vi.fn(),
 }));

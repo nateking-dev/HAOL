@@ -1,4 +1,9 @@
-import type { AgentProvider, AgentRequest, AgentResponse, HealthStatus } from "../types/execution.js";
+import type {
+  AgentProvider,
+  AgentRequest,
+  AgentResponse,
+  HealthStatus,
+} from "../types/execution.js";
 
 export class LocalProvider implements AgentProvider {
   private modelId: string;

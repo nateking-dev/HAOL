@@ -20,13 +20,7 @@ export const rules: Rule[] = [
   },
   {
     name: "code",
-    patterns: [
-      /\bcode\b/i,
-      /\bimplement/i,
-      /\bfunction\b/i,
-      /\bdebug\b/i,
-      /\brefactor/i,
-    ],
+    patterns: [/\bcode\b/i, /\bimplement/i, /\bfunction\b/i, /\bdebug\b/i, /\brefactor/i],
     capabilities: ["code_generation"],
     tierEffect: 1,
   },

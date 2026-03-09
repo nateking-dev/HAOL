@@ -44,18 +44,18 @@ All routing decisions are stored in [Dolt](https://www.dolthub.com/), a Git-like
 
 Every task is classified into one of four complexity tiers. The tier determines which agents are eligible and how much the task is allowed to cost.
 
-| Tier | Name | Example Tasks | Cost Ceiling |
-|------|------|---------------|-------------|
-| T1 | Simple | Summarization, simple lookups, basic Q&A | $0.01 |
-| T2 | Moderate | Structured output, translation, sentiment analysis | $0.05 |
-| T3 | Complex | Code generation, multi-step reasoning, debugging | $0.50 |
-| T4 | Expert | Multi-capability tasks, vision + code, full-stack design | $5.00 |
+| Tier | Name     | Example Tasks                                            | Cost Ceiling |
+| ---- | -------- | -------------------------------------------------------- | ------------ |
+| T1   | Simple   | Summarization, simple lookups, basic Q&A                 | $0.01        |
+| T2   | Moderate | Structured output, translation, sentiment analysis       | $0.05        |
+| T3   | Complex  | Code generation, multi-step reasoning, debugging         | $0.50        |
+| T4   | Expert   | Multi-capability tasks, vision + code, full-stack design | $5.00        |
 
 ---
 
 ## Cascade Router: How Classification Works
 
-The cascade router is the system that decides *which tier a task belongs to*. It uses a three-layer architecture that balances speed against accuracy — simple tasks are classified in microseconds by pattern matching, while ambiguous tasks escalate through progressively smarter (and slower) layers.
+The cascade router is the system that decides _which tier a task belongs to_. It uses a three-layer architecture that balances speed against accuracy — simple tasks are classified in microseconds by pattern matching, while ambiguous tasks escalate through progressively smarter (and slower) layers.
 
 ```
   Incoming prompt
@@ -97,12 +97,12 @@ The cascade router is the system that decides *which tier a task belongs to*. It
 
 The fastest layer. A set of rules stored in the `routing_rules` database table are evaluated against the prompt in priority order. Each rule has a type, a pattern, and a target tier:
 
-| Rule Type | How It Matches | Example |
-|-----------|---------------|---------|
-| `regex` | Regular expression test (case-insensitive) | `\bsummariz` matches "Summarize this..." |
-| `prefix` | Prompt starts with the pattern | `translate` matches "Translate this to French" |
-| `contains` | Prompt includes the pattern anywhere | `json` matches "...output as JSON please" |
-| `metadata` | Matches on structured metadata fields | Used for programmatic tier overrides |
+| Rule Type  | How It Matches                             | Example                                        |
+| ---------- | ------------------------------------------ | ---------------------------------------------- |
+| `regex`    | Regular expression test (case-insensitive) | `\bsummariz` matches "Summarize this..."       |
+| `prefix`   | Prompt starts with the pattern             | `translate` matches "Translate this to French" |
+| `contains` | Prompt includes the pattern anywhere       | `json` matches "...output as JSON please"      |
+| `metadata` | Matches on structured metadata fields      | Used for programmatic tier overrides           |
 
 If multiple rules match, the router takes the **highest tier** among them and merges all their capabilities. For example, if a prompt matches both a T1 summarization rule and a T3 code rule, the task is classified as T3 with capabilities `["summarization", "code_generation"]`.
 
@@ -114,13 +114,14 @@ Rules are stored in Dolt, so you can add, edit, or disable them without code cha
 
 ### Layer 1: Semantic Similarity
 
-When no rules match, the router needs to *understand* what the prompt means rather than just scan for keywords. This is where embeddings come in.
+When no rules match, the router needs to _understand_ what the prompt means rather than just scan for keywords. This is where embeddings come in.
 
 #### What are embeddings?
 
 An embedding is a way to represent text as a list of numbers (a "vector") that captures its meaning. Two pieces of text that mean similar things will have similar vectors, even if they use completely different words.
 
 For example, these two prompts mean similar things:
+
 - "What is the tallest mountain in the world?"
 - "Which peak has the highest elevation globally?"
 
@@ -149,7 +150,7 @@ When a new prompt arrives:
 
 #### Why cosine similarity?
 
-Cosine similarity measures the angle between two vectors, ignoring their magnitude. This matters because embeddings can vary in length depending on the input text, but the *direction* of the vector is what encodes meaning. Two vectors pointing in the same direction have a cosine similarity of 1, regardless of how long they are.
+Cosine similarity measures the angle between two vectors, ignoring their magnitude. This matters because embeddings can vary in length depending on the input text, but the _direction_ of the vector is what encodes meaning. Two vectors pointing in the same direction have a cosine similarity of 1, regardless of how long they are.
 
 The math is straightforward:
 
@@ -166,7 +167,7 @@ When semantic similarity is inconclusive (confidence below 0.72), the router ask
 The LLM receives a system prompt describing the four tiers and is asked to return a JSON response:
 
 ```json
-{"tier": 3, "capabilities": ["reasoning"], "confidence": 0.85}
+{ "tier": 3, "capabilities": ["reasoning"], "confidence": 0.85 }
 ```
 
 The response is validated with Zod. If parsing fails (malformed JSON, invalid tier, etc.), the router falls back to T3 — a conservative default that may overspend but won't under-provision.
@@ -181,17 +182,17 @@ If all layers fail — no rules match, no embeddings are available, escalation i
 
 Capabilities are detected **independently from tier classification**. Regardless of which cascade layer determines the tier, the router always runs regex-based capability matching against the prompt. This uses the same 9 pattern rules from the original classifier:
 
-| Capability | Trigger Patterns |
-|-----------|-----------------|
-| `summarization` | summarize, extract, condense |
-| `classification` | classify, categorize, label |
-| `code_generation` | code, implement, function, debug, refactor |
-| `reasoning` | analyze, compare, reason, evaluate |
-| `vision` | image, screenshot, diagram, photo |
-| `structured_output` | json, schema, structured, table |
-| `long_context` | entire...document, full...text |
-| `tool_use` | tool, api...call, function.call |
-| `multilingual` | translate, multilingual |
+| Capability          | Trigger Patterns                           |
+| ------------------- | ------------------------------------------ |
+| `summarization`     | summarize, extract, condense               |
+| `classification`    | classify, categorize, label                |
+| `code_generation`   | code, implement, function, debug, refactor |
+| `reasoning`         | analyze, compare, reason, evaluate         |
+| `vision`            | image, screenshot, diagram, photo          |
+| `structured_output` | json, schema, structured, table            |
+| `long_context`      | entire...document, full...text             |
+| `tool_use`          | tool, api...call, function.call            |
+| `multilingual`      | translate, multilingual                    |
 
 Capabilities from Layer 0 rules, Layer 2 LLM responses, and metadata overrides are all merged together. The agent selection algorithm then uses this combined capability set to filter eligible agents.
 
@@ -210,16 +211,16 @@ The cascade router is designed to fail gracefully at every level:
 
 All cascade router thresholds are stored in the `router_config` table and can be tuned without code changes:
 
-| Key | Default | What It Controls |
-|-----|---------|-----------------|
-| `similarity_threshold` | `0.72` | Minimum cosine similarity confidence to accept Layer 1's result |
-| `escalation_threshold` | `0.55` | Below this confidence, Layer 1 escalates to Layer 2 |
-| `top_k` | `5` | Number of nearest reference utterances to consider |
-| `default_tier` | `3` | Fallback tier when all layers are inconclusive |
-| `enable_escalation` | `true` | Whether Layer 2 (LLM) is active |
-| `embedding_model` | `text-embedding-3-small` | OpenAI model used for runtime embeddings |
-| `embedding_dimensions` | `512` | Vector dimensionality (lower = faster, less precise) |
-| `escalation_model` | `claude-haiku-4-5-20251001` | LLM used for Layer 2 classification |
+| Key                    | Default                     | What It Controls                                                |
+| ---------------------- | --------------------------- | --------------------------------------------------------------- |
+| `similarity_threshold` | `0.72`                      | Minimum cosine similarity confidence to accept Layer 1's result |
+| `escalation_threshold` | `0.55`                      | Below this confidence, Layer 1 escalates to Layer 2             |
+| `top_k`                | `5`                         | Number of nearest reference utterances to consider              |
+| `default_tier`         | `3`                         | Fallback tier when all layers are inconclusive                  |
+| `enable_escalation`    | `true`                      | Whether Layer 2 (LLM) is active                                 |
+| `embedding_model`      | `text-embedding-3-small`    | OpenAI model used for runtime embeddings                        |
+| `embedding_dimensions` | `512`                       | Vector dimensionality (lower = faster, less precise)            |
+| `escalation_model`     | `claude-haiku-4-5-20251001` | LLM used for Layer 2 classification                             |
 
 ### Routing Log
 
@@ -279,34 +280,35 @@ The weights are configurable via the `routing_policy` table.
 
 If execution fails with the selected agent, the fallback strategy kicks in:
 
-| Strategy | Behavior |
-|----------|----------|
+| Strategy    | Behavior                                 |
+| ----------- | ---------------------------------------- |
 | `NEXT_BEST` | Try the second-highest-scoring candidate |
-| `TIER_UP` | Relax tier constraints and re-select |
-| `ABORT` | Mark the task as failed |
+| `TIER_UP`   | Relax tier constraints and re-select     |
+| `ABORT`     | Mark the task as failed                  |
 
 ## Core Subsystems
 
-| Subsystem | Location | Purpose |
-|-----------|----------|---------|
-| **Cascade Router** | `src/cascade-router/` | 3-layer task classification (rules → similarity → LLM) |
-| **Legacy Classifier** | `src/classifier/` | Original regex-only classifier (kept as fallback) |
-| **Agent Selection** | `src/services/agent-selection.ts` | Filters candidates, scores them, picks the best match |
-| **Execution Engine** | `src/services/execution.ts` | Invokes agents via provider adapters with retry and fallback |
-| **Router** | `src/router/router.ts` | Orchestrates the full pipeline from intake to commit |
-| **Memory Manager** | `src/memory/` | Session branches in Dolt for per-task context persistence |
+| Subsystem             | Location                          | Purpose                                                      |
+| --------------------- | --------------------------------- | ------------------------------------------------------------ |
+| **Cascade Router**    | `src/cascade-router/`             | 3-layer task classification (rules → similarity → LLM)       |
+| **Legacy Classifier** | `src/classifier/`                 | Original regex-only classifier (kept as fallback)            |
+| **Agent Selection**   | `src/services/agent-selection.ts` | Filters candidates, scores them, picks the best match        |
+| **Execution Engine**  | `src/services/execution.ts`       | Invokes agents via provider adapters with retry and fallback |
+| **Router**            | `src/router/router.ts`            | Orchestrates the full pipeline from intake to commit         |
+| **Memory Manager**    | `src/memory/`                     | Session branches in Dolt for per-task context persistence    |
 
 ### Provider Adapters
 
 HAOL supports multiple LLM providers through a common interface:
 
-| Provider | Module | Models |
-|----------|--------|--------|
-| Anthropic | `src/providers/anthropic.ts` | Claude Haiku, Sonnet, Opus |
-| OpenAI | `src/providers/openai.ts` | GPT-4o, GPT-4o-mini |
-| Local | `src/providers/local.ts` | Ollama, vLLM, or any local model |
+| Provider  | Module                       | Models                           |
+| --------- | ---------------------------- | -------------------------------- |
+| Anthropic | `src/providers/anthropic.ts` | Claude Haiku, Sonnet, Opus       |
+| OpenAI    | `src/providers/openai.ts`    | GPT-4o, GPT-4o-mini              |
+| Local     | `src/providers/local.ts`     | Ollama, vLLM, or any local model |
 
 Each provider implements:
+
 - `invoke(request)` — Call the model
 - `healthCheck()` — Verify availability
 - `estimateTokens(prompt)` — Token estimation
@@ -367,17 +369,17 @@ The `seed:embeddings` step calls the OpenAI embeddings API once to compute vecto
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DOLT_HOST` | `127.0.0.1` | Dolt SQL server host |
-| `DOLT_PORT` | `3306` | Dolt SQL server port |
-| `DOLT_USER` | `root` | Database user |
-| `DOLT_PASSWORD` | _(empty)_ | Database password |
-| `DOLT_DATABASE` | `haol` | Database name |
-| `DOLT_POOL_SIZE` | `5` | Connection pool size |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key (for Claude models and Layer 2 escalation) |
-| `OPENAI_API_KEY` | — | OpenAI API key (for GPT models and embedding computation) |
-| `PORT` | `3000` | HTTP server port |
+| Variable            | Default     | Description                                                  |
+| ------------------- | ----------- | ------------------------------------------------------------ |
+| `DOLT_HOST`         | `127.0.0.1` | Dolt SQL server host                                         |
+| `DOLT_PORT`         | `3306`      | Dolt SQL server port                                         |
+| `DOLT_USER`         | `root`      | Database user                                                |
+| `DOLT_PASSWORD`     | _(empty)_   | Database password                                            |
+| `DOLT_DATABASE`     | `haol`      | Database name                                                |
+| `DOLT_POOL_SIZE`    | `5`         | Connection pool size                                         |
+| `ANTHROPIC_API_KEY` | —           | Anthropic API key (for Claude models and Layer 2 escalation) |
+| `OPENAI_API_KEY`    | —           | OpenAI API key (for GPT models and embedding computation)    |
+| `PORT`              | `3000`      | HTTP server port                                             |
 
 ### Running
 
@@ -491,20 +493,20 @@ Output formats: `--format table` (default), `--format json`, `--format minimal`
 
 HAOL uses 12 tables in Dolt:
 
-| Table | Purpose |
-|-------|---------|
-| `agent_registry` | Agent definitions — provider, model, capabilities, cost, status, tier ceiling |
-| `capability_taxonomy` | Controlled vocabulary of capabilities with tier minimums |
-| `task_log` | Immutable task lifecycle (RECEIVED → CLASSIFIED → DISPATCHED → COMPLETED/FAILED) |
-| `execution_log` | Per-invocation telemetry — tokens, cost, latency, outcome |
-| `routing_policy` | Configurable scoring weights and fallback strategy |
-| `session_context` | Per-session key-value memory store |
-| `handoff_summary` | Cross-agent context transfer |
-| `routing_tiers` | Tier definitions — name, description, default agent |
-| `routing_rules` | Deterministic rules for Layer 0 — pattern, type, tier, capabilities |
-| `routing_utterances` | Reference utterances with pre-computed embeddings for Layer 1 |
-| `router_config` | Key-value configuration for cascade router thresholds |
-| `routing_log` | Audit trail of every routing decision — layer, confidence, latency |
+| Table                 | Purpose                                                                          |
+| --------------------- | -------------------------------------------------------------------------------- |
+| `agent_registry`      | Agent definitions — provider, model, capabilities, cost, status, tier ceiling    |
+| `capability_taxonomy` | Controlled vocabulary of capabilities with tier minimums                         |
+| `task_log`            | Immutable task lifecycle (RECEIVED → CLASSIFIED → DISPATCHED → COMPLETED/FAILED) |
+| `execution_log`       | Per-invocation telemetry — tokens, cost, latency, outcome                        |
+| `routing_policy`      | Configurable scoring weights and fallback strategy                               |
+| `session_context`     | Per-session key-value memory store                                               |
+| `handoff_summary`     | Cross-agent context transfer                                                     |
+| `routing_tiers`       | Tier definitions — name, description, default agent                              |
+| `routing_rules`       | Deterministic rules for Layer 0 — pattern, type, tier, capabilities              |
+| `routing_utterances`  | Reference utterances with pre-computed embeddings for Layer 1                    |
+| `router_config`       | Key-value configuration for cascade router thresholds                            |
+| `routing_log`         | Audit trail of every routing decision — layer, confidence, latency               |
 
 Because the backing store is Dolt, every change is a commit. You can:
 
@@ -563,12 +565,12 @@ tests/                   # Mirrors src/ structure (215+ tests)
 
 The seed script (`npm run seed`) provisions:
 
-| Agent | Provider | Tier Ceiling | Use Case |
-|-------|----------|-------------|----------|
-| `claude-haiku-4-5` | Anthropic | T2 | Fast, cheap tasks |
-| `claude-sonnet-4-5` | Anthropic | T3 | Complex reasoning |
-| `gpt-4o-mini` | OpenAI | T2 | Standard tasks |
-| `local-llama` | Local | T1 | Trivial/free tasks |
+| Agent               | Provider  | Tier Ceiling | Use Case           |
+| ------------------- | --------- | ------------ | ------------------ |
+| `claude-haiku-4-5`  | Anthropic | T2           | Fast, cheap tasks  |
+| `claude-sonnet-4-5` | Anthropic | T3           | Complex reasoning  |
+| `gpt-4o-mini`       | OpenAI    | T2           | Standard tasks     |
+| `local-llama`       | Local     | T1           | Trivial/free tasks |
 
 Default routing policy: 50% capability weight, 30% cost weight, 20% latency weight, `NEXT_BEST` fallback, 2 max retries.
 

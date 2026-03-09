@@ -66,9 +66,11 @@ export async function run(argv: string[]): Promise<string> {
   if (values.help) return USAGE;
 
   const format = (
-    values.format === "json" ? "json"
-    : values.format === "min" || values.format === "minimal" ? "minimal"
-    : "table"
+    values.format === "json"
+      ? "json"
+      : values.format === "min" || values.format === "minimal"
+        ? "minimal"
+        : "table"
   ) as OutputFormat;
 
   const baseUrl = (values["base-url"] as string) ?? "http://localhost:3000";
@@ -77,7 +79,7 @@ export async function run(argv: string[]): Promise<string> {
     case "task": {
       const prompt = positionals.join(" ");
       if (!prompt) {
-        return "Error: prompt is required.\n\nUsage: haol task \"your prompt here\" [--tier N] [--cap a,b]";
+        return 'Error: prompt is required.\n\nUsage: haol task "your prompt here" [--tier N] [--cap a,b]';
       }
       const tier = values.tier ? parseInt(values.tier as string, 10) : undefined;
       const capabilities = values.cap

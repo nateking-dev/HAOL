@@ -24,10 +24,7 @@ function estimateCost(agent: AgentRegistration): number {
   return (1000 / 1000) * agent.cost_per_1k_input + (500 / 1000) * agent.cost_per_1k_output;
 }
 
-function hasAllCapabilities(
-  agent: AgentRegistration,
-  required: string[],
-): boolean {
+function hasAllCapabilities(agent: AgentRegistration, required: string[]): boolean {
   return required.every((cap) => agent.capabilities.includes(cap));
 }
 
@@ -79,16 +76,17 @@ function scoreCandidates(
     // Base: all candidates have required capabilities (guaranteed by filter).
     // Differentiate by bonus capabilities the agent offers beyond requirements.
     const bonusScore = maxBonus === 0 ? 0 : bonusCounts[i] / maxBonus;
-    const capabilityScore = requiredCapabilities.length === 0
-      ? (maxBonus === 0 ? 1.0 : bonusScore)
-      : 0.6 + 0.4 * bonusScore;
+    const capabilityScore =
+      requiredCapabilities.length === 0
+        ? maxBonus === 0
+          ? 1.0
+          : bonusScore
+        : 0.6 + 0.4 * bonusScore;
 
     const costScore = costRange === 0 ? 1.0 : 1 - (costs[i] - minCost) / costRange;
 
     const latencyScore =
-      latencyRange === 0
-        ? 1.0
-        : 1 - (agent.avg_latency_ms - minLatency) / latencyRange;
+      latencyRange === 0 ? 1.0 : 1 - (agent.avg_latency_ms - minLatency) / latencyRange;
 
     const totalScore =
       capabilityScore * policy.weight_capability +

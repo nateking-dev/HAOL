@@ -167,9 +167,9 @@ describe("execution service — unit tests", () => {
       insertedRecords.push(record);
     });
 
-    globalThis.fetch = vi.fn().mockRejectedValue(
-      new Error("Connection refused"),
-    ) as unknown as typeof fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error("Connection refused")) as unknown as typeof fetch;
 
     const request: AgentRequest = {
       task_id: "task-exhaust-test",
@@ -218,9 +218,7 @@ describe("execution service — unit tests", () => {
       insertedRecords.push(record);
     });
 
-    globalThis.fetch = vi.fn().mockRejectedValue(
-      new Error("TIMEOUT"),
-    ) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("TIMEOUT")) as unknown as typeof fetch;
 
     const request: AgentRequest = {
       task_id: "task-timeout-test",

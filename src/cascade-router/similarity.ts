@@ -31,9 +31,7 @@ export function rankBySimilarity(
   return scored.slice(0, topK);
 }
 
-export function weightedTierVote(
-  matches: SimilarityMatch[],
-): { tier: TierId; confidence: number } {
+export function weightedTierVote(matches: SimilarityMatch[]): { tier: TierId; confidence: number } {
   if (matches.length === 0) {
     return { tier: 3 as TierId, confidence: 0 };
   }
