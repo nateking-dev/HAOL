@@ -4,10 +4,7 @@ export function formatJson(data: unknown): string {
   return JSON.stringify(data, null, 2);
 }
 
-export function formatTable(
-  rows: Record<string, unknown>[],
-  columns?: string[],
-): string {
+export function formatTable(rows: Record<string, unknown>[], columns?: string[]): string {
   if (rows.length === 0) return "(no results)";
 
   const cols = columns ?? Object.keys(rows[0]);
@@ -53,11 +50,7 @@ export function formatMinimal(data: unknown): string {
   return String(data);
 }
 
-export function formatOutput(
-  data: unknown,
-  format: OutputFormat,
-  columns?: string[],
-): string {
+export function formatOutput(data: unknown, format: OutputFormat, columns?: string[]): string {
   switch (format) {
     case "json":
       return formatJson(data);

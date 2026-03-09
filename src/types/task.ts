@@ -6,13 +6,7 @@ import { createHash } from "node:crypto";
 export function uuidv7(): string {
   const uuid = crypto.randomUUID();
   const timestamp = Date.now().toString(16).padStart(12, "0");
-  return (
-    timestamp.slice(0, 8) +
-    "-" +
-    timestamp.slice(8, 12) +
-    "-7" +
-    uuid.slice(15)
-  );
+  return timestamp.slice(0, 8) + "-" + timestamp.slice(8, 12) + "-7" + uuid.slice(15);
 }
 
 // --- SHA-256 hashing ---
@@ -23,12 +17,7 @@ export function sha256(input: string): string {
 
 // --- Zod schemas ---
 
-export const ComplexityTier = z.union([
-  z.literal(1),
-  z.literal(2),
-  z.literal(3),
-  z.literal(4),
-]);
+export const ComplexityTier = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 export type ComplexityTier = z.infer<typeof ComplexityTier>;
 
 export const TaskInput = z.object({

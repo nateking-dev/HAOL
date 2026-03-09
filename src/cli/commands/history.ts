@@ -40,9 +40,8 @@ export async function historyCommand(opts: HistoryCommandOptions): Promise<strin
   // Filter by agent if needed (client-side since server may not support it)
   let filtered = data;
   if (opts.agent) {
-    filtered = data.filter(
-      (entry: Record<string, unknown>) =>
-        String(entry.message ?? "").includes(opts.agent!),
+    filtered = data.filter((entry: Record<string, unknown>) =>
+      String(entry.message ?? "").includes(opts.agent!),
     );
   }
 

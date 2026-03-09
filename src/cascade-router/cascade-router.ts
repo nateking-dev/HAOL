@@ -132,11 +132,7 @@ export class CascadeRouter {
           for (const cap of escalation.capabilities) {
             allCapabilities.add(cap);
           }
-        } else if (
-          config.enable_escalation &&
-          this.escalationProvider &&
-          tiers.length > 0
-        ) {
+        } else if (config.enable_escalation && this.escalationProvider && tiers.length > 0) {
           // Low confidence — also escalate
           const escalation = await this.escalationProvider.classify(prompt, tiers);
           tier = escalation.tier;
@@ -151,11 +147,7 @@ export class CascadeRouter {
           layer = "fallback";
           confidence = 0;
         }
-      } else if (
-        config.enable_escalation &&
-        this.escalationProvider &&
-        tiers.length > 0
-      ) {
+      } else if (config.enable_escalation && this.escalationProvider && tiers.length > 0) {
         // No utterances but escalation available
         const escalation = await this.escalationProvider.classify(prompt, tiers);
         tier = escalation.tier;
@@ -177,15 +169,7 @@ export class CascadeRouter {
 
     // Best-effort log
     try {
-      await store.logDecision(
-        taskId,
-        prompt,
-        tier,
-        layer,
-        similarityScore,
-        confidence,
-        latencyMs,
-      );
+      await store.logDecision(taskId, prompt, tier, layer, similarityScore, confidence, latencyMs);
     } catch {
       // Don't fail classification if logging fails
     }

@@ -1,12 +1,48 @@
 [
-  { "prompt": "Summarize this paragraph", "expectedTier": 1, "expectedCapabilities": ["summarization"] },
-  { "prompt": "Classify these customer reviews into positive, negative, and neutral", "expectedTier": 1, "expectedCapabilities": ["classification"] },
-  { "prompt": "Analyze this codebase and suggest refactoring strategies", "expectedTier": 3, "expectedCapabilities": ["code_generation", "reasoning"] },
-  { "prompt": "Classify this image and extract structured data", "expectedTier": 3, "expectedCapabilities": ["classification", "vision", "structured_output"] },
-  { "prompt": "Translate this document to French", "expectedTier": 1, "expectedCapabilities": ["multilingual"] },
-  { "prompt": "Debug this function and explain the error", "expectedTier": 2, "expectedCapabilities": ["code_generation"] },
-  { "prompt": "Compare these two API designs and reason about trade-offs", "expectedTier": 2, "expectedCapabilities": ["reasoning"] },
-  { "prompt": "Extract entities from the screenshot and return JSON", "expectedTier": 3, "expectedCapabilities": ["vision", "structured_output"] },
+  {
+    "prompt": "Summarize this paragraph",
+    "expectedTier": 1,
+    "expectedCapabilities": ["summarization"]
+  },
+  {
+    "prompt": "Classify these customer reviews into positive, negative, and neutral",
+    "expectedTier": 1,
+    "expectedCapabilities": ["classification"]
+  },
+  {
+    "prompt": "Analyze this codebase and suggest refactoring strategies",
+    "expectedTier": 3,
+    "expectedCapabilities": ["code_generation", "reasoning"]
+  },
+  {
+    "prompt": "Classify this image and extract structured data",
+    "expectedTier": 3,
+    "expectedCapabilities": ["classification", "vision", "structured_output"]
+  },
+  {
+    "prompt": "Translate this document to French",
+    "expectedTier": 1,
+    "expectedCapabilities": ["multilingual"]
+  },
+  {
+    "prompt": "Debug this function and explain the error",
+    "expectedTier": 2,
+    "expectedCapabilities": ["code_generation"]
+  },
+  {
+    "prompt": "Compare these two API designs and reason about trade-offs",
+    "expectedTier": 2,
+    "expectedCapabilities": ["reasoning"]
+  },
+  {
+    "prompt": "Extract entities from the screenshot and return JSON",
+    "expectedTier": 3,
+    "expectedCapabilities": ["vision", "structured_output"]
+  },
   { "prompt": "Hello", "expectedTier": 1, "expectedCapabilities": [] },
-  { "prompt": "Implement a REST API with authentication, analyze security vulnerabilities, compare frameworks, and generate structured JSON output", "expectedTier": 4, "expectedCapabilities": ["code_generation", "reasoning", "structured_output"] }
+  {
+    "prompt": "Implement a REST API with authentication, analyze security vulnerabilities, compare frameworks, and generate structured JSON output",
+    "expectedTier": 4,
+    "expectedCapabilities": ["code_generation", "reasoning", "structured_output"]
+  }
 ]

@@ -30,7 +30,8 @@ export async function costByAgent(hours: number): Promise<CostByAgentRow[]> {
   return rows.map((r) => ({
     agent_id: r.agent_id,
     total_cost: typeof r.total_cost === "string" ? parseFloat(r.total_cost) : Number(r.total_cost),
-    invocations: typeof r.invocations === "string" ? parseInt(r.invocations, 10) : Number(r.invocations),
+    invocations:
+      typeof r.invocations === "string" ? parseInt(r.invocations, 10) : Number(r.invocations),
   }));
 }
 
@@ -63,7 +64,8 @@ export async function costCeilingBreaches(): Promise<CostCeilingBreachRow[]> {
   return rows.map((r) => ({
     task_id: r.task_id,
     ceiling: typeof r.ceiling === "string" ? parseFloat(r.ceiling) : Number(r.ceiling),
-    actual_cost: typeof r.actual_cost === "string" ? parseFloat(r.actual_cost) : Number(r.actual_cost),
+    actual_cost:
+      typeof r.actual_cost === "string" ? parseFloat(r.actual_cost) : Number(r.actual_cost),
   }));
 }
 
@@ -121,9 +123,10 @@ export async function avgLatencyByAgent(hours: number): Promise<AvgLatencyRow[]>
   );
   return rows.map((r) => ({
     agent_id: r.agent_id,
-    avg_latency_ms: typeof r.avg_latency_ms === "string"
-      ? parseFloat(r.avg_latency_ms)
-      : Number(r.avg_latency_ms),
+    avg_latency_ms:
+      typeof r.avg_latency_ms === "string"
+        ? parseFloat(r.avg_latency_ms)
+        : Number(r.avg_latency_ms),
   }));
 }
 
@@ -256,9 +259,13 @@ function parseDurationToHours(duration: string): number {
   if (!match) return 24; // default to 24 hours
   const value = parseInt(match[1], 10);
   switch (match[2]) {
-    case "d": return value * 24;
-    case "h": return value;
-    case "m": return value / 60;
-    default: return 24;
+    case "d":
+      return value * 24;
+    case "h":
+      return value;
+    case "m":
+      return value / 60;
+    default:
+      return 24;
   }
 }

@@ -65,7 +65,7 @@ describe("agent-selection service", () => {
       task_id: "test-t1-summarization",
       complexity_tier: 1,
       required_capabilities: ["summarization"],
-      cost_ceiling_usd: 0.10,
+      cost_ceiling_usd: 0.1,
       prompt_hash: "abc123",
     };
 
@@ -94,7 +94,12 @@ describe("agent-selection service", () => {
     const classification: TaskClassification = {
       task_id: "test-cap-heavy",
       complexity_tier: 2,
-      required_capabilities: ["classification", "summarization", "structured_output", "multilingual"],
+      required_capabilities: [
+        "classification",
+        "summarization",
+        "structured_output",
+        "multilingual",
+      ],
       cost_ceiling_usd: 1.0,
       prompt_hash: "def456",
     };
@@ -108,7 +113,9 @@ describe("agent-selection service", () => {
     expect(result.rationale.capability_score).toBe(0.6);
   });
 
-  it("no capable agents with low cost ceiling — NEXT_BEST fallback relaxes cost", async ({ skip }) => {
+  it("no capable agents with low cost ceiling — NEXT_BEST fallback relaxes cost", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     // sel-mini cost = (1 * 0.00015) + (0.5 * 0.0006) = 0.00015 + 0.0003 = 0.00045
@@ -119,7 +126,12 @@ describe("agent-selection service", () => {
     const classification: TaskClassification = {
       task_id: "test-fallback-next-best",
       complexity_tier: 2,
-      required_capabilities: ["classification", "summarization", "structured_output", "multilingual"],
+      required_capabilities: [
+        "classification",
+        "summarization",
+        "structured_output",
+        "multilingual",
+      ],
       cost_ceiling_usd: tightCeiling,
       prompt_hash: "ghi789",
     };
@@ -174,9 +186,7 @@ describe("agent-selection service", () => {
 
     // With a single candidate, cost and latency normalize to 1.0.
     // Capability = 0.6 base (has all required) + 0.4 * bonus (0 bonus caps) = 0.6
-    const winner = result.scored_candidates.find(
-      (c) => c.agent_id === "sel-llama",
-    );
+    const winner = result.scored_candidates.find((c) => c.agent_id === "sel-llama");
     expect(winner).toBeDefined();
     expect(winner!.capability_score).toBe(0.6);
     expect(winner!.cost_score).toBe(1.0);
@@ -190,7 +200,7 @@ describe("agent-selection service", () => {
       task_id: "test-rationale",
       complexity_tier: 1,
       required_capabilities: ["summarization"],
-      cost_ceiling_usd: 0.10,
+      cost_ceiling_usd: 0.1,
       prompt_hash: "pqr678",
     };
 
@@ -210,7 +220,9 @@ describe("agent-selection service", () => {
     expect(result.rationale.latency_score).toBeLessThanOrEqual(1);
   });
 
-  it("TIER_UP fallback — unlocks higher-tier agents, not just higher cost ceiling", async ({ skip }) => {
+  it("TIER_UP fallback — unlocks higher-tier agents, not just higher cost ceiling", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     const tierUpPolicy: RoutingPolicy = {

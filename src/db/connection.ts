@@ -33,10 +33,7 @@ export async function query<T extends RowDataPacket[]>(
   return rows;
 }
 
-export async function execute(
-  sql: string,
-  params?: unknown[],
-): Promise<void> {
+export async function execute(sql: string, params?: unknown[]): Promise<void> {
   const p = getPool();
   await p.execute(sql, params as (string | number | null)[] | undefined);
 }

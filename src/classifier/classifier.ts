@@ -7,9 +7,7 @@ export function classify(input: TaskInput): TaskClassification {
   const parsed = TaskInput.parse(input);
 
   // 2. Run rule matching on the prompt
-  const { capabilities: detectedCapabilities, tierBump } = matchRules(
-    parsed.prompt,
-  );
+  const { capabilities: detectedCapabilities, tierBump } = matchRules(parsed.prompt);
 
   // 3. Merge metadata capabilities with detected ones
   const allCapabilities = [...detectedCapabilities];

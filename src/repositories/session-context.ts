@@ -24,11 +24,7 @@ function parseRow(row: SessionContextRow): SessionContextRecord {
   };
 }
 
-export async function upsert(
-  sessionId: string,
-  key: string,
-  value: unknown,
-): Promise<void> {
+export async function upsert(sessionId: string, key: string, value: unknown): Promise<void> {
   const pool = getPool();
   await pool.query(
     `INSERT INTO session_context (session_id, \`key\`, value)
@@ -38,9 +34,7 @@ export async function upsert(
   );
 }
 
-export async function findBySessionId(
-  sessionId: string,
-): Promise<SessionContextRecord[]> {
+export async function findBySessionId(sessionId: string): Promise<SessionContextRecord[]> {
   const rows = await query<SessionContextRow[]>(
     "SELECT * FROM session_context WHERE session_id = ? ORDER BY `key`",
     [sessionId],
@@ -62,7 +56,5 @@ export async function findByKey(
 
 export async function deleteBySessionId(sessionId: string): Promise<void> {
   const pool = getPool();
-  await pool.query("DELETE FROM session_context WHERE session_id = ?", [
-    sessionId,
-  ]);
+  await pool.query("DELETE FROM session_context WHERE session_id = ?", [sessionId]);
 }

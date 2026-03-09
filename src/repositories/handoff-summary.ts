@@ -24,11 +24,7 @@ function parseRow(row: HandoffSummaryRow): HandoffSummaryRecord {
   };
 }
 
-export async function insert(
-  taskId: string,
-  fromAgentId: string,
-  summary: string,
-): Promise<void> {
+export async function insert(taskId: string, fromAgentId: string, summary: string): Promise<void> {
   const pool = getPool();
   await pool.query(
     `INSERT INTO handoff_summary (task_id, from_agent_id, summary)
@@ -38,9 +34,7 @@ export async function insert(
   );
 }
 
-export async function findByTaskId(
-  taskId: string,
-): Promise<HandoffSummaryRecord[]> {
+export async function findByTaskId(taskId: string): Promise<HandoffSummaryRecord[]> {
   const rows = await query<HandoffSummaryRow[]>(
     "SELECT * FROM handoff_summary WHERE task_id = ? ORDER BY created_at DESC",
     [taskId],
@@ -48,9 +42,7 @@ export async function findByTaskId(
   return rows.map(parseRow);
 }
 
-export async function findLatest(
-  taskId: string,
-): Promise<HandoffSummaryRecord | null> {
+export async function findLatest(taskId: string): Promise<HandoffSummaryRecord | null> {
   const rows = await query<HandoffSummaryRow[]>(
     "SELECT * FROM handoff_summary WHERE task_id = ? ORDER BY created_at DESC LIMIT 1",
     [taskId],
