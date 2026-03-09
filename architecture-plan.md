@@ -32,13 +32,13 @@ HAOL addresses this by treating model heterogeneity as a first-class architectur
 
 HAOL is composed of five core subsystems. Each is described below with its responsibilities, interfaces, and relationship to the Dolt persistence layer.
 
-| Component | Responsibility | Dolt Integration |
-|-----------|---------------|-----------------|
-| **Router** | Receives tasks, classifies complexity, dispatches to agents | Reads `agent_registry`, writes to `task_log` on every dispatch |
-| **Agent Registry** | Stores agent definitions: capabilities, cost profiles, constraints, health status | Versioned table; changes committed with author and message |
-| **Task Classifier** | Evaluates inbound tasks for type, complexity tier, and required capabilities | Reads `capability_taxonomy`; writes classification to `task_log` |
-| **Memory Manager** | Manages agent context windows, conversation state, and cross-agent handoff context | Branched workspaces per agent session; merged on completion |
-| **Execution Engine** | Invokes the selected agent, handles retries, fallbacks, timeouts | Writes execution results, latency, token counts to `execution_log` |
+| Component            | Responsibility                                                                     | Dolt Integration                                                   |
+| -------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Router**           | Receives tasks, classifies complexity, dispatches to agents                        | Reads `agent_registry`, writes to `task_log` on every dispatch     |
+| **Agent Registry**   | Stores agent definitions: capabilities, cost profiles, constraints, health status  | Versioned table; changes committed with author and message         |
+| **Task Classifier**  | Evaluates inbound tasks for type, complexity tier, and required capabilities       | Reads `capability_taxonomy`; writes classification to `task_log`   |
+| **Memory Manager**   | Manages agent context windows, conversation state, and cross-agent handoff context | Branched workspaces per agent session; merged on completion        |
+| **Execution Engine** | Invokes the selected agent, handles retries, fallbacks, timeouts                   | Writes execution results, latency, token counts to `execution_log` |
 
 ### 3.2 Request Lifecycle
 
@@ -61,77 +61,77 @@ The schema below represents the MVP data model. All tables live in a single Dolt
 
 The canonical source of truth for all agents available to HAOL. Each row represents one agent configuration.
 
-| Column | Type | Constraint | Description |
-|--------|------|-----------|-------------|
-| `agent_id` | VARCHAR(64) | PRIMARY KEY | Unique identifier (e.g., `claude-sonnet-4-5`) |
-| `provider` | VARCHAR(32) | NOT NULL | Provider key (`anthropic`, `openai`, `google`, `local`) |
-| `model_id` | VARCHAR(128) | NOT NULL | Provider-specific model string |
-| `capabilities` | JSON | NOT NULL | Array of capability tags from taxonomy |
-| `cost_per_1k_input` | DECIMAL(10,6) | NOT NULL | USD per 1,000 input tokens |
-| `cost_per_1k_output` | DECIMAL(10,6) | NOT NULL | USD per 1,000 output tokens |
-| `max_context_tokens` | INT | NOT NULL | Maximum context window size |
-| `avg_latency_ms` | INT | DEFAULT 0 | Rolling average TTFT in milliseconds |
-| `status` | ENUM | NOT NULL | `active` \| `degraded` \| `disabled` |
-| `tier_ceiling` | TINYINT | NOT NULL | Max complexity tier this agent handles (1–4) |
+| Column               | Type          | Constraint  | Description                                             |
+| -------------------- | ------------- | ----------- | ------------------------------------------------------- |
+| `agent_id`           | VARCHAR(64)   | PRIMARY KEY | Unique identifier (e.g., `claude-sonnet-4-5`)           |
+| `provider`           | VARCHAR(32)   | NOT NULL    | Provider key (`anthropic`, `openai`, `google`, `local`) |
+| `model_id`           | VARCHAR(128)  | NOT NULL    | Provider-specific model string                          |
+| `capabilities`       | JSON          | NOT NULL    | Array of capability tags from taxonomy                  |
+| `cost_per_1k_input`  | DECIMAL(10,6) | NOT NULL    | USD per 1,000 input tokens                              |
+| `cost_per_1k_output` | DECIMAL(10,6) | NOT NULL    | USD per 1,000 output tokens                             |
+| `max_context_tokens` | INT           | NOT NULL    | Maximum context window size                             |
+| `avg_latency_ms`     | INT           | DEFAULT 0   | Rolling average TTFT in milliseconds                    |
+| `status`             | ENUM          | NOT NULL    | `active` \| `degraded` \| `disabled`                    |
+| `tier_ceiling`       | TINYINT       | NOT NULL    | Max complexity tier this agent handles (1–4)            |
 
 ### 4.2 capability_taxonomy
 
 A controlled vocabulary for agent capabilities. The router matches task requirements against this taxonomy to produce a candidate set.
 
-| Column | Type | Constraint | Description |
-|--------|------|-----------|-------------|
-| `capability_key` | VARCHAR(64) | PRIMARY KEY | Canonical key (e.g., `long_context`) |
-| `display_name` | VARCHAR(128) | NOT NULL | Human-readable label |
-| `description` | TEXT | | What this capability means for routing |
-| `tier_minimum` | TINYINT | DEFAULT 1 | Lowest complexity tier where this is relevant |
+| Column           | Type         | Constraint  | Description                                   |
+| ---------------- | ------------ | ----------- | --------------------------------------------- |
+| `capability_key` | VARCHAR(64)  | PRIMARY KEY | Canonical key (e.g., `long_context`)          |
+| `display_name`   | VARCHAR(128) | NOT NULL    | Human-readable label                          |
+| `description`    | TEXT         |             | What this capability means for routing        |
+| `tier_minimum`   | TINYINT      | DEFAULT 1   | Lowest complexity tier where this is relevant |
 
 ### 4.3 task_log
 
 The immutable record of every task that enters the system. Each row is append-only within a transaction; the status field advances through the lifecycle (`RECEIVED → CLASSIFIED → DISPATCHED → COMPLETED | FAILED`).
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `task_id` | VARCHAR(36) | UUIDv7 (time-sortable). Primary key. |
-| `created_at` | TIMESTAMP | Intake timestamp. |
-| `status` | ENUM | `RECEIVED` \| `CLASSIFIED` \| `DISPATCHED` \| `COMPLETED` \| `FAILED` |
-| `prompt_hash` | VARCHAR(64) | SHA-256 of the raw prompt (for deduplication). |
-| `complexity_tier` | TINYINT | T1–T4 classification result. NULL until classified. |
-| `required_capabilities` | JSON | Array of `capability_key`s required for this task. |
-| `cost_ceiling_usd` | DECIMAL(10,6) | Max allowable cost for this task execution. |
-| `selected_agent_id` | VARCHAR(64) | FK to `agent_registry`. NULL until dispatched. |
-| `selection_rationale` | JSON | Scoring breakdown: `{ capability_score, cost_score, latency_score }`. |
+| Column                  | Type          | Description                                                           |
+| ----------------------- | ------------- | --------------------------------------------------------------------- |
+| `task_id`               | VARCHAR(36)   | UUIDv7 (time-sortable). Primary key.                                  |
+| `created_at`            | TIMESTAMP     | Intake timestamp.                                                     |
+| `status`                | ENUM          | `RECEIVED` \| `CLASSIFIED` \| `DISPATCHED` \| `COMPLETED` \| `FAILED` |
+| `prompt_hash`           | VARCHAR(64)   | SHA-256 of the raw prompt (for deduplication).                        |
+| `complexity_tier`       | TINYINT       | T1–T4 classification result. NULL until classified.                   |
+| `required_capabilities` | JSON          | Array of `capability_key`s required for this task.                    |
+| `cost_ceiling_usd`      | DECIMAL(10,6) | Max allowable cost for this task execution.                           |
+| `selected_agent_id`     | VARCHAR(64)   | FK to `agent_registry`. NULL until dispatched.                        |
+| `selection_rationale`   | JSON          | Scoring breakdown: `{ capability_score, cost_score, latency_score }`. |
 
 ### 4.4 execution_log
 
 Detailed execution telemetry. One row per agent invocation (retries produce additional rows linked to the same `task_id`).
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `execution_id` | VARCHAR(36) | UUIDv7. Primary key. |
-| `task_id` | VARCHAR(36) | FK to `task_log`. |
-| `agent_id` | VARCHAR(64) | FK to `agent_registry`. |
-| `attempt_number` | TINYINT | 1-indexed retry counter. |
-| `input_tokens` | INT | Tokens sent. |
-| `output_tokens` | INT | Tokens received. |
-| `cost_usd` | DECIMAL(10,6) | Computed cost for this invocation. |
-| `latency_ms` | INT | Total round-trip time. |
-| `ttft_ms` | INT | Time to first token. |
-| `outcome` | ENUM | `SUCCESS` \| `TIMEOUT` \| `ERROR` \| `FALLBACK` |
-| `error_detail` | TEXT | Error message or null on success. |
+| Column           | Type          | Description                                     |
+| ---------------- | ------------- | ----------------------------------------------- |
+| `execution_id`   | VARCHAR(36)   | UUIDv7. Primary key.                            |
+| `task_id`        | VARCHAR(36)   | FK to `task_log`.                               |
+| `agent_id`       | VARCHAR(64)   | FK to `agent_registry`.                         |
+| `attempt_number` | TINYINT       | 1-indexed retry counter.                        |
+| `input_tokens`   | INT           | Tokens sent.                                    |
+| `output_tokens`  | INT           | Tokens received.                                |
+| `cost_usd`       | DECIMAL(10,6) | Computed cost for this invocation.              |
+| `latency_ms`     | INT           | Total round-trip time.                          |
+| `ttft_ms`        | INT           | Time to first token.                            |
+| `outcome`        | ENUM          | `SUCCESS` \| `TIMEOUT` \| `ERROR` \| `FALLBACK` |
+| `error_detail`   | TEXT          | Error message or null on success.               |
 
 ### 4.5 routing_policy
 
 Configurable rules that govern routing behavior. These are the knobs operators turn without touching code. Because they live in Dolt, every policy change is a committed, diffable event.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `policy_id` | VARCHAR(64) | Primary key. Human-readable (e.g., `default`, `cost_aggressive`). |
-| `weight_capability` | DECIMAL(3,2) | Weight for capability match score (0.00–1.00). |
-| `weight_cost` | DECIMAL(3,2) | Weight for cost efficiency score. |
-| `weight_latency` | DECIMAL(3,2) | Weight for latency score. |
-| `fallback_strategy` | ENUM | `NEXT_BEST` \| `TIER_UP` \| `ABORT`. Behavior on primary agent failure. |
-| `max_retries` | TINYINT | Maximum retry attempts before fallback. |
-| `active` | BOOLEAN | Only one policy may be active at a time. |
+| Column              | Type         | Description                                                             |
+| ------------------- | ------------ | ----------------------------------------------------------------------- |
+| `policy_id`         | VARCHAR(64)  | Primary key. Human-readable (e.g., `default`, `cost_aggressive`).       |
+| `weight_capability` | DECIMAL(3,2) | Weight for capability match score (0.00–1.00).                          |
+| `weight_cost`       | DECIMAL(3,2) | Weight for cost efficiency score.                                       |
+| `weight_latency`    | DECIMAL(3,2) | Weight for latency score.                                               |
+| `fallback_strategy` | ENUM         | `NEXT_BEST` \| `TIER_UP` \| `ABORT`. Behavior on primary agent failure. |
+| `max_retries`       | TINYINT      | Maximum retry attempts before fallback.                                 |
+| `active`            | BOOLEAN      | Only one policy may be active at a time.                                |
 
 ---
 
@@ -197,12 +197,12 @@ When concurrent branches modify the same agent registration or policy row, Dolt 
 
 The Task Classifier assigns every inbound task a complexity tier from T1 through T4. Tiers map directly to the cost and capability band the router will consider. This is the core routing heuristic.
 
-| Tier | Label | Characteristics | Typical Agents |
-|------|-------|----------------|----------------|
-| **T1** | Trivial | Pattern-matchable. Keyword extraction, simple classification, template fill. | Haiku-class, local SLMs, regex/rule engines |
-| **T2** | Standard | Requires reasoning but not deep analysis. Summarization, Q&A, structured extraction. | Sonnet-class, GPT-4o-mini |
-| **T3** | Complex | Multi-step reasoning, long-context synthesis, ambiguous inputs requiring judgment. | Opus-class, GPT-4o, Gemini Pro |
-| **T4** | Expert | Multi-agent orchestration, tool use chains, adversarial inputs, safety-critical. | Opus-class with extended thinking, multi-agent pipeline |
+| Tier   | Label    | Characteristics                                                                      | Typical Agents                                          |
+| ------ | -------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| **T1** | Trivial  | Pattern-matchable. Keyword extraction, simple classification, template fill.         | Haiku-class, local SLMs, regex/rule engines             |
+| **T2** | Standard | Requires reasoning but not deep analysis. Summarization, Q&A, structured extraction. | Sonnet-class, GPT-4o-mini                               |
+| **T3** | Complex  | Multi-step reasoning, long-context synthesis, ambiguous inputs requiring judgment.   | Opus-class, GPT-4o, Gemini Pro                          |
+| **T4** | Expert   | Multi-agent orchestration, tool use chains, adversarial inputs, safety-critical.     | Opus-class with extended thinking, multi-agent pipeline |
 
 The classifier itself is a lightweight agent (T1-capable model) that evaluates the incoming prompt and emits a structured classification. This means the classification step costs fractions of a cent, which is the point: you spend almost nothing to determine how much to spend.
 
@@ -266,17 +266,17 @@ Session branches are ephemeral by design. A background process prunes merged bra
 
 The MVP is deliberately constrained. The following table draws the line between what ships in v0.1 and what is deferred.
 
-| In Scope (v0.1) | Deferred (v0.2+) |
-|-----------------|-----------------|
-| Single-task routing (one task, one agent) | Multi-agent pipelines (chained tasks) |
+| In Scope (v0.1)                                | Deferred (v0.2+)                               |
+| ---------------------------------------------- | ---------------------------------------------- |
+| Single-task routing (one task, one agent)      | Multi-agent pipelines (chained tasks)          |
 | Static complexity classification (rules-based) | Adaptive classification (learns from outcomes) |
-| 3 providers (Anthropic, OpenAI, local) | Plugin-based provider extensibility |
-| Weighted scoring selection | ML-based selection (bandit/RL) |
-| Synchronous execution only | Async execution with callbacks |
-| Single Dolt instance | Dolt replication for HA |
-| CLI and API interface | Web dashboard with Dolt diff viewer |
-| Manual policy configuration | A/B policy testing with automatic promotion |
-| Session branches for memory | Long-term memory with semantic retrieval |
+| 3 providers (Anthropic, OpenAI, local)         | Plugin-based provider extensibility            |
+| Weighted scoring selection                     | ML-based selection (bandit/RL)                 |
+| Synchronous execution only                     | Async execution with callbacks                 |
+| Single Dolt instance                           | Dolt replication for HA                        |
+| CLI and API interface                          | Web dashboard with Dolt diff viewer            |
+| Manual policy configuration                    | A/B policy testing with automatic promotion    |
+| Session branches for memory                    | Long-term memory with semantic retrieval       |
 
 ---
 
@@ -374,4 +374,3 @@ The following decisions are intentionally deferred. They require either empirica
 - **Cost model staleness.** Provider pricing changes. How frequently should HAOL refresh `cost_per_1k_input`/`output` in `agent_registry`? Manual update on a Dolt branch is the MVP path; automated scraping is a v0.2 concern.
 - **Multi-tenancy.** If HAOL serves multiple downstream applications, should tenants share a Dolt database (with `tenant_id` columns) or receive separate databases? Separate databases align better with Dolt's branching model but increase operational overhead.
 - **Dolt performance envelope.** Dolt's write throughput is lower than vanilla MySQL due to content-addressed storage. The MVP needs to characterize the actual throughput ceiling under realistic task volumes to determine when (not if) write batching becomes necessary.
-
