@@ -18,9 +18,7 @@ agents.get("/agents", async (c) => {
   if (status) filters.status = status;
   if (capability) filters.capability = capability;
 
-  const result = await listAgents(
-    Object.keys(filters).length > 0 ? filters : undefined,
-  );
+  const result = await listAgents(Object.keys(filters).length > 0 ? filters : undefined);
   return c.json(result, 200);
 });
 

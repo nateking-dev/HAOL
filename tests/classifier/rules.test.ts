@@ -142,9 +142,7 @@ describe("rules", () => {
     it("returns deduplicated capabilities", () => {
       // "code" and "refactor" both trigger the code rule, but should only add code_generation once
       const result = matchRules("Write code and refactor the module");
-      const codeGenCount = result.capabilities.filter(
-        (c) => c === "code_generation",
-      ).length;
+      const codeGenCount = result.capabilities.filter((c) => c === "code_generation").length;
       expect(codeGenCount).toBe(1);
     });
 

@@ -128,11 +128,7 @@ describe("agents remove command", () => {
       json: async () => ({ message: "Agent haiku disabled" }),
     }) as unknown as typeof fetch;
 
-    const output = await agentsRemoveCommand(
-      "haiku",
-      "http://localhost:3000",
-      "table",
-    );
+    const output = await agentsRemoveCommand("haiku", "http://localhost:3000", "table");
 
     expect(output).toContain("haiku disabled");
 
@@ -158,14 +154,7 @@ describe("run() — agents command via CLI entry", () => {
 
   it("haol agents list --format json outputs JSON", async () => {
     mockList();
-    const output = await run([
-      "node",
-      "haol",
-      "agents",
-      "list",
-      "--format",
-      "json",
-    ]);
+    const output = await run(["node", "haol", "agents", "list", "--format", "json"]);
     const parsed = JSON.parse(output);
     expect(Array.isArray(parsed)).toBe(true);
   });

@@ -14,7 +14,9 @@
     "test:watch": "vitest",
     "migrate": "tsx src/db/migrate.ts",
     "seed": "tsx src/db/seed.ts",
-    "seed:embeddings": "tsx src/cascade-router/seed-embeddings.ts"
+    "seed:embeddings": "tsx src/cascade-router/seed-embeddings.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "engines": {
     "node": ">=20.0.0"
@@ -22,14 +24,18 @@
   "dependencies": {
     "@hono/node-server": "^1.19.10",
     "dotenv": "^16.4.0",
-    "hono": "^4.12.5",
+    "hono": "^4.12.7",
     "mysql2": "^3.11.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "prettier": "^3.8.1",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0",
     "vitest": "^2.1.0"
+  },
+  "overrides": {
+    "esbuild": ">=0.25.0"
   }
 }

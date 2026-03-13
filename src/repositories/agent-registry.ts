@@ -91,9 +91,7 @@ export async function findByCapabilities(
     return findAll({ status: "active" });
   }
 
-  const jsonContains = caps
-    .map(() => "JSON_CONTAINS(capabilities, ?)")
-    .join(" AND ");
+  const jsonContains = caps.map(() => "JSON_CONTAINS(capabilities, ?)").join(" AND ");
   const params = caps.map((c) => JSON.stringify(c));
 
   const sql = `SELECT * FROM agent_registry WHERE status = 'active' AND ${jsonContains}`;
@@ -122,10 +120,7 @@ export async function create(input: CreateAgentInput): Promise<void> {
   );
 }
 
-export async function update(
-  agentId: string,
-  fields: UpdateAgentInput,
-): Promise<void> {
+export async function update(agentId: string, fields: UpdateAgentInput): Promise<void> {
   const setClauses: string[] = [];
   const params: unknown[] = [];
 
@@ -144,16 +139,10 @@ export async function update(
 
   params.push(agentId);
   const pool = getPool();
-  await pool.query(
-    `UPDATE agent_registry SET ${setClauses.join(", ")} WHERE agent_id = ?`,
-    params,
-  );
+  await pool.query(`UPDATE agent_registry SET ${setClauses.join(", ")} WHERE agent_id = ?`, params);
 }
 
 export async function remove(agentId: string): Promise<void> {
   const pool = getPool();
-  await pool.query(
-    "UPDATE agent_registry SET status = 'disabled' WHERE agent_id = ?",
-    [agentId],
-  );
+  await pool.query("UPDATE agent_registry SET status = 'disabled' WHERE agent_id = ?", [agentId]);
 }

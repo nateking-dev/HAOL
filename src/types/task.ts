@@ -19,12 +19,7 @@ export function sha256(input: string): string {
 
 // --- Zod schemas ---
 
-export const ComplexityTier = z.union([
-  z.literal(1),
-  z.literal(2),
-  z.literal(3),
-  z.literal(4),
-]);
+export const ComplexityTier = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 export type ComplexityTier = z.infer<typeof ComplexityTier>;
 
 export const TaskInput = z.object({

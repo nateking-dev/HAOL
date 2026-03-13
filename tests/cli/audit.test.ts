@@ -138,14 +138,7 @@ describe("run() — audit via CLI entry", () => {
   });
 
   it("haol audit commits shows commits", async () => {
-    mockResponse([
-      {
-        hash: "abc123",
-        message: "test commit",
-        date: "2026-03-04",
-        author: "test",
-      },
-    ]);
+    mockResponse([{ hash: "abc123", message: "test commit", date: "2026-03-04", author: "test" }]);
     const output = await run(["node", "haol", "audit", "commits"]);
     expect(output).toContain("test commit");
   });

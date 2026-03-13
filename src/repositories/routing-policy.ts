@@ -28,9 +28,7 @@ export async function getActivePolicy(): Promise<RoutingPolicy | null> {
         ? parseFloat(row.weight_capability)
         : row.weight_capability,
     weight_cost:
-      typeof row.weight_cost === "string"
-        ? parseFloat(row.weight_cost)
-        : row.weight_cost,
+      typeof row.weight_cost === "string" ? parseFloat(row.weight_cost) : row.weight_cost,
     weight_latency:
       typeof row.weight_latency === "string"
         ? parseFloat(row.weight_latency)

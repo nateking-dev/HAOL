@@ -195,9 +195,7 @@ describe("agent-selection service", () => {
 
     // With a single candidate, cost and latency normalize to 1.0.
     // Capability = 0.6 base (has all required) + 0.4 * bonus (0 bonus caps) = 0.6
-    const winner = result.scored_candidates.find(
-      (c) => c.agent_id === "sel-llama",
-    );
+    const winner = result.scored_candidates.find((c) => c.agent_id === "sel-llama");
     expect(winner).toBeDefined();
     expect(winner!.capability_score).toBe(0.6);
     expect(winner!.cost_score).toBe(1.0);

@@ -9,9 +9,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, "migrations");
 
 export async function runMigrations(): Promise<string[]> {
-  const files = (await readdir(MIGRATIONS_DIR))
-    .filter((f) => f.endsWith(".sql"))
-    .sort();
+  const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith(".sql")).sort();
 
   const pool = getPool();
   const applied: string[] = [];

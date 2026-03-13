@@ -45,9 +45,7 @@ describe("classify", () => {
         prompt: "Summarize this paragraph",
         metadata: { capabilities: ["summarization"] },
       });
-      const count = result.required_capabilities.filter(
-        (c) => c === "summarization",
-      ).length;
+      const count = result.required_capabilities.filter((c) => c === "summarization").length;
       expect(count).toBe(1);
     });
   });

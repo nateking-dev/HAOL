@@ -75,10 +75,7 @@ function parseRow(row: TaskLogRow): TaskLogRecord {
   };
 }
 
-export async function create(
-  taskId: string,
-  promptHash: string,
-): Promise<void> {
+export async function create(taskId: string, promptHash: string): Promise<void> {
   const pool = getPool();
   await pool.query(
     `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'RECEIVED', ?)`,
@@ -120,10 +117,7 @@ export async function updateSelection(
   );
 }
 
-export async function updateStatus(
-  taskId: string,
-  status: TaskStatus,
-): Promise<void> {
+export async function updateStatus(taskId: string, status: TaskStatus): Promise<void> {
   const pool = getPool();
   await pool.query(`UPDATE task_log SET status = ? WHERE task_id = ?`, [
     status,

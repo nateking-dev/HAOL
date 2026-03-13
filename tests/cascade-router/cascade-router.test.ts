@@ -18,12 +18,7 @@ vi.mock("../../src/cascade-router/reference-store.js", () => ({
 
 vi.mock("../../src/db/connection.js", () => ({
   query: vi.fn().mockResolvedValue([
-    {
-      tier_id: 1,
-      tier_name: "Simple",
-      description: "Basic tasks",
-      default_agent: "local-llama",
-    },
+    { tier_id: 1, tier_name: "Simple", description: "Basic tasks", default_agent: "local-llama" },
     {
       tier_id: 2,
       tier_name: "Moderate",

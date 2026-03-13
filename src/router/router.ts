@@ -102,11 +102,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     };
 
     const maxRetries = policy?.max_retries ?? 2;
-    let execResult = await execute(
-      selection.selected_agent_id,
-      agentRequest,
-      maxRetries,
-    );
+    let execResult = await execute(selection.selected_agent_id, agentRequest, maxRetries);
 
     // 6. Handle fallback on execution failure
     if (
@@ -229,9 +225,7 @@ async function tryFallbackAgent(
     // If the same agent is selected, no point retrying
     if (result.selected_agent_id === excludeAgentId) {
       // Try the second-best if available
-      const secondBest = result.scored_candidates.find(
-        (c) => c.agent_id !== excludeAgentId,
-      );
+      const secondBest = result.scored_candidates.find((c) => c.agent_id !== excludeAgentId);
       return secondBest ? { agent_id: secondBest.agent_id } : null;
     }
     return { agent_id: result.selected_agent_id };

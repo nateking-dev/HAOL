@@ -7,9 +7,7 @@ interface BranchRow extends RowDataPacket {
   latest_commit_date: string;
 }
 
-export async function pruneSessionBranches(
-  retentionDays: number,
-): Promise<string[]> {
+export async function pruneSessionBranches(retentionDays: number): Promise<string[]> {
   const pool = getPool();
 
   // Query dolt_branches for session/* branches

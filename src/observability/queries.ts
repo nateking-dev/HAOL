@@ -29,14 +29,9 @@ export async function costByAgent(hours: number): Promise<CostByAgentRow[]> {
   );
   return rows.map((r) => ({
     agent_id: r.agent_id,
-    total_cost:
-      typeof r.total_cost === "string"
-        ? parseFloat(r.total_cost)
-        : Number(r.total_cost),
+    total_cost: typeof r.total_cost === "string" ? parseFloat(r.total_cost) : Number(r.total_cost),
     invocations:
-      typeof r.invocations === "string"
-        ? parseInt(r.invocations, 10)
-        : Number(r.invocations),
+      typeof r.invocations === "string" ? parseInt(r.invocations, 10) : Number(r.invocations),
   }));
 }
 
@@ -68,12 +63,9 @@ export async function costCeilingBreaches(): Promise<CostCeilingBreachRow[]> {
   );
   return rows.map((r) => ({
     task_id: r.task_id,
-    ceiling:
-      typeof r.ceiling === "string" ? parseFloat(r.ceiling) : Number(r.ceiling),
+    ceiling: typeof r.ceiling === "string" ? parseFloat(r.ceiling) : Number(r.ceiling),
     actual_cost:
-      typeof r.actual_cost === "string"
-        ? parseFloat(r.actual_cost)
-        : Number(r.actual_cost),
+      typeof r.actual_cost === "string" ? parseFloat(r.actual_cost) : Number(r.actual_cost),
   }));
 }
 

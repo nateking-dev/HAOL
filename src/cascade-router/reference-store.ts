@@ -86,9 +86,7 @@ const CONFIG_DEFAULTS: RouterConfig = {
 };
 
 export async function loadConfig(): Promise<RouterConfig> {
-  const rows = await query<ConfigRow[]>(
-    `SELECT config_key, config_value FROM router_config`,
-  );
+  const rows = await query<ConfigRow[]>(`SELECT config_key, config_value FROM router_config`);
   const map = new Map(rows.map((r) => [r.config_key, r.config_value]));
 
   return {

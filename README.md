@@ -291,6 +291,7 @@ If execution fails with the selected agent, the fallback strategy kicks in:
 | `TIER_UP`   | Relax tier constraints and re-select     |
 | `ABORT`     | Mark the task as failed                  |
 
+
 ## Outcome Capture: Routing Feedback Loop
 
 HAOL captures structured feedback about every routing decision through a 4-tier outcome taxonomy. These signals range from free structural data (automatically extracted from the pipeline) to delayed ground-truth signals from downstream systems. All outcomes are stored in the `task_outcome` table and version-controlled via Dolt commits.
