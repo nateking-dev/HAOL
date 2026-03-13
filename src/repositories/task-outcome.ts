@@ -105,7 +105,11 @@ export async function findByTaskIdAndTier(
   return rows.map(parseRow);
 }
 
-export async function findLowConfidenceTasks(
+/**
+ * Returns tasks that have no Tier 2 outcome records yet,
+ * with routing_confidence below the given threshold, ordered ascending.
+ */
+export async function findTasksWithoutTier2Eval(
   threshold: number,
   hours: number,
   limit: number,
@@ -127,5 +131,42 @@ export async function findLowConfidenceTasks(
   return rows.map((r) => ({
     task_id: r.task_id,
     routing_confidence: r.routing_confidence,
+  }));
+}
+
+export interface AgentOutcomeScore {
+  agent_id: string;
+  positive: number;
+  total: number;
+}
+
+/**
+ * Returns positive/total outcome signal counts per agent for scoring.
+ * Includes tiers 1, 2, 3 with non-null signal_value only.
+ */
+export async function getAgentOutcomeScores(
+  hours: number,
+): Promise<AgentOutcomeScore[]> {
+  const rows = await query<
+    (RowDataPacket & { agent_id: string; positive: number; total: number })[]
+  >(
+    `SELECT t.selected_agent_id AS agent_id,
+            SUM(CASE WHEN o.signal_value = 1 THEN 1 ELSE 0 END) AS positive,
+            COUNT(*) AS total
+     FROM task_outcome o
+     JOIN task_log t ON t.task_id = o.task_id
+     WHERE o.tier IN (1, 2, 3)
+       AND o.signal_value IS NOT NULL
+       AND o.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+       AND t.selected_agent_id IS NOT NULL
+     GROUP BY t.selected_agent_id`,
+    [hours],
+  );
+  return rows.map((r) => ({
+    agent_id: r.agent_id,
+    positive:
+      typeof r.positive === "string" ? parseInt(r.positive, 10) : Number(r.positive),
+    total:
+      typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total),
   }));
 }

@@ -1,6 +1,7 @@
 import { query } from "../db/connection.js";
 import { parseAgentRow } from "../repositories/agent-registry.js";
 import { getActivePolicy } from "../repositories/routing-policy.js";
+import { getAgentOutcomeScores } from "../repositories/task-outcome.js";
 import { costCeilingForTier } from "../classifier/scoring.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type { AgentRegistration } from "../types/agent.js";
@@ -151,33 +152,10 @@ export async function select(
   const weightOutcome = policy.weight_outcome ?? 0;
   if (weightOutcome > 0) {
     try {
-      const rows = await query<
-        (RowDataPacket & {
-          agent_id: string;
-          positive: number;
-          total: number;
-        })[]
-      >(
-        `SELECT t.selected_agent_id AS agent_id,
-                SUM(CASE WHEN o.signal_value = 1 THEN 1 ELSE 0 END) AS positive,
-                COUNT(*) AS total
-         FROM task_outcome o
-         JOIN task_log t ON t.task_id = o.task_id
-         WHERE o.tier IN (1, 2, 3)
-           AND o.created_at >= DATE_SUB(NOW(), INTERVAL 72 HOUR)
-           AND t.selected_agent_id IS NOT NULL
-         GROUP BY t.selected_agent_id`,
-        [],
-      );
+      const scores = await getAgentOutcomeScores(72);
       outcomeScores = new Map();
-      for (const r of rows) {
-        const total =
-          typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total);
-        const positive =
-          typeof r.positive === "string"
-            ? parseInt(r.positive, 10)
-            : Number(r.positive);
-        outcomeScores.set(r.agent_id, total > 0 ? positive / total : 0.5);
+      for (const r of scores) {
+        outcomeScores.set(r.agent_id, r.total > 0 ? r.positive / r.total : 0.5);
       }
     } catch {
       // best-effort — fall back to default 0.5

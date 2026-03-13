@@ -123,12 +123,16 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
           reason: execResult.outcome,
         });
 
-        execResult = await execute(
-          fallbackSelection.agent_id,
-          agentRequest,
-          0, // no retries on fallback
-        );
-        allExecRecords.push(execResult);
+        try {
+          execResult = await execute(
+            fallbackSelection.agent_id,
+            agentRequest,
+            0, // no retries on fallback
+          );
+          allExecRecords.push(execResult);
+        } catch {
+          // Fallback execution failed — proceed with the original failed result
+        }
       }
     }
 

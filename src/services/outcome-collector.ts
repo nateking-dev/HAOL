@@ -4,6 +4,7 @@ import * as taskLog from "../repositories/task-log.js";
 import * as execRepo from "../repositories/execution-log.js";
 import { query } from "../db/connection.js";
 import { doltCommit } from "../db/dolt.js";
+import { AnthropicProvider } from "../providers/anthropic.js";
 import type { TaskOutcomeRecord } from "../types/outcome.js";
 import type { ExecutionRecord } from "../types/execution.js";
 import type { TaskLogRecord } from "../repositories/task-log.js";
@@ -231,10 +232,9 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
 
   await outcomeRepo.insert(pendingRecord);
 
-  // Perform LLM evaluation via Claude Haiku
+  // Perform LLM evaluation via Claude Haiku using the provider abstraction
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    if (!process.env.ANTHROPIC_API_KEY) {
       return; // Cannot evaluate without API key
     }
 
@@ -242,37 +242,26 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
     const execRecords = await execRepo.findByTaskId(taskId);
     const successRecord = execRecords.find((r) => r.outcome === "SUCCESS");
 
-    const prompt = buildEvaluationPrompt(task, execRecords, successRecord);
+    const evalPrompt = buildEvaluationPrompt(task, execRecords, successRecord);
+    const provider = new AnthropicProvider("claude-haiku-4-20250414");
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-20250414",
+    const llmResponse = await provider.invoke({
+      task_id: taskId,
+      prompt: evalPrompt,
+      system_prompt:
+        "You are a routing quality evaluator for an AI orchestration system. " +
+        "Evaluate whether the routing decision was reasonable and respond with a JSON object: " +
+        '{"verdict": "YES" or "NO", "reason": "<brief explanation>"}. ' +
+        "Respond ONLY with the JSON object, no other text.",
+      context: {},
+      constraints: {
         max_tokens: 256,
+        timeout_ms: 15_000,
         temperature: 0,
-        messages: [{ role: "user", content: prompt }],
-        system:
-          "You are a routing quality evaluator for an AI orchestration system. " +
-          "Evaluate whether the routing decision was reasonable and respond with a JSON object: " +
-          '{"verdict": "YES" or "NO", "reason": "<brief explanation>"}. ' +
-          "Respond ONLY with the JSON object, no other text.",
-      }),
+      },
     });
 
-    if (!response.ok) {
-      return; // Silent failure — don't break the pipeline
-    }
-
-    const data = (await response.json()) as {
-      content?: { text: string }[];
-    };
-
-    const responseText = data.content?.[0]?.text || "";
+    const responseText = llmResponse.content;
     const signalValue = parseEvaluationResponse(responseText);
 
     // Insert the completed evaluation as a separate record

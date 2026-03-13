@@ -1,1 +1,0 @@
-ALTER TABLE task_outcome MODIFY COLUMN signal_value TINYINT DEFAULT NULL;

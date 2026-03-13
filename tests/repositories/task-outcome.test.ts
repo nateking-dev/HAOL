@@ -169,7 +169,7 @@ describe("task-outcome repository", () => {
     expect(results).toEqual([]);
   });
 
-  it("findLowConfidenceTasks returns tasks below threshold", async ({
+  it("findTasksWithoutTier2Eval returns tasks below threshold", async ({
     skip,
   }) => {
     if (!doltAvailable) skip();
@@ -185,7 +185,7 @@ describe("task-outcome repository", () => {
     );
 
     // This task has no tier-2 outcome, so it should appear in low-confidence results
-    const results = await outcomeRepo.findLowConfidenceTasks(0.5, 24, 100);
+    const results = await outcomeRepo.findTasksWithoutTier2Eval(0.5, 24, 100);
     const match = results.find((r) => r.task_id === taskId);
 
     expect(match).toBeDefined();

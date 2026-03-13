@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { requestId } from "./middleware/request-id.js";
+import { apiKeyAuth } from "./middleware/api-key-auth.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { health } from "./routes/health.js";
 import { agents } from "./routes/agents.js";
@@ -13,8 +14,11 @@ export function createApp(): Hono {
   // Middleware
   app.use("*", requestId);
 
-  // Routes
+  // Health check is unauthenticated
   app.route("/", health);
+
+  // All other routes require API key auth (when HAOL_API_KEY is set)
+  app.use("*", apiKeyAuth);
   app.route("/", agents);
   app.route("/", tasks);
   app.route("/", observability);
