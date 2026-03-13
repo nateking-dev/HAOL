@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import {
+  createPool,
+  getPool,
+  query,
+  destroy,
+} from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import * as repo from "../../src/repositories/agent-registry.js";
@@ -8,7 +13,10 @@ import type { CreateAgentInput } from "../../src/types/agent.js";
 let doltAvailable = false;
 const testPrefix = `test-repo-${Date.now()}`;
 
-function makeAgent(suffix: string, overrides?: Partial<CreateAgentInput>): CreateAgentInput {
+function makeAgent(
+  suffix: string,
+  overrides?: Partial<CreateAgentInput>,
+): CreateAgentInput {
   return {
     agent_id: `${testPrefix}-${suffix}`,
     provider: "test-provider",
@@ -96,7 +104,10 @@ describe("agent-registry repository", () => {
     const found = await repo.findByCapabilities(["summarization"]);
     expect(found.some((a) => a.agent_id === input.agent_id)).toBe(true);
 
-    const found2 = await repo.findByCapabilities(["summarization", "classification"]);
+    const found2 = await repo.findByCapabilities([
+      "summarization",
+      "classification",
+    ]);
     expect(found2.some((a) => a.agent_id === input.agent_id)).toBe(true);
 
     const found3 = await repo.findByCapabilities(["vision"]);

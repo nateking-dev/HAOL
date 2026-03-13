@@ -49,7 +49,9 @@ export async function loadRules(): Promise<RoutingRule[]> {
     rule_type: r.rule_type as RoutingRule["rule_type"],
     pattern: r.pattern,
     capabilities: r.capabilities
-      ? (typeof r.capabilities === "string" ? JSON.parse(r.capabilities) : r.capabilities)
+      ? typeof r.capabilities === "string"
+        ? JSON.parse(r.capabilities)
+        : r.capabilities
       : null,
     priority: r.priority,
     enabled: Boolean(r.enabled),
@@ -67,7 +69,8 @@ export async function loadUtterances(): Promise<ReferenceUtterance[]> {
     utterance_id: r.utterance_id,
     tier_id: r.tier_id as TierId,
     utterance_text: r.utterance_text,
-    embedding: typeof r.embedding === "string" ? JSON.parse(r.embedding) : r.embedding,
+    embedding:
+      typeof r.embedding === "string" ? JSON.parse(r.embedding) : r.embedding,
   }));
 }
 
@@ -89,12 +92,27 @@ export async function loadConfig(): Promise<RouterConfig> {
   const map = new Map(rows.map((r) => [r.config_key, r.config_value]));
 
   return {
-    embedding_model: map.get("embedding_model") ?? CONFIG_DEFAULTS.embedding_model,
-    embedding_dimensions: parseInt(map.get("embedding_dimensions") ?? String(CONFIG_DEFAULTS.embedding_dimensions), 10),
-    similarity_threshold: parseFloat(map.get("similarity_threshold") ?? String(CONFIG_DEFAULTS.similarity_threshold)),
-    escalation_threshold: parseFloat(map.get("escalation_threshold") ?? String(CONFIG_DEFAULTS.escalation_threshold)),
-    escalation_model: map.get("escalation_model") ?? CONFIG_DEFAULTS.escalation_model,
-    default_tier: parseInt(map.get("default_tier") ?? String(CONFIG_DEFAULTS.default_tier), 10) as TierId,
+    embedding_model:
+      map.get("embedding_model") ?? CONFIG_DEFAULTS.embedding_model,
+    embedding_dimensions: parseInt(
+      map.get("embedding_dimensions") ??
+        String(CONFIG_DEFAULTS.embedding_dimensions),
+      10,
+    ),
+    similarity_threshold: parseFloat(
+      map.get("similarity_threshold") ??
+        String(CONFIG_DEFAULTS.similarity_threshold),
+    ),
+    escalation_threshold: parseFloat(
+      map.get("escalation_threshold") ??
+        String(CONFIG_DEFAULTS.escalation_threshold),
+    ),
+    escalation_model:
+      map.get("escalation_model") ?? CONFIG_DEFAULTS.escalation_model,
+    default_tier: parseInt(
+      map.get("default_tier") ?? String(CONFIG_DEFAULTS.default_tier),
+      10,
+    ) as TierId,
     top_k: parseInt(map.get("top_k") ?? String(CONFIG_DEFAULTS.top_k), 10),
     enable_escalation: (map.get("enable_escalation") ?? "true") === "true",
   };

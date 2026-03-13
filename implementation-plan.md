@@ -78,15 +78,15 @@ tests/db/
 
 **Tables (from architecture spec §4):**
 
-| Table | Primary Key |
-|-------|-------------|
-| `agent_registry` | `agent_id VARCHAR(64)` |
-| `capability_taxonomy` | `capability_key VARCHAR(64)` |
-| `task_log` | `task_id VARCHAR(36)` |
-| `execution_log` | `execution_id VARCHAR(36)` |
-| `routing_policy` | `policy_id VARCHAR(64)` |
-| `session_context` | `session_id VARCHAR(36), key VARCHAR(128)` composite PK |
-| `handoff_summary` | `task_id VARCHAR(36), from_agent_id VARCHAR(64)` composite PK |
+| Table                 | Primary Key                                                   |
+| --------------------- | ------------------------------------------------------------- |
+| `agent_registry`      | `agent_id VARCHAR(64)`                                        |
+| `capability_taxonomy` | `capability_key VARCHAR(64)`                                  |
+| `task_log`            | `task_id VARCHAR(36)`                                         |
+| `execution_log`       | `execution_id VARCHAR(36)`                                    |
+| `routing_policy`      | `policy_id VARCHAR(64)`                                       |
+| `session_context`     | `session_id VARCHAR(36), key VARCHAR(128)` composite PK       |
+| `handoff_summary`     | `task_id VARCHAR(36), from_agent_id VARCHAR(64)` composite PK |
 
 **Seed data for `capability_taxonomy`:**
 
@@ -200,16 +200,16 @@ tests/
 
 **Classification rules (MVP, rules engine per §13):**
 
-| Signal | How Detected | Effect |
-|--------|-------------|--------|
-| Token count | `prompt.length / 4` (rough estimate) | > 2000 tokens → bump tier |
-| Keyword: "summarize", "extract", "classify" | Regex match | T1–T2, add `summarization` or `classification` |
-| Keyword: "analyze", "compare", "reason" | Regex match | T2–T3, add `reasoning` |
-| Keyword: "code", "implement", "function", "debug" | Regex match | T2–T3, add `code_generation` |
-| Keyword: "image", "screenshot", "diagram" | Regex match | Add `vision` |
-| Multiple capabilities required | Count > 3 | Bump tier |
-| Explicit user constraint: `tier` in metadata | Direct pass-through | Override |
-| Explicit user constraint: `capabilities` in metadata | Direct pass-through | Merge with detected |
+| Signal                                               | How Detected                         | Effect                                         |
+| ---------------------------------------------------- | ------------------------------------ | ---------------------------------------------- |
+| Token count                                          | `prompt.length / 4` (rough estimate) | > 2000 tokens → bump tier                      |
+| Keyword: "summarize", "extract", "classify"          | Regex match                          | T1–T2, add `summarization` or `classification` |
+| Keyword: "analyze", "compare", "reason"              | Regex match                          | T2–T3, add `reasoning`                         |
+| Keyword: "code", "implement", "function", "debug"    | Regex match                          | T2–T3, add `code_generation`                   |
+| Keyword: "image", "screenshot", "diagram"            | Regex match                          | Add `vision`                                   |
+| Multiple capabilities required                       | Count > 3                            | Bump tier                                      |
+| Explicit user constraint: `tier` in metadata         | Direct pass-through                  | Override                                       |
+| Explicit user constraint: `capabilities` in metadata | Direct pass-through                  | Merge with detected                            |
 
 **`TaskClassification` output shape:**
 
@@ -534,15 +534,15 @@ tests/
 
 **Routes:**
 
-| Method | Path | Handler | Description |
-|--------|------|---------|-------------|
-| `POST` | `/tasks` | `routeTask` | Submit a task. Body: `{ prompt, metadata?, constraints? }`. Returns `{ task_id, status }`. |
-| `GET` | `/tasks/:id` | read `task_log` | Poll task status. Returns full `task_log` row + `execution_log` if completed. |
-| `GET` | `/agents` | `findAll` | List all agents. Query params: `?status=active&capability=code_generation`. |
-| `POST` | `/agents` | `create` | Register a new agent. Body: `CreateAgentInput`. |
-| `PUT` | `/agents/:id` | `update` | Update agent fields. Body: `UpdateAgentInput`. |
-| `DELETE` | `/agents/:id` | `softDelete` | Soft-delete (set status=disabled). |
-| `GET` | `/health` | DB ping | Returns `{ status: 'ok', dolt: 'connected' }`. |
+| Method   | Path          | Handler         | Description                                                                                |
+| -------- | ------------- | --------------- | ------------------------------------------------------------------------------------------ |
+| `POST`   | `/tasks`      | `routeTask`     | Submit a task. Body: `{ prompt, metadata?, constraints? }`. Returns `{ task_id, status }`. |
+| `GET`    | `/tasks/:id`  | read `task_log` | Poll task status. Returns full `task_log` row + `execution_log` if completed.              |
+| `GET`    | `/agents`     | `findAll`       | List all agents. Query params: `?status=active&capability=code_generation`.                |
+| `POST`   | `/agents`     | `create`        | Register a new agent. Body: `CreateAgentInput`.                                            |
+| `PUT`    | `/agents/:id` | `update`        | Update agent fields. Body: `UpdateAgentInput`.                                             |
+| `DELETE` | `/agents/:id` | `softDelete`    | Soft-delete (set status=disabled).                                                         |
+| `GET`    | `/health`     | DB ping         | Returns `{ status: 'ok', dolt: 'connected' }`.                                             |
 
 **Key decisions:**
 
@@ -661,26 +661,26 @@ tests/
 
 **Canned queries (from architecture spec §11.1):**
 
-| Function | Description | Returns |
-|----------|-------------|---------|
-| `costByAgent(hours)` | Cost per agent over last N hours | `{ agent_id, total_cost, invocations }[]` |
-| `costCeilingBreaches()` | Tasks where execution cost exceeded ceiling | `{ task_id, ceiling, actual_cost }[]` |
-| `agentRegistryDiff(since)` | Agent registry changes in time window | Dolt diff rows |
-| `tasksByTier(hours)` | Task count grouped by complexity tier | `{ tier, count }[]` |
-| `avgLatencyByAgent(hours)` | Average latency per agent | `{ agent_id, avg_latency_ms }[]` |
-| `failureRate(hours)` | Failure rate per agent | `{ agent_id, total, failures, rate }[]` |
-| `commitHistory(limit)` | Recent Dolt commits with parsed messages | `{ hash, message, date, author }[]` |
+| Function                   | Description                                 | Returns                                   |
+| -------------------------- | ------------------------------------------- | ----------------------------------------- |
+| `costByAgent(hours)`       | Cost per agent over last N hours            | `{ agent_id, total_cost, invocations }[]` |
+| `costCeilingBreaches()`    | Tasks where execution cost exceeded ceiling | `{ task_id, ceiling, actual_cost }[]`     |
+| `agentRegistryDiff(since)` | Agent registry changes in time window       | Dolt diff rows                            |
+| `tasksByTier(hours)`       | Task count grouped by complexity tier       | `{ tier, count }[]`                       |
+| `avgLatencyByAgent(hours)` | Average latency per agent                   | `{ agent_id, avg_latency_ms }[]`          |
+| `failureRate(hours)`       | Failure rate per agent                      | `{ agent_id, total, failures, rate }[]`   |
+| `commitHistory(limit)`     | Recent Dolt commits with parsed messages    | `{ hash, message, date, author }[]`       |
 
 **API routes:**
 
-| Method | Path | Query Params | Description |
-|--------|------|-------------|-------------|
-| `GET` | `/stats/cost` | `?hours=24` | Cost breakdown by agent |
-| `GET` | `/stats/latency` | `?hours=24` | Latency breakdown by agent |
-| `GET` | `/stats/failures` | `?hours=24` | Failure rates |
-| `GET` | `/stats/tiers` | `?hours=24` | Task distribution by tier |
-| `GET` | `/audit/agents` | `?since=7d` | Agent registry change log |
-| `GET` | `/audit/commits` | `?limit=50` | Dolt commit history |
+| Method | Path              | Query Params | Description                |
+| ------ | ----------------- | ------------ | -------------------------- |
+| `GET`  | `/stats/cost`     | `?hours=24`  | Cost breakdown by agent    |
+| `GET`  | `/stats/latency`  | `?hours=24`  | Latency breakdown by agent |
+| `GET`  | `/stats/failures` | `?hours=24`  | Failure rates              |
+| `GET`  | `/stats/tiers`    | `?hours=24`  | Task distribution by tier  |
+| `GET`  | `/audit/agents`   | `?since=7d`  | Agent registry change log  |
+| `GET`  | `/audit/commits`  | `?limit=50`  | Dolt commit history        |
 
 **CLI additions:**
 
@@ -743,13 +743,13 @@ Story 7    Story 8     Story 10
 
 ## Subsystem Coverage
 
-| Architecture Subsystem | Primary Story | Supporting Stories |
-|----------------------|---------------|-------------------|
-| **Router** | Story 6 | Story 3 (classification), Story 4 (selection) |
-| **Agent Registry** | Story 2 | Story 8 (API CRUD) |
-| **Task Classifier** | Story 3 | Story 6 (integration) |
-| **Memory Manager** | Story 7 | Story 1 (session tables) |
-| **Execution Engine** | Story 5 | Story 6 (integration) |
+| Architecture Subsystem | Primary Story | Supporting Stories                            |
+| ---------------------- | ------------- | --------------------------------------------- |
+| **Router**             | Story 6       | Story 3 (classification), Story 4 (selection) |
+| **Agent Registry**     | Story 2       | Story 8 (API CRUD)                            |
+| **Task Classifier**    | Story 3       | Story 6 (integration)                         |
+| **Memory Manager**     | Story 7       | Story 1 (session tables)                      |
+| **Execution Engine**   | Story 5       | Story 6 (integration)                         |
 
 All 5 subsystems from the architecture spec are covered.
 
@@ -763,19 +763,19 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `package.json` | Project manifest — `mysql2`, `dotenv`, `typescript`, `vitest`, `tsx` |
-| `tsconfig.json` | ES2022 target, NodeNext module resolution, strict mode |
-| `vitest.config.ts` | Sequential file execution (`fileParallelism: false`), dotenv setup |
-| `.env.example` | Template for Dolt connection vars |
-| `.gitignore` | Excludes `node_modules/`, `dist/`, `.env` |
-| `src/config.ts` | `loadConfig()` — typed config from env vars with defaults |
-| `src/db/connection.ts` | `createPool`, `getPool`, `query`, `execute`, `healthCheck`, `destroy` |
-| `src/db/dolt.ts` | `doltCommit`, `doltCheckout`, `doltBranch`, `doltDeleteBranch`, `doltMerge`, `doltActiveBranch` |
-| `src/index.ts` | Placeholder entry point — connects to Dolt and logs status |
-| `tests/db/connection.test.ts` | 2 tests: SELECT 1, healthCheck |
-| `tests/db/dolt.test.ts` | 3 tests: active branch, commit with allow-empty, branch/checkout/merge lifecycle |
+| File                          | Purpose                                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| `package.json`                | Project manifest — `mysql2`, `dotenv`, `typescript`, `vitest`, `tsx`                            |
+| `tsconfig.json`               | ES2022 target, NodeNext module resolution, strict mode                                          |
+| `vitest.config.ts`            | Sequential file execution (`fileParallelism: false`), dotenv setup                              |
+| `.env.example`                | Template for Dolt connection vars                                                               |
+| `.gitignore`                  | Excludes `node_modules/`, `dist/`, `.env`                                                       |
+| `src/config.ts`               | `loadConfig()` — typed config from env vars with defaults                                       |
+| `src/db/connection.ts`        | `createPool`, `getPool`, `query`, `execute`, `healthCheck`, `destroy`                           |
+| `src/db/dolt.ts`              | `doltCommit`, `doltCheckout`, `doltBranch`, `doltDeleteBranch`, `doltMerge`, `doltActiveBranch` |
+| `src/index.ts`                | Placeholder entry point — connects to Dolt and logs status                                      |
+| `tests/db/connection.test.ts` | 2 tests: SELECT 1, healthCheck                                                                  |
+| `tests/db/dolt.test.ts`       | 3 tests: active branch, commit with allow-empty, branch/checkout/merge lifecycle                |
 
 **Test results:** 5/5 passing. Tests gracefully skip at runtime if Dolt is unavailable.
 
@@ -792,24 +792,24 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `src/db/migrations/001_create_agent_registry.sql` | `agent_registry` table with ENUM status, JSON capabilities |
-| `src/db/migrations/002_create_capability_taxonomy.sql` | `capability_taxonomy` table |
-| `src/db/migrations/003_create_task_log.sql` | `task_log` table with ENUM status lifecycle |
-| `src/db/migrations/004_create_execution_log.sql` | `execution_log` table with ENUM outcome |
-| `src/db/migrations/005_create_routing_policy.sql` | `routing_policy` table with ENUM fallback_strategy |
-| `src/db/migrations/006_create_session_context.sql` | `session_context` table with composite PK (session_id, key) |
-| `src/db/migrations/007_create_handoff_summary.sql` | `handoff_summary` table with composite PK (task_id, from_agent_id) |
-| `src/db/migrations/008_seed_capability_taxonomy.sql` | 9 seed rows via INSERT IGNORE |
-| `src/db/migrate.ts` | Reads `.sql` files in order, applies them, commits to Dolt |
-| `src/db/seed.ts` | Seeds default routing_policy + 4 sample agents |
-| `tests/db/migrations.test.ts` | 9 tests: apply, idempotency, table existence, columns, enums, PKs, seed counts |
+| File                                                   | Purpose                                                                        |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `src/db/migrations/001_create_agent_registry.sql`      | `agent_registry` table with ENUM status, JSON capabilities                     |
+| `src/db/migrations/002_create_capability_taxonomy.sql` | `capability_taxonomy` table                                                    |
+| `src/db/migrations/003_create_task_log.sql`            | `task_log` table with ENUM status lifecycle                                    |
+| `src/db/migrations/004_create_execution_log.sql`       | `execution_log` table with ENUM outcome                                        |
+| `src/db/migrations/005_create_routing_policy.sql`      | `routing_policy` table with ENUM fallback_strategy                             |
+| `src/db/migrations/006_create_session_context.sql`     | `session_context` table with composite PK (session_id, key)                    |
+| `src/db/migrations/007_create_handoff_summary.sql`     | `handoff_summary` table with composite PK (task_id, from_agent_id)             |
+| `src/db/migrations/008_seed_capability_taxonomy.sql`   | 9 seed rows via INSERT IGNORE                                                  |
+| `src/db/migrate.ts`                                    | Reads `.sql` files in order, applies them, commits to Dolt                     |
+| `src/db/seed.ts`                                       | Seeds default routing_policy + 4 sample agents                                 |
+| `tests/db/migrations.test.ts`                          | 9 tests: apply, idempotency, table existence, columns, enums, PKs, seed counts |
 
 **Files modified:**
 
-| File | Change |
-|------|--------|
+| File           | Change                             |
+| -------------- | ---------------------------------- |
 | `package.json` | Added `migrate` and `seed` scripts |
 
 **Test results:** 14/14 passing (5 from Story 0 + 9 new).
@@ -827,19 +827,19 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `src/types/agent.ts` | Zod schemas: `AgentRegistration`, `CreateAgentInput`, `UpdateAgentInput`, `AgentStatus` |
-| `src/repositories/agent-registry.ts` | SQL layer: `findAll`, `findById`, `findByCapabilities`, `create`, `update`, `remove` with `parseAgentRow` helper |
-| `src/services/agent-registry.ts` | Business logic: capability validation against taxonomy, Dolt commits on mutations, `commitSafely` helper |
-| `tests/types/agent.test.ts` | 8 unit tests: schema validation, defaults, invalid inputs |
-| `tests/repositories/agent-registry.test.ts` | 6 integration tests: CRUD round-trips, filtering, soft delete |
-| `tests/services/agent-registry.test.ts` | 7 integration tests: capability validation, Dolt commits, error cases |
+| File                                        | Purpose                                                                                                          |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `src/types/agent.ts`                        | Zod schemas: `AgentRegistration`, `CreateAgentInput`, `UpdateAgentInput`, `AgentStatus`                          |
+| `src/repositories/agent-registry.ts`        | SQL layer: `findAll`, `findById`, `findByCapabilities`, `create`, `update`, `remove` with `parseAgentRow` helper |
+| `src/services/agent-registry.ts`            | Business logic: capability validation against taxonomy, Dolt commits on mutations, `commitSafely` helper         |
+| `tests/types/agent.test.ts`                 | 8 unit tests: schema validation, defaults, invalid inputs                                                        |
+| `tests/repositories/agent-registry.test.ts` | 6 integration tests: CRUD round-trips, filtering, soft delete                                                    |
+| `tests/services/agent-registry.test.ts`     | 7 integration tests: capability validation, Dolt commits, error cases                                            |
 
 **Files modified:**
 
-| File | Change |
-|------|--------|
+| File           | Change                          |
+| -------------- | ------------------------------- |
 | `package.json` | Added `zod` (^4.3.6) dependency |
 
 **Test results:** 74/74 passing (21 new from Story 2).
@@ -856,15 +856,15 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `src/types/task.ts` | Zod schemas: `TaskInput`, `TaskClassification`, `ComplexityTier` + `uuidv7()` and `sha256()` helpers |
-| `src/classifier/rules.ts` | 9 keyword-matching rules with capabilities and tier effects, `matchRules()` function |
-| `src/classifier/scoring.ts` | `computeTier()` (base + token count + rule bumps + capability count), `costCeilingForTier()` |
-| `src/classifier/classifier.ts` | `classify(input)` — full pipeline: validate → match rules → merge metadata → compute tier → generate IDs |
-| `tests/classifier/fixtures/prompts.json` | 10 test fixtures with expected tiers and capabilities |
-| `tests/classifier/rules.test.ts` | 17 unit tests: individual rule matching, deduplication, tier bump aggregation |
-| `tests/classifier/classifier.test.ts` | 22 unit tests: all fixtures, metadata overrides, hash determinism, UUID format, cost ceilings |
+| File                                     | Purpose                                                                                                  |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `src/types/task.ts`                      | Zod schemas: `TaskInput`, `TaskClassification`, `ComplexityTier` + `uuidv7()` and `sha256()` helpers     |
+| `src/classifier/rules.ts`                | 9 keyword-matching rules with capabilities and tier effects, `matchRules()` function                     |
+| `src/classifier/scoring.ts`              | `computeTier()` (base + token count + rule bumps + capability count), `costCeilingForTier()`             |
+| `src/classifier/classifier.ts`           | `classify(input)` — full pipeline: validate → match rules → merge metadata → compute tier → generate IDs |
+| `tests/classifier/fixtures/prompts.json` | 10 test fixtures with expected tiers and capabilities                                                    |
+| `tests/classifier/rules.test.ts`         | 17 unit tests: individual rule matching, deduplication, tier bump aggregation                            |
+| `tests/classifier/classifier.test.ts`    | 22 unit tests: all fixtures, metadata overrides, hash determinism, UUID format, cost ceilings            |
 
 **Test results:** 74/74 passing (39 new from Story 3).
 
@@ -880,11 +880,11 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `src/types/selection.ts` | Zod schemas: `ScoredCandidate`, `SelectionResult`, `RoutingPolicy` |
-| `src/repositories/routing-policy.ts` | `getActivePolicy()` — queries active routing policy, parses DECIMAL/BOOLEAN |
-| `src/services/agent-selection.ts` | `select(classification, policy?)` — filter → score → select with NEXT_BEST/TIER_UP/ABORT fallbacks |
+| File                                     | Purpose                                                                                                                        |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `src/types/selection.ts`                 | Zod schemas: `ScoredCandidate`, `SelectionResult`, `RoutingPolicy`                                                             |
+| `src/repositories/routing-policy.ts`     | `getActivePolicy()` — queries active routing policy, parses DECIMAL/BOOLEAN                                                    |
+| `src/services/agent-selection.ts`        | `select(classification, policy?)` — filter → score → select with NEXT_BEST/TIER_UP/ABORT fallbacks                             |
 | `tests/services/agent-selection.test.ts` | 7 integration tests: default weights, capability-heavy, NEXT_BEST fallback, ABORT, single candidate, rationale shape, tiebreak |
 
 **Test results:** 97/97 passing (7 new from Story 4).
@@ -902,18 +902,18 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `src/types/execution.ts` | Interfaces: `AgentProvider`, `AgentRequest`, `AgentResponse`, `HealthStatus`; Zod: `ExecutionRecord`, `ExecutionOutcome` |
-| `src/providers/provider.ts` | Re-exports provider interfaces for convenience |
-| `src/providers/anthropic.ts` | `AnthropicProvider` — raw fetch to Anthropic Messages API with AbortController timeout |
-| `src/providers/openai.ts` | `OpenAIProvider` — raw fetch to OpenAI Chat Completions API |
-| `src/providers/local.ts` | `LocalProvider` — raw fetch to Ollama API (localhost:11434) |
-| `src/repositories/execution-log.ts` | `insertExecution()`, `findByTaskId()` — execution_log table CRUD |
-| `src/services/execution.ts` | `execute(agentId, request, maxRetries)` — retry loop with exponential backoff, cost computation, DB logging |
-| `tests/providers/anthropic.test.ts` | 5 unit tests: success, system prompt, timeout, API error, token estimation |
-| `tests/providers/openai.test.ts` | 5 unit tests: same pattern |
-| `tests/services/execution.test.ts` | 6 tests: cost calc, agent not found, retry-then-succeed, exhausted retries (ERROR + TIMEOUT), DB integration |
+| File                                | Purpose                                                                                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `src/types/execution.ts`            | Interfaces: `AgentProvider`, `AgentRequest`, `AgentResponse`, `HealthStatus`; Zod: `ExecutionRecord`, `ExecutionOutcome` |
+| `src/providers/provider.ts`         | Re-exports provider interfaces for convenience                                                                           |
+| `src/providers/anthropic.ts`        | `AnthropicProvider` — raw fetch to Anthropic Messages API with AbortController timeout                                   |
+| `src/providers/openai.ts`           | `OpenAIProvider` — raw fetch to OpenAI Chat Completions API                                                              |
+| `src/providers/local.ts`            | `LocalProvider` — raw fetch to Ollama API (localhost:11434)                                                              |
+| `src/repositories/execution-log.ts` | `insertExecution()`, `findByTaskId()` — execution_log table CRUD                                                         |
+| `src/services/execution.ts`         | `execute(agentId, request, maxRetries)` — retry loop with exponential backoff, cost computation, DB logging              |
+| `tests/providers/anthropic.test.ts` | 5 unit tests: success, system prompt, timeout, API error, token estimation                                               |
+| `tests/providers/openai.test.ts`    | 5 unit tests: same pattern                                                                                               |
+| `tests/services/execution.test.ts`  | 6 tests: cost calc, agent not found, retry-then-succeed, exhausted retries (ERROR + TIMEOUT), DB integration             |
 
 **Test results:** 97/97 passing (23 new from Stories 4+5).
 
@@ -931,13 +931,13 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `src/types/router.ts` | Zod schemas: `TaskStatus`, `RouterTaskInput`, `TaskResult` |
-| `src/repositories/task-log.ts` | `create`, `updateClassification`, `updateSelection`, `updateStatus`, `findById` — full task_log lifecycle |
-| `src/router/router.ts` | `routeTask(input)` — classify → select → execute → commit pipeline with fallback handling |
-| `tests/repositories/task-log.test.ts` | 5 integration tests: create, classify, select, complete, find-not-found |
-| `tests/router/router.test.ts` | 6 integration tests: full lifecycle, task_log progression, execution_log linkage, provider failure, tier override, no-agent-available |
+| File                                  | Purpose                                                                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/types/router.ts`                 | Zod schemas: `TaskStatus`, `RouterTaskInput`, `TaskResult`                                                                            |
+| `src/repositories/task-log.ts`        | `create`, `updateClassification`, `updateSelection`, `updateStatus`, `findById` — full task_log lifecycle                             |
+| `src/router/router.ts`                | `routeTask(input)` — classify → select → execute → commit pipeline with fallback handling                                             |
+| `tests/repositories/task-log.test.ts` | 5 integration tests: create, classify, select, complete, find-not-found                                                               |
+| `tests/router/router.test.ts`         | 6 integration tests: full lifecycle, task_log progression, execution_log linkage, provider failure, tier override, no-agent-available |
 
 **Test results:** 108/108 passing (11 new from Story 6).
 
@@ -955,14 +955,14 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `src/repositories/session-context.ts` | CRUD for `session_context` table: `upsert`, `findBySessionId`, `findByKey`, `deleteBySessionId` |
-| `src/repositories/handoff-summary.ts` | CRUD for `handoff_summary` table: `insert`, `findByTaskId`, `findLatest` |
-| `src/memory/session-manager.ts` | Session lifecycle: `createSession`, `writeContext`, `readContext`, `commitSession`, `discardSession`, `writeHandoffSummary`, `readHandoffSummary` |
-| `src/memory/branch-cleanup.ts` | `pruneSessionBranches(retentionDays)` — queries `dolt_branches` for `session/*` branches and deletes expired ones |
-| `tests/memory/session-manager.test.ts` | 8 integration tests: create session, write/read context, commit, discard, concurrent sessions, handoff round-trip |
-| `tests/memory/branch-cleanup.test.ts` | 2 integration tests: prune with retention=0 deletes all, retention window preserves recent branches |
+| File                                   | Purpose                                                                                                                                           |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/repositories/session-context.ts`  | CRUD for `session_context` table: `upsert`, `findBySessionId`, `findByKey`, `deleteBySessionId`                                                   |
+| `src/repositories/handoff-summary.ts`  | CRUD for `handoff_summary` table: `insert`, `findByTaskId`, `findLatest`                                                                          |
+| `src/memory/session-manager.ts`        | Session lifecycle: `createSession`, `writeContext`, `readContext`, `commitSession`, `discardSession`, `writeHandoffSummary`, `readHandoffSummary` |
+| `src/memory/branch-cleanup.ts`         | `pruneSessionBranches(retentionDays)` — queries `dolt_branches` for `session/*` branches and deletes expired ones                                 |
+| `tests/memory/session-manager.test.ts` | 8 integration tests: create session, write/read context, commit, discard, concurrent sessions, handoff round-trip                                 |
+| `tests/memory/branch-cleanup.test.ts`  | 2 integration tests: prune with retention=0 deletes all, retention window preserves recent branches                                               |
 
 **Test results:** 133/133 passing (10 new from Story 7).
 
@@ -980,24 +980,24 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `src/api/app.ts` | Hono app creation, middleware registration, route mounting |
+| File                                  | Purpose                                                                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `src/api/app.ts`                      | Hono app creation, middleware registration, route mounting                                                                |
 | `src/api/middleware/error-handler.ts` | `errorHandler` + domain error classes (`ValidationError`, `NotFoundError`, `NoAgentAvailableError`) → HTTP status mapping |
-| `src/api/middleware/request-id.ts` | `requestId` middleware — generates or passes through `X-Request-ID` header |
-| `src/api/routes/health.ts` | `GET /health` — Dolt connectivity check, returns `{ status, dolt }` |
-| `src/api/routes/agents.ts` | `GET /agents`, `POST /agents`, `PUT /agents/:id`, `DELETE /agents/:id` — full agent CRUD |
-| `src/api/routes/tasks.ts` | `POST /tasks` (submit + route), `GET /tasks/:id` (status + execution log) |
-| `tests/api/health.test.ts` | 3 tests: 200 when connected, X-Request-ID generated, X-Request-ID passthrough |
-| `tests/api/agents.test.ts` | 8 tests: create, reject invalid, list, filter by capability, update, 404 on update, soft-delete, 404 on delete |
-| `tests/api/tasks.test.ts` | 4 tests: submit task → 201, reject empty prompt → 400, get task status, 404 for missing task |
+| `src/api/middleware/request-id.ts`    | `requestId` middleware — generates or passes through `X-Request-ID` header                                                |
+| `src/api/routes/health.ts`            | `GET /health` — Dolt connectivity check, returns `{ status, dolt }`                                                       |
+| `src/api/routes/agents.ts`            | `GET /agents`, `POST /agents`, `PUT /agents/:id`, `DELETE /agents/:id` — full agent CRUD                                  |
+| `src/api/routes/tasks.ts`             | `POST /tasks` (submit + route), `GET /tasks/:id` (status + execution log)                                                 |
+| `tests/api/health.test.ts`            | 3 tests: 200 when connected, X-Request-ID generated, X-Request-ID passthrough                                             |
+| `tests/api/agents.test.ts`            | 8 tests: create, reject invalid, list, filter by capability, update, 404 on update, soft-delete, 404 on delete            |
+| `tests/api/tasks.test.ts`             | 4 tests: submit task → 201, reject empty prompt → 400, get task status, 404 for missing task                              |
 
 **Files modified:**
 
-| File | Change |
-|------|--------|
+| File           | Change                                                                        |
+| -------------- | ----------------------------------------------------------------------------- |
 | `src/index.ts` | Updated to start Hono server via `@hono/node-server` with configurable `PORT` |
-| `package.json` | Added `hono` and `@hono/node-server` dependencies |
+| `package.json` | Added `hono` and `@hono/node-server` dependencies                             |
 
 **Test results:** 133/133 passing (15 new from Story 8).
 
@@ -1015,23 +1015,23 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `src/cli/index.ts` | CLI entry point: `run(argv)` with `parseArgs` from `node:util`, routes to commands |
-| `src/cli/output.ts` | Output formatters: `formatTable`, `formatJson`, `formatMinimal`, `formatOutput` |
-| `src/cli/commands/task.ts` | `taskCommand` — POST /tasks, display result in table/json/minimal |
-| `src/cli/commands/agents.ts` | `agentsListCommand`, `agentsUpdateCommand`, `agentsRemoveCommand` — GET/PUT/DELETE /agents |
-| `src/cli/commands/status.ts` | `statusCommand` — GET /tasks/:id, display lifecycle with execution details |
-| `src/cli/commands/history.ts` | `historyCommand` — GET /audit/commits (gracefully handles Story 10 not yet implemented) |
-| `src/bin/haol.ts` | Shebang entry point: `#!/usr/bin/env node`, imports `cli/index` |
-| `tests/cli/task.test.ts` | 8 unit tests: table/json/minimal output, error display, metadata flags, CLI entry |
-| `tests/cli/agents.test.ts` | 10 unit tests: list, filter, JSON output, update, remove, CLI entry, error cases |
-| `tests/cli/status.test.ts` | 10 unit tests: lifecycle display, json/minimal, 404 error, URL correctness, help/usage |
+| File                          | Purpose                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `src/cli/index.ts`            | CLI entry point: `run(argv)` with `parseArgs` from `node:util`, routes to commands         |
+| `src/cli/output.ts`           | Output formatters: `formatTable`, `formatJson`, `formatMinimal`, `formatOutput`            |
+| `src/cli/commands/task.ts`    | `taskCommand` — POST /tasks, display result in table/json/minimal                          |
+| `src/cli/commands/agents.ts`  | `agentsListCommand`, `agentsUpdateCommand`, `agentsRemoveCommand` — GET/PUT/DELETE /agents |
+| `src/cli/commands/status.ts`  | `statusCommand` — GET /tasks/:id, display lifecycle with execution details                 |
+| `src/cli/commands/history.ts` | `historyCommand` — GET /audit/commits (gracefully handles Story 10 not yet implemented)    |
+| `src/bin/haol.ts`             | Shebang entry point: `#!/usr/bin/env node`, imports `cli/index`                            |
+| `tests/cli/task.test.ts`      | 8 unit tests: table/json/minimal output, error display, metadata flags, CLI entry          |
+| `tests/cli/agents.test.ts`    | 10 unit tests: list, filter, JSON output, update, remove, CLI entry, error cases           |
+| `tests/cli/status.test.ts`    | 10 unit tests: lifecycle display, json/minimal, 404 error, URL correctness, help/usage     |
 
 **Files modified:**
 
-| File | Change |
-|------|--------|
+| File           | Change                                                |
+| -------------- | ----------------------------------------------------- |
 | `package.json` | Added `bin.haol` entry pointing to `dist/bin/haol.js` |
 
 **Test results:** 161/161 passing (28 new from Story 9).
@@ -1051,23 +1051,23 @@ All 5 subsystems from the architecture spec are covered.
 
 **Files created:**
 
-| File | Purpose |
-|------|---------|
-| `src/observability/queries.ts` | 7 canned SQL queries: `costByAgent`, `costCeilingBreaches`, `tasksByTier`, `avgLatencyByAgent`, `failureRate`, `agentRegistryDiff`, `commitHistory` |
-| `src/observability/dashboard.ts` | `getDashboard(hours)` — aggregates all queries into a single dashboard object with totals |
-| `src/api/routes/observability.ts` | 8 API routes: `GET /stats`, `/stats/cost`, `/stats/latency`, `/stats/failures`, `/stats/tiers`, `/stats/breaches`, `/audit/agents`, `/audit/commits` |
-| `src/cli/commands/stats.ts` | `statsCommand` — formatted dashboard output with cost/latency/failure/tier sections |
-| `src/cli/commands/audit.ts` | `auditAgentsCommand`, `auditCommitsCommand` — agent registry diffs and Dolt commit history |
-| `tests/observability/queries.test.ts` | 8 integration tests: all 7 query functions + empty data handling |
-| `tests/observability/dashboard.test.ts` | 2 integration tests: full dashboard shape + empty time window |
-| `tests/cli/stats.test.ts` | 6 unit tests: dashboard display, JSON output, hours param, CLI entry |
-| `tests/cli/audit.test.ts` | 12 unit tests: agents/commits display, params, empty results, JSON output, CLI entry |
+| File                                    | Purpose                                                                                                                                              |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/observability/queries.ts`          | 7 canned SQL queries: `costByAgent`, `costCeilingBreaches`, `tasksByTier`, `avgLatencyByAgent`, `failureRate`, `agentRegistryDiff`, `commitHistory`  |
+| `src/observability/dashboard.ts`        | `getDashboard(hours)` — aggregates all queries into a single dashboard object with totals                                                            |
+| `src/api/routes/observability.ts`       | 8 API routes: `GET /stats`, `/stats/cost`, `/stats/latency`, `/stats/failures`, `/stats/tiers`, `/stats/breaches`, `/audit/agents`, `/audit/commits` |
+| `src/cli/commands/stats.ts`             | `statsCommand` — formatted dashboard output with cost/latency/failure/tier sections                                                                  |
+| `src/cli/commands/audit.ts`             | `auditAgentsCommand`, `auditCommitsCommand` — agent registry diffs and Dolt commit history                                                           |
+| `tests/observability/queries.test.ts`   | 8 integration tests: all 7 query functions + empty data handling                                                                                     |
+| `tests/observability/dashboard.test.ts` | 2 integration tests: full dashboard shape + empty time window                                                                                        |
+| `tests/cli/stats.test.ts`               | 6 unit tests: dashboard display, JSON output, hours param, CLI entry                                                                                 |
+| `tests/cli/audit.test.ts`               | 12 unit tests: agents/commits display, params, empty results, JSON output, CLI entry                                                                 |
 
 **Files modified:**
 
-| File | Change |
-|------|--------|
-| `src/api/app.ts` | Added `observability` route import and mount |
+| File               | Change                                                                  |
+| ------------------ | ----------------------------------------------------------------------- |
+| `src/api/app.ts`   | Added `observability` route import and mount                            |
 | `src/cli/index.ts` | Added `stats` and `audit` commands with `--hours` and `--since` options |
 
 **Test results:** 189/189 passing (28 new from Story 10).

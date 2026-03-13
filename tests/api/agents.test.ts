@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import {
+  createPool,
+  getPool,
+  query,
+  destroy,
+} from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { createApp } from "../../src/api/app.js";
@@ -29,7 +34,9 @@ beforeAll(async () => {
 afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
-    await pool.query("DELETE FROM agent_registry WHERE agent_id LIKE 'api-test-%'");
+    await pool.query(
+      "DELETE FROM agent_registry WHERE agent_id LIKE 'api-test-%'",
+    );
   }
   await destroy();
 });

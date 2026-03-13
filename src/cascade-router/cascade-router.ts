@@ -110,7 +110,11 @@ export class CascadeRouter {
       } else if (utterances.length > 0 && this.embeddingProvider) {
         // Layer 1: Semantic similarity
         const queryEmbedding = await this.embeddingProvider.embed(prompt);
-        const matches = rankBySimilarity(queryEmbedding, utterances, config.top_k);
+        const matches = rankBySimilarity(
+          queryEmbedding,
+          utterances,
+          config.top_k,
+        );
         const vote = weightedTierVote(matches);
         similarityScore = matches.length > 0 ? matches[0].score : null;
 
@@ -125,7 +129,10 @@ export class CascadeRouter {
           tiers.length > 0
         ) {
           // Layer 2: LLM escalation
-          const escalation = await this.escalationProvider.classify(prompt, tiers);
+          const escalation = await this.escalationProvider.classify(
+            prompt,
+            tiers,
+          );
           tier = escalation.tier;
           layer = "escalation";
           confidence = escalation.confidence;
@@ -138,7 +145,10 @@ export class CascadeRouter {
           tiers.length > 0
         ) {
           // Low confidence — also escalate
-          const escalation = await this.escalationProvider.classify(prompt, tiers);
+          const escalation = await this.escalationProvider.classify(
+            prompt,
+            tiers,
+          );
           tier = escalation.tier;
           layer = "escalation";
           confidence = escalation.confidence;
@@ -157,7 +167,10 @@ export class CascadeRouter {
         tiers.length > 0
       ) {
         // No utterances but escalation available
-        const escalation = await this.escalationProvider.classify(prompt, tiers);
+        const escalation = await this.escalationProvider.classify(
+          prompt,
+          tiers,
+        );
         tier = escalation.tier;
         layer = "escalation";
         confidence = escalation.confidence;

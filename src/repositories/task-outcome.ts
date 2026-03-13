@@ -19,14 +19,19 @@ interface TaskOutcomeRow extends RowDataPacket {
 function parseRow(row: TaskOutcomeRow): TaskOutcomeRecord {
   let detail: Record<string, unknown> | null = null;
   if (row.detail) {
-    detail = typeof row.detail === "string" ? JSON.parse(row.detail) : row.detail;
+    detail =
+      typeof row.detail === "string" ? JSON.parse(row.detail) : row.detail;
   }
 
   return {
     outcome_id: row.outcome_id,
     task_id: row.task_id,
     tier: row.tier as 0 | 1 | 2 | 3,
-    source: row.source as "pipeline" | "format_check" | "routing_eval" | "downstream",
+    source: row.source as
+      | "pipeline"
+      | "format_check"
+      | "routing_eval"
+      | "downstream",
     signal_type: row.signal_type,
     signal_value: row.signal_value as 0 | 1,
     confidence: row.confidence,
@@ -69,7 +74,9 @@ export async function insertBatch(records: TaskOutcomeRecord[]): Promise<void> {
     r.detail ? JSON.stringify(r.detail) : null,
     r.reported_by,
   ]);
-  const placeholders = records.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
+  const placeholders = records
+    .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .join(", ");
   await pool.query(
     `INSERT INTO task_outcome (outcome_id, task_id, tier, source, signal_type, signal_value, confidence, detail, reported_by)
      VALUES ${placeholders}`,
@@ -77,7 +84,9 @@ export async function insertBatch(records: TaskOutcomeRecord[]): Promise<void> {
   );
 }
 
-export async function findByTaskId(taskId: string): Promise<TaskOutcomeRecord[]> {
+export async function findByTaskId(
+  taskId: string,
+): Promise<TaskOutcomeRecord[]> {
   const rows = await query<TaskOutcomeRow[]>(
     "SELECT * FROM task_outcome WHERE task_id = ? ORDER BY created_at",
     [taskId],
@@ -85,7 +94,10 @@ export async function findByTaskId(taskId: string): Promise<TaskOutcomeRecord[]>
   return rows.map(parseRow);
 }
 
-export async function findByTaskIdAndTier(taskId: string, tier: number): Promise<TaskOutcomeRecord[]> {
+export async function findByTaskIdAndTier(
+  taskId: string,
+  tier: number,
+): Promise<TaskOutcomeRecord[]> {
   const rows = await query<TaskOutcomeRow[]>(
     "SELECT * FROM task_outcome WHERE task_id = ? AND tier = ? ORDER BY created_at",
     [taskId, tier],
@@ -98,7 +110,9 @@ export async function findLowConfidenceTasks(
   hours: number,
   limit: number,
 ): Promise<Array<{ task_id: string; routing_confidence: number }>> {
-  const rows = await query<(RowDataPacket & { task_id: string; routing_confidence: number })[]>(
+  const rows = await query<
+    (RowDataPacket & { task_id: string; routing_confidence: number })[]
+  >(
     `SELECT t.task_id, t.routing_confidence
      FROM task_log t
      LEFT JOIN task_outcome o ON o.task_id = t.task_id AND o.tier = 2

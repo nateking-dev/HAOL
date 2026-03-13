@@ -14,7 +14,9 @@ export const RouterTaskInput = z.object({
   prompt: z.string().min(1),
   metadata: z
     .object({
-      tier: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+      tier: z
+        .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+        .optional(),
       capabilities: z.array(z.string()).optional(),
     })
     .optional(),

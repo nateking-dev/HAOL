@@ -81,7 +81,11 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     const policy = await getActivePolicy();
     const selection = await select(classification, policy ?? undefined);
 
-    await taskLog.updateSelection(taskId, selection.selected_agent_id, selection.rationale);
+    await taskLog.updateSelection(
+      taskId,
+      selection.selected_agent_id,
+      selection.rationale,
+    );
     status = "DISPATCHED";
 
     // 5. Execute
@@ -105,7 +109,10 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     );
 
     // 6. Handle fallback on execution failure
-    if (execResult.outcome !== "SUCCESS" && policy?.fallback_strategy !== "ABORT") {
+    if (
+      execResult.outcome !== "SUCCESS" &&
+      policy?.fallback_strategy !== "ABORT"
+    ) {
       // Try next-best agent if available
       const fallbackSelection = await tryFallbackAgent(
         classification,
@@ -140,10 +147,19 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     try {
       const taskRecord = await taskLog.findById(taskId);
       const allExecRecords = await execRepo.findByTaskId(taskId);
-      await collectStructuralSignals(taskId, allExecRecords, taskRecord, agentRequest.constraints);
+      await collectStructuralSignals(
+        taskId,
+        allExecRecords,
+        taskRecord,
+        agentRequest.constraints,
+      );
 
       if (parsed.expected_format && execResult.response_content) {
-        await runFormatVerification(taskId, execResult.response_content, parsed.expected_format);
+        await runFormatVerification(
+          taskId,
+          execResult.response_content,
+          parsed.expected_format,
+        );
       }
 
       if (
@@ -157,7 +173,8 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     }
 
     // 8. Commit
-    const costStr = execResult.cost_usd > 0 ? `$${execResult.cost_usd.toFixed(4)}` : "$0";
+    const costStr =
+      execResult.cost_usd > 0 ? `$${execResult.cost_usd.toFixed(4)}` : "$0";
     await commitSafely(
       `task:${taskId} | tier:T${classification.complexity_tier} | agent:${execResult.agent_id} | cost:${costStr} | ${execResult.latency_ms}ms`,
     );
@@ -181,7 +198,9 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
         // best-effort status update
       }
       try {
-        await commitSafely(`task:${taskId} | FAILED | ${(err as Error).message}`);
+        await commitSafely(
+          `task:${taskId} | FAILED | ${(err as Error).message}`,
+        );
       } catch {
         // best-effort commit
       }

@@ -18,10 +18,30 @@ vi.mock("../../src/cascade-router/reference-store.js", () => ({
 
 vi.mock("../../src/db/connection.js", () => ({
   query: vi.fn().mockResolvedValue([
-    { tier_id: 1, tier_name: "Simple", description: "Basic tasks", default_agent: "local-llama" },
-    { tier_id: 2, tier_name: "Moderate", description: "Moderate tasks", default_agent: "gpt-4o-mini" },
-    { tier_id: 3, tier_name: "Complex", description: "Complex tasks", default_agent: "claude-sonnet-4-5" },
-    { tier_id: 4, tier_name: "Expert", description: "Expert tasks", default_agent: "claude-sonnet-4-5" },
+    {
+      tier_id: 1,
+      tier_name: "Simple",
+      description: "Basic tasks",
+      default_agent: "local-llama",
+    },
+    {
+      tier_id: 2,
+      tier_name: "Moderate",
+      description: "Moderate tasks",
+      default_agent: "gpt-4o-mini",
+    },
+    {
+      tier_id: 3,
+      tier_name: "Complex",
+      description: "Complex tasks",
+      default_agent: "claude-sonnet-4-5",
+    },
+    {
+      tier_id: 4,
+      tier_name: "Expert",
+      description: "Expert tasks",
+      default_agent: "claude-sonnet-4-5",
+    },
   ]),
   execute: vi.fn(),
 }));
@@ -201,7 +221,9 @@ describe("CascadeRouter", () => {
 
       const embedder = mockEmbedder([1, 0, 0]);
 
-      const router = await CascadeRouter.create({ embeddingProvider: embedder });
+      const router = await CascadeRouter.create({
+        embeddingProvider: embedder,
+      });
       const result = await router.classify({ prompt: "some ambiguous query" });
 
       expect(result.complexity_tier).toBe(2);
@@ -241,7 +263,9 @@ describe("CascadeRouter", () => {
         embeddingProvider: embedder,
         escalationProvider: escalation,
       });
-      const result = await router.classify({ prompt: "ambiguous multi-domain task" });
+      const result = await router.classify({
+        prompt: "ambiguous multi-domain task",
+      });
 
       expect(result.complexity_tier).toBe(4);
       expect(result.required_capabilities).toContain("vision");
@@ -264,7 +288,9 @@ describe("CascadeRouter", () => {
 
       const embedder = mockEmbedder([0, 1, 0]);
 
-      const router = await CascadeRouter.create({ embeddingProvider: embedder });
+      const router = await CascadeRouter.create({
+        embeddingProvider: embedder,
+      });
       const result = await router.classify({ prompt: "something unknown" });
 
       expect(result.complexity_tier).toBe(3); // default_tier

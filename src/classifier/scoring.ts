@@ -30,8 +30,8 @@ export function computeTier(
 const COST_CEILINGS: Record<number, number> = {
   1: 0.01,
   2: 0.05,
-  3: 0.50,
-  4: 5.00,
+  3: 0.5,
+  4: 5.0,
 };
 
 export function costCeilingForTier(tier: ComplexityTier): number {

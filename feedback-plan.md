@@ -74,6 +74,7 @@ Defaults to 0 — data collection begins immediately, routing influence is opt-i
 ### Modify: `src/types/task.ts`
 
 Add optional fields to `TaskClassification`:
+
 - `routing_confidence: z.number().optional()`
 - `routing_layer: z.string().optional()`
 
@@ -92,6 +93,7 @@ Add `weight_outcome: z.number().default(0)` to `RoutingPolicy`.
 ### New: `src/repositories/task-outcome.ts`
 
 Following existing repo patterns (parameterized queries, `parseRow`, JSON handling):
+
 - `insert(record)` — single outcome row
 - `insertBatch(records)` — for Tier 0 (multiple signals at once)
 - `findByTaskId(taskId)` — all outcomes for a task
@@ -114,20 +116,21 @@ Following existing repo patterns (parameterized queries, `parseRow`, JSON handli
 
 Computed from data already in memory at end of pipeline — zero extra DB reads. Signals:
 
-| Signal | Source | Logic |
-|--------|--------|-------|
-| `fallback_activated` | selection_rationale | Has `fallback_from` key |
-| `error_occurred` | execRecords | Any outcome = ERROR |
-| `timeout_occurred` | execRecords | Any outcome = TIMEOUT |
-| `token_budget_overrun` | execRecords + constraints | output_tokens >= max_tokens |
-| `cost_ceiling_breach` | execRecords + taskRecord | sum(cost_usd) > cost_ceiling_usd |
-| `latency_anomaly` | execRecords + agent registry | latency_ms > 3x agent.avg_latency_ms (requires one agent lookup) |
+| Signal                 | Source                       | Logic                                                            |
+| ---------------------- | ---------------------------- | ---------------------------------------------------------------- |
+| `fallback_activated`   | selection_rationale          | Has `fallback_from` key                                          |
+| `error_occurred`       | execRecords                  | Any outcome = ERROR                                              |
+| `timeout_occurred`     | execRecords                  | Any outcome = TIMEOUT                                            |
+| `token_budget_overrun` | execRecords + constraints    | output_tokens >= max_tokens                                      |
+| `cost_ceiling_breach`  | execRecords + taskRecord     | sum(cost_usd) > cost_ceiling_usd                                 |
+| `latency_anomaly`      | execRecords + agent registry | latency_ms > 3x agent.avg_latency_ms (requires one agent lookup) |
 
 Each becomes a `TaskOutcomeRecord` with `tier: 0, source: "pipeline"`. Written via `insertBatch`.
 
 #### Tier 1: `runFormatVerification(taskId, responseContent, formatSpec)`
 
 Only runs if `expected_format` was provided and execution succeeded. Programmatic checks:
+
 - `json_valid` — `JSON.parse()` succeeds
 - `required_fields_present` — parsed object has all required fields
 - `length_within_bounds` — content.length vs max_length/min_length
@@ -139,6 +142,7 @@ Written via `insertBatch`.
 `shouldSampleForEvaluation` — static threshold initially (confidence < 0.6). Returns boolean.
 
 `evaluateRoutingDecision` — async, fire-and-forget from router:
+
 1. Load task record (prompt, tier, capabilities)
 2. Call a fast model via existing escalation provider with structured prompt: "Given this prompt, is Tier X assignment plausible? YES or NO"
 3. Insert single Tier 2 row: `signal_type: "tier_assignment_plausible"`, `signal_value: 1 or 0`
@@ -163,8 +167,8 @@ return {
   required_capabilities: [...allCapabilities],
   cost_ceiling_usd: costCeilingForTier(tier),
   prompt_hash: sha256(prompt),
-  routing_confidence: confidence,   // NEW
-  routing_layer: layer,             // NEW
+  routing_confidence: confidence, // NEW
+  routing_layer: layer, // NEW
 };
 ```
 
@@ -173,6 +177,7 @@ return {
 Three additions after existing pipeline steps:
 
 1. **After classification** (line 44): Store confidence on task_log
+
    ```
    if (classification.routing_confidence != null) {
      await taskLog.updateRoutingConfidence(taskId, classification.routing_confidence, classification.routing_layer);
@@ -180,6 +185,7 @@ Three additions after existing pipeline steps:
    ```
 
 2. **After intake** (line 48): Store expected_format if provided
+
    ```
    if (parsed.expected_format) {
      await taskLog.updateExpectedFormat(taskId, parsed.expected_format);
@@ -187,6 +193,7 @@ Three additions after existing pipeline steps:
    ```
 
 3. **After status update, before Dolt commit** (between lines 112-114): Collect outcomes
+
    ```
    // Best-effort outcome collection — never fails the task
    try {
@@ -211,16 +218,19 @@ Three additions after existing pipeline steps:
 ### New: `src/api/routes/outcomes.ts`
 
 **`POST /tasks/:id/outcome`** — Tier 3 downstream signal
+
 - Body: `DownstreamOutcomeInput` (Zod validated)
 - Validates task exists via `taskLog.findById`
 - Inserts outcome, Dolt commits
 - Returns 201 with created record
 
 **`GET /tasks/:id/outcomes`** — All outcome signals for a task
+
 - Optional `?tier=0` filter
 - Returns `TaskOutcomeRecord[]`
 
 **`GET /tasks/:id/outcomes/summary`** — Aggregated `OutcomeSummary`
+
 - Reads all outcome rows, assembles in code
 
 ### Modify: `src/api/app.ts`
@@ -248,6 +258,7 @@ Mount: `app.route("/", outcomes);`
 ### Modify: `src/services/agent-selection.ts`
 
 Add `outcome_score` to the scoring formula:
+
 - Query recent outcome data per candidate agent (AVG of signal_value from Tier 1-3, last 72h)
 - New total: `cap * w_cap + cost * w_cost + latency * w_lat + outcome * w_outcome`
 - With `weight_outcome` at 0.0 by default, this is inert until an operator enables it
@@ -256,16 +267,16 @@ Add `outcome_score` to the scoring formula:
 
 ## Implementation Order
 
-| Phase | Files | What |
-|-------|-------|------|
-| 1 | Migrations 010-013, types | Schema + types, no behavior change |
-| 2 | `task-outcome.ts` repo, `task-log.ts` updates | Data layer |
-| 3 | `outcome-collector.ts`, cascade-router return | Collection logic |
-| 4 | `router.ts` | Wire collection into pipeline |
-| 5 | `outcomes.ts` route, `app.ts` | API endpoints |
-| 6 | `queries.ts`, `observability.ts` | Observability |
-| 7 | `agent-selection.ts` | Feedback loop (deferrable) |
-| 8 | Tests | Repo, service, API tests |
+| Phase | Files                                         | What                               |
+| ----- | --------------------------------------------- | ---------------------------------- |
+| 1     | Migrations 010-013, types                     | Schema + types, no behavior change |
+| 2     | `task-outcome.ts` repo, `task-log.ts` updates | Data layer                         |
+| 3     | `outcome-collector.ts`, cascade-router return | Collection logic                   |
+| 4     | `router.ts`                                   | Wire collection into pipeline      |
+| 5     | `outcomes.ts` route, `app.ts`                 | API endpoints                      |
+| 6     | `queries.ts`, `observability.ts`              | Observability                      |
+| 7     | `agent-selection.ts`                          | Feedback loop (deferrable)         |
+| 8     | Tests                                         | Repo, service, API tests           |
 
 ---
 

@@ -1,6 +1,10 @@
 import { query, getPool } from "../db/connection.js";
 import type { RowDataPacket } from "mysql2/promise";
-import type { AgentRegistration, CreateAgentInput, UpdateAgentInput } from "../types/agent.js";
+import type {
+  AgentRegistration,
+  CreateAgentInput,
+  UpdateAgentInput,
+} from "../types/agent.js";
 
 interface AgentRow extends RowDataPacket {
   agent_id: string;
@@ -28,12 +32,14 @@ export function parseAgentRow(row: AgentRow): AgentRegistration {
     provider: row.provider,
     model_id: row.model_id,
     capabilities,
-    cost_per_1k_input: typeof row.cost_per_1k_input === "string"
-      ? parseFloat(row.cost_per_1k_input)
-      : row.cost_per_1k_input,
-    cost_per_1k_output: typeof row.cost_per_1k_output === "string"
-      ? parseFloat(row.cost_per_1k_output)
-      : row.cost_per_1k_output,
+    cost_per_1k_input:
+      typeof row.cost_per_1k_input === "string"
+        ? parseFloat(row.cost_per_1k_input)
+        : row.cost_per_1k_input,
+    cost_per_1k_output:
+      typeof row.cost_per_1k_output === "string"
+        ? parseFloat(row.cost_per_1k_output)
+        : row.cost_per_1k_output,
     max_context_tokens: row.max_context_tokens,
     avg_latency_ms: row.avg_latency_ms,
     status: row.status as AgentRegistration["status"],
@@ -67,7 +73,9 @@ export async function findAll(filters?: {
   return rows.map(parseAgentRow);
 }
 
-export async function findById(agentId: string): Promise<AgentRegistration | null> {
+export async function findById(
+  agentId: string,
+): Promise<AgentRegistration | null> {
   const rows = await query<AgentRow[]>(
     "SELECT * FROM agent_registry WHERE agent_id = ?",
     [agentId],
@@ -76,7 +84,9 @@ export async function findById(agentId: string): Promise<AgentRegistration | nul
   return parseAgentRow(rows[0]);
 }
 
-export async function findByCapabilities(caps: string[]): Promise<AgentRegistration[]> {
+export async function findByCapabilities(
+  caps: string[],
+): Promise<AgentRegistration[]> {
   if (caps.length === 0) {
     return findAll({ status: "active" });
   }

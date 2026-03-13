@@ -5,7 +5,11 @@ import { costCeilingForTier } from "../classifier/scoring.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type { AgentRegistration } from "../types/agent.js";
 import type { ComplexityTier, TaskClassification } from "../types/task.js";
-import type { RoutingPolicy, ScoredCandidate, SelectionResult } from "../types/selection.js";
+import type {
+  RoutingPolicy,
+  ScoredCandidate,
+  SelectionResult,
+} from "../types/selection.js";
 
 interface AgentRow extends RowDataPacket {
   agent_id: string;
@@ -21,7 +25,10 @@ interface AgentRow extends RowDataPacket {
 }
 
 function estimateCost(agent: AgentRegistration): number {
-  return (1000 / 1000) * agent.cost_per_1k_input + (500 / 1000) * agent.cost_per_1k_output;
+  return (
+    (1000 / 1000) * agent.cost_per_1k_input +
+    (500 / 1000) * agent.cost_per_1k_output
+  );
 }
 
 function hasAllCapabilities(
@@ -72,7 +79,9 @@ function scoreCandidates(
 
   // Count bonus capabilities (beyond required) for each candidate
   const bonusCounts = candidates.map(
-    (agent) => agent.capabilities.filter((cap) => !requiredCapabilities.includes(cap)).length,
+    (agent) =>
+      agent.capabilities.filter((cap) => !requiredCapabilities.includes(cap))
+        .length,
   );
   const maxBonus = Math.max(...bonusCounts);
 
@@ -80,11 +89,15 @@ function scoreCandidates(
     // Base: all candidates have required capabilities (guaranteed by filter).
     // Differentiate by bonus capabilities the agent offers beyond requirements.
     const bonusScore = maxBonus === 0 ? 0 : bonusCounts[i] / maxBonus;
-    const capabilityScore = requiredCapabilities.length === 0
-      ? (maxBonus === 0 ? 1.0 : bonusScore)
-      : 0.6 + 0.4 * bonusScore;
+    const capabilityScore =
+      requiredCapabilities.length === 0
+        ? maxBonus === 0
+          ? 1.0
+          : bonusScore
+        : 0.6 + 0.4 * bonusScore;
 
-    const costScore = costRange === 0 ? 1.0 : 1 - (costs[i] - minCost) / costRange;
+    const costScore =
+      costRange === 0 ? 1.0 : 1 - (costs[i] - minCost) / costRange;
 
     const latencyScore =
       latencyRange === 0
@@ -143,7 +156,13 @@ export async function select(
   const weightOutcome = (policy as any).weight_outcome ?? 0;
   if (weightOutcome > 0) {
     try {
-      const rows = await query<(RowDataPacket & { agent_id: string; positive: number; total: number })[]>(
+      const rows = await query<
+        (RowDataPacket & {
+          agent_id: string;
+          positive: number;
+          total: number;
+        })[]
+      >(
         `SELECT t.selected_agent_id AS agent_id,
                 SUM(CASE WHEN o.signal_value = 1 THEN 1 ELSE 0 END) AS positive,
                 COUNT(*) AS total
@@ -157,8 +176,12 @@ export async function select(
       );
       outcomeScores = new Map();
       for (const r of rows) {
-        const total = typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total);
-        const positive = typeof r.positive === "string" ? parseInt(r.positive, 10) : Number(r.positive);
+        const total =
+          typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total);
+        const positive =
+          typeof r.positive === "string"
+            ? parseInt(r.positive, 10)
+            : Number(r.positive);
         outcomeScores.set(r.agent_id, total > 0 ? positive / total : 0.5);
       }
     } catch {
@@ -166,7 +189,12 @@ export async function select(
     }
   }
 
-  let scored = scoreCandidates(candidates, classification.required_capabilities, policy, outcomeScores);
+  let scored = scoreCandidates(
+    candidates,
+    classification.required_capabilities,
+    policy,
+    outcomeScores,
+  );
   let sorted = sortCandidates(scored);
   let fallbackApplied: "NONE" | "NEXT_BEST" | "TIER_UP" = "NONE";
 
@@ -179,18 +207,31 @@ export async function select(
         classification.required_capabilities,
         relaxedCeiling,
       );
-      scored = scoreCandidates(candidates, classification.required_capabilities, policy, outcomeScores);
+      scored = scoreCandidates(
+        candidates,
+        classification.required_capabilities,
+        policy,
+        outcomeScores,
+      );
       sorted = sortCandidates(scored);
       fallbackApplied = "NEXT_BEST";
     } else if (policy.fallback_strategy === "TIER_UP") {
-      const higherTier = Math.min(classification.complexity_tier + 1, 4) as ComplexityTier;
+      const higherTier = Math.min(
+        classification.complexity_tier + 1,
+        4,
+      ) as ComplexityTier;
       const relaxedCeiling = costCeilingForTier(higherTier);
       candidates = await filterCandidates(
         higherTier,
         classification.required_capabilities,
         relaxedCeiling,
       );
-      scored = scoreCandidates(candidates, classification.required_capabilities, policy, outcomeScores);
+      scored = scoreCandidates(
+        candidates,
+        classification.required_capabilities,
+        policy,
+        outcomeScores,
+      );
       sorted = sortCandidates(scored);
       fallbackApplied = "TIER_UP";
     }

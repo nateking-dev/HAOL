@@ -29,8 +29,14 @@ export async function costByAgent(hours: number): Promise<CostByAgentRow[]> {
   );
   return rows.map((r) => ({
     agent_id: r.agent_id,
-    total_cost: typeof r.total_cost === "string" ? parseFloat(r.total_cost) : Number(r.total_cost),
-    invocations: typeof r.invocations === "string" ? parseInt(r.invocations, 10) : Number(r.invocations),
+    total_cost:
+      typeof r.total_cost === "string"
+        ? parseFloat(r.total_cost)
+        : Number(r.total_cost),
+    invocations:
+      typeof r.invocations === "string"
+        ? parseInt(r.invocations, 10)
+        : Number(r.invocations),
   }));
 }
 
@@ -62,8 +68,12 @@ export async function costCeilingBreaches(): Promise<CostCeilingBreachRow[]> {
   );
   return rows.map((r) => ({
     task_id: r.task_id,
-    ceiling: typeof r.ceiling === "string" ? parseFloat(r.ceiling) : Number(r.ceiling),
-    actual_cost: typeof r.actual_cost === "string" ? parseFloat(r.actual_cost) : Number(r.actual_cost),
+    ceiling:
+      typeof r.ceiling === "string" ? parseFloat(r.ceiling) : Number(r.ceiling),
+    actual_cost:
+      typeof r.actual_cost === "string"
+        ? parseFloat(r.actual_cost)
+        : Number(r.actual_cost),
   }));
 }
 
@@ -92,7 +102,8 @@ export async function tasksByTier(hours: number): Promise<TasksByTierRow[]> {
   );
   return rows.map((r) => ({
     tier: r.tier,
-    count: typeof r.count === "string" ? parseInt(r.count, 10) : Number(r.count),
+    count:
+      typeof r.count === "string" ? parseInt(r.count, 10) : Number(r.count),
   }));
 }
 
@@ -108,7 +119,9 @@ interface AvgLatencyRaw extends RowDataPacket {
   avg_latency_ms: string | number;
 }
 
-export async function avgLatencyByAgent(hours: number): Promise<AvgLatencyRow[]> {
+export async function avgLatencyByAgent(
+  hours: number,
+): Promise<AvgLatencyRow[]> {
   const rows = await query<AvgLatencyRaw[]>(
     `SELECT agent_id,
             AVG(latency_ms) AS avg_latency_ms
@@ -121,9 +134,10 @@ export async function avgLatencyByAgent(hours: number): Promise<AvgLatencyRow[]>
   );
   return rows.map((r) => ({
     agent_id: r.agent_id,
-    avg_latency_ms: typeof r.avg_latency_ms === "string"
-      ? parseFloat(r.avg_latency_ms)
-      : Number(r.avg_latency_ms),
+    avg_latency_ms:
+      typeof r.avg_latency_ms === "string"
+        ? parseFloat(r.avg_latency_ms)
+        : Number(r.avg_latency_ms),
   }));
 }
 
@@ -154,8 +168,12 @@ export async function failureRate(hours: number): Promise<FailureRateRow[]> {
     [hours],
   );
   return rows.map((r) => {
-    const total = typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total);
-    const failures = typeof r.failures === "string" ? parseInt(r.failures, 10) : Number(r.failures);
+    const total =
+      typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total);
+    const failures =
+      typeof r.failures === "string"
+        ? parseInt(r.failures, 10)
+        : Number(r.failures);
     return {
       agent_id: r.agent_id,
       total,
@@ -187,7 +205,9 @@ interface AgentDiffRaw extends RowDataPacket {
   to_capabilities: string | null;
 }
 
-export async function agentRegistryDiff(since: string): Promise<AgentDiffRow[]> {
+export async function agentRegistryDiff(
+  since: string,
+): Promise<AgentDiffRow[]> {
   // Parse "7d", "24h", "1d" into a Dolt revision spec
   // Dolt supports: HEAD~N, commit hashes, timestamps
   // We'll use a commit-time-based approach via dolt_log
@@ -233,7 +253,9 @@ interface CommitHistoryRaw extends RowDataPacket {
   committer: string;
 }
 
-export async function commitHistory(limit: number): Promise<CommitHistoryRow[]> {
+export async function commitHistory(
+  limit: number,
+): Promise<CommitHistoryRow[]> {
   const rows = await query<CommitHistoryRaw[]>(
     `SELECT commit_hash, message, date, committer
      FROM dolt_log
@@ -244,7 +266,10 @@ export async function commitHistory(limit: number): Promise<CommitHistoryRow[]> 
   return rows.map((r) => ({
     hash: r.commit_hash,
     message: r.message,
-    date: typeof r.date === "object" ? (r.date as Date).toISOString() : String(r.date),
+    date:
+      typeof r.date === "object"
+        ? (r.date as Date).toISOString()
+        : String(r.date),
     author: r.committer,
   }));
 }
@@ -265,7 +290,9 @@ interface OutcomeSignalRateRaw extends RowDataPacket {
   positive: string | number;
 }
 
-export async function outcomeSignalRates(hours: number): Promise<OutcomeSignalRateRow[]> {
+export async function outcomeSignalRates(
+  hours: number,
+): Promise<OutcomeSignalRateRow[]> {
   const rows = await query<OutcomeSignalRateRaw[]>(
     `SELECT signal_type,
             COUNT(*) AS total,
@@ -277,8 +304,12 @@ export async function outcomeSignalRates(hours: number): Promise<OutcomeSignalRa
     [hours],
   );
   return rows.map((r) => {
-    const total = typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total);
-    const positive = typeof r.positive === "string" ? parseInt(r.positive, 10) : Number(r.positive);
+    const total =
+      typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total);
+    const positive =
+      typeof r.positive === "string"
+        ? parseInt(r.positive, 10)
+        : Number(r.positive);
     return {
       signal_type: r.signal_type,
       total,
@@ -304,7 +335,9 @@ interface RoutingAccuracyRaw extends RowDataPacket {
   positive_outcomes: string | number;
 }
 
-export async function routingAccuracyByAgent(hours: number): Promise<RoutingAccuracyRow[]> {
+export async function routingAccuracyByAgent(
+  hours: number,
+): Promise<RoutingAccuracyRow[]> {
   const rows = await query<RoutingAccuracyRaw[]>(
     `SELECT t.selected_agent_id AS agent_id,
             COUNT(*) AS total_outcomes,
@@ -319,8 +352,14 @@ export async function routingAccuracyByAgent(hours: number): Promise<RoutingAccu
     [hours],
   );
   return rows.map((r) => {
-    const total = typeof r.total_outcomes === "string" ? parseInt(r.total_outcomes, 10) : Number(r.total_outcomes);
-    const positive = typeof r.positive_outcomes === "string" ? parseInt(r.positive_outcomes, 10) : Number(r.positive_outcomes);
+    const total =
+      typeof r.total_outcomes === "string"
+        ? parseInt(r.total_outcomes, 10)
+        : Number(r.total_outcomes);
+    const positive =
+      typeof r.positive_outcomes === "string"
+        ? parseInt(r.positive_outcomes, 10)
+        : Number(r.positive_outcomes);
     return {
       agent_id: r.agent_id,
       total_outcomes: total,
@@ -337,9 +376,13 @@ function parseDurationToHours(duration: string): number {
   if (!match) return 24; // default to 24 hours
   const value = parseInt(match[1], 10);
   switch (match[2]) {
-    case "d": return value * 24;
-    case "h": return value;
-    case "m": return value / 60;
-    default: return 24;
+    case "d":
+      return value * 24;
+    case "h":
+      return value;
+    case "m":
+      return value / 60;
+    default:
+      return 24;
   }
 }

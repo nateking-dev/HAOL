@@ -24,7 +24,10 @@ outcomes.get("/tasks/:id/outcomes", async (c) => {
 
   let records;
   if (tierParam != null) {
-    records = await outcomeRepo.findByTaskIdAndTier(taskId, parseInt(tierParam, 10));
+    records = await outcomeRepo.findByTaskIdAndTier(
+      taskId,
+      parseInt(tierParam, 10),
+    );
   } else {
     records = await outcomeRepo.findByTaskId(taskId);
   }
@@ -37,7 +40,19 @@ outcomes.get("/tasks/:id/outcomes/summary", async (c) => {
   const taskId = c.req.param("id");
   const records = await outcomeRepo.findByTaskId(taskId);
 
-  const byTier: Record<string, { total: number; positive: number; negative: number; signals: Array<{ signal_type: string; signal_value: number; confidence: number | null }> }> = {};
+  const byTier: Record<
+    string,
+    {
+      total: number;
+      positive: number;
+      negative: number;
+      signals: Array<{
+        signal_type: string;
+        signal_value: number;
+        confidence: number | null;
+      }>;
+    }
+  > = {};
 
   for (const r of records) {
     const key = String(r.tier);

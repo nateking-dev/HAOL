@@ -125,15 +125,13 @@ export async function updateStatus(
   status: TaskStatus,
 ): Promise<void> {
   const pool = getPool();
-  await pool.query(
-    `UPDATE task_log SET status = ? WHERE task_id = ?`,
-    [status, taskId],
-  );
+  await pool.query(`UPDATE task_log SET status = ? WHERE task_id = ?`, [
+    status,
+    taskId,
+  ]);
 }
 
-export async function findById(
-  taskId: string,
-): Promise<TaskLogRecord | null> {
+export async function findById(taskId: string): Promise<TaskLogRecord | null> {
   const rows = await query<TaskLogRow[]>(
     "SELECT * FROM task_log WHERE task_id = ?",
     [taskId],

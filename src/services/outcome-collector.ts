@@ -14,11 +14,19 @@ export async function collectStructuralSignals(
   taskId: string,
   execRecords: ExecutionRecord[],
   taskRecord: TaskLogRecord | null,
-  constraints?: { max_tokens?: number; timeout_ms?: number; temperature?: number },
+  constraints?: {
+    max_tokens?: number;
+    timeout_ms?: number;
+    temperature?: number;
+  },
 ): Promise<void> {
   const signals: TaskOutcomeRecord[] = [];
 
-  const makeSignal = (signalType: string, signalValue: 0 | 1, detail?: Record<string, unknown>): TaskOutcomeRecord => ({
+  const makeSignal = (
+    signalType: string,
+    signalValue: 0 | 1,
+    detail?: Record<string, unknown>,
+  ): TaskOutcomeRecord => ({
     outcome_id: uuidv7(),
     task_id: taskId,
     tier: 0,
@@ -31,10 +39,15 @@ export async function collectStructuralSignals(
   });
 
   // Check for fallback activation
-  if (taskRecord?.selection_rationale && "fallback_from" in taskRecord.selection_rationale) {
-    signals.push(makeSignal("fallback_activated", 0, {
-      fallback_from: taskRecord.selection_rationale.fallback_from,
-    }));
+  if (
+    taskRecord?.selection_rationale &&
+    "fallback_from" in taskRecord.selection_rationale
+  ) {
+    signals.push(
+      makeSignal("fallback_activated", 0, {
+        fallback_from: taskRecord.selection_rationale.fallback_from,
+      }),
+    );
   }
 
   // Check for errors
@@ -51,7 +64,9 @@ export async function collectStructuralSignals(
 
   // Check token budget overrun
   if (constraints?.max_tokens) {
-    const overrun = execRecords.some((r) => r.output_tokens >= constraints.max_tokens!);
+    const overrun = execRecords.some(
+      (r) => r.output_tokens >= constraints.max_tokens!,
+    );
     if (overrun) {
       signals.push(makeSignal("token_budget_overrun", 0));
     }
@@ -61,10 +76,12 @@ export async function collectStructuralSignals(
   if (taskRecord?.cost_ceiling_usd != null) {
     const totalCost = execRecords.reduce((sum, r) => sum + r.cost_usd, 0);
     if (totalCost > taskRecord.cost_ceiling_usd) {
-      signals.push(makeSignal("cost_ceiling_breach", 0, {
-        ceiling: taskRecord.cost_ceiling_usd,
-        actual: totalCost,
-      }));
+      signals.push(
+        makeSignal("cost_ceiling_breach", 0, {
+          ceiling: taskRecord.cost_ceiling_usd,
+          actual: totalCost,
+        }),
+      );
     }
   }
 
@@ -74,19 +91,22 @@ export async function collectStructuralSignals(
     if (successRecords.length > 0) {
       const agentId = successRecords[0].agent_id;
       try {
-        const rows = await query<(RowDataPacket & { avg_latency_ms: number })[]>(
-          "SELECT avg_latency_ms FROM agent_registry WHERE agent_id = ?",
-          [agentId],
-        );
+        const rows = await query<
+          (RowDataPacket & { avg_latency_ms: number })[]
+        >("SELECT avg_latency_ms FROM agent_registry WHERE agent_id = ?", [
+          agentId,
+        ]);
         if (rows.length > 0 && rows[0].avg_latency_ms > 0) {
           const anomaly = successRecords.some(
             (r) => r.latency_ms > 3 * rows[0].avg_latency_ms,
           );
           if (anomaly) {
-            signals.push(makeSignal("latency_anomaly", 0, {
-              threshold: 3 * rows[0].avg_latency_ms,
-              actual: successRecords[0].latency_ms,
-            }));
+            signals.push(
+              makeSignal("latency_anomaly", 0, {
+                threshold: 3 * rows[0].avg_latency_ms,
+                actual: successRecords[0].latency_ms,
+              }),
+            );
           }
         }
       } catch {
@@ -108,11 +128,20 @@ export async function collectStructuralSignals(
 export async function runFormatVerification(
   taskId: string,
   responseContent: string,
-  formatSpec: { type?: string; max_length?: number; min_length?: number; required_fields?: string[] },
+  formatSpec: {
+    type?: string;
+    max_length?: number;
+    min_length?: number;
+    required_fields?: string[];
+  },
 ): Promise<void> {
   const signals: TaskOutcomeRecord[] = [];
 
-  const makeSignal = (signalType: string, signalValue: 0 | 1, detail?: Record<string, unknown>): TaskOutcomeRecord => ({
+  const makeSignal = (
+    signalType: string,
+    signalValue: 0 | 1,
+    detail?: Record<string, unknown>,
+  ): TaskOutcomeRecord => ({
     outcome_id: uuidv7(),
     task_id: taskId,
     tier: 1,
@@ -131,8 +160,14 @@ export async function runFormatVerification(
       signals.push(makeSignal("json_valid", 1));
 
       // Required fields check
-      if (formatSpec.required_fields && typeof parsed === "object" && parsed !== null) {
-        const missing = formatSpec.required_fields.filter((f) => !(f in parsed));
+      if (
+        formatSpec.required_fields &&
+        typeof parsed === "object" &&
+        parsed !== null
+      ) {
+        const missing = formatSpec.required_fields.filter(
+          (f) => !(f in parsed),
+        );
         if (missing.length === 0) {
           signals.push(makeSignal("required_fields_present", 1));
         } else {
@@ -147,13 +182,17 @@ export async function runFormatVerification(
   // Length bounds check
   if (formatSpec.max_length != null || formatSpec.min_length != null) {
     const len = responseContent.length;
-    const withinMax = formatSpec.max_length == null || len <= formatSpec.max_length;
-    const withinMin = formatSpec.min_length == null || len >= formatSpec.min_length;
-    signals.push(makeSignal("length_within_bounds", withinMax && withinMin ? 1 : 0, {
-      length: len,
-      max_length: formatSpec.max_length ?? null,
-      min_length: formatSpec.min_length ?? null,
-    }));
+    const withinMax =
+      formatSpec.max_length == null || len <= formatSpec.max_length;
+    const withinMin =
+      formatSpec.min_length == null || len >= formatSpec.min_length;
+    signals.push(
+      makeSignal("length_within_bounds", withinMax && withinMin ? 1 : 0, {
+        length: len,
+        max_length: formatSpec.max_length ?? null,
+        min_length: formatSpec.min_length ?? null,
+      }),
+    );
   }
 
   if (signals.length > 0) {
@@ -206,7 +245,12 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
 
 export async function recordDownstreamOutcome(
   taskId: string,
-  input: { signal_type: string; signal_value: 0 | 1; reported_by: string; detail?: Record<string, unknown> },
+  input: {
+    signal_type: string;
+    signal_value: 0 | 1;
+    reported_by: string;
+    detail?: Record<string, unknown>;
+  },
 ): Promise<TaskOutcomeRecord> {
   const task = await taskLog.findById(taskId);
   if (!task) {

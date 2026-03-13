@@ -23,7 +23,16 @@ export class NoAgentAvailableError extends Error {
 
 export function errorHandler(err: Error, c: Context) {
   if (err instanceof ValidationError || err.name === "ZodError") {
-    return c.json({ error: err.message, details: "details" in err ? (err as Record<string, unknown>).details : undefined }, 400);
+    return c.json(
+      {
+        error: err.message,
+        details:
+          "details" in err
+            ? (err as Record<string, unknown>).details
+            : undefined,
+      },
+      400,
+    );
   }
 
   if (err instanceof NotFoundError) {

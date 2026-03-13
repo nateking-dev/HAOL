@@ -69,7 +69,8 @@ describe("AnthropicProvider", () => {
       constraints: { max_tokens: 100, timeout_ms: 5000, temperature: 0.5 },
     });
 
-    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0];
     const body = JSON.parse(callArgs[1].body as string);
     expect(body.system).toBe("You are a helpful assistant.");
     expect(body.temperature).toBe(0.5);

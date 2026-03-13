@@ -38,4 +38,8 @@ export { createEmbeddingProvider } from "./embedding.js";
 export { AnthropicEscalationProvider } from "./escalation.js";
 
 // Similarity utils
-export { cosineSimilarity, rankBySimilarity, weightedTierVote } from "./similarity.js";
+export {
+  cosineSimilarity,
+  rankBySimilarity,
+  weightedTierVote,
+} from "./similarity.js";

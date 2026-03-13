@@ -7,11 +7,7 @@ export function uuidv7(): string {
   const uuid = crypto.randomUUID();
   const timestamp = Date.now().toString(16).padStart(12, "0");
   return (
-    timestamp.slice(0, 8) +
-    "-" +
-    timestamp.slice(8, 12) +
-    "-7" +
-    uuid.slice(15)
+    timestamp.slice(0, 8) + "-" + timestamp.slice(8, 12) + "-7" + uuid.slice(15)
   );
 }
 
@@ -35,7 +31,9 @@ export const TaskInput = z.object({
   prompt: z.string(),
   metadata: z
     .object({
-      tier: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+      tier: z
+        .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+        .optional(),
       capabilities: z.array(z.string()).optional(),
     })
     .optional(),

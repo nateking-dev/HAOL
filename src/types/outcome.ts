@@ -8,7 +8,12 @@ export const OutcomeTier = z.union([
 ]);
 export type OutcomeTier = z.infer<typeof OutcomeTier>;
 
-export const OutcomeSource = z.enum(["pipeline", "format_check", "routing_eval", "downstream"]);
+export const OutcomeSource = z.enum([
+  "pipeline",
+  "format_check",
+  "routing_eval",
+  "downstream",
+]);
 export type OutcomeSource = z.infer<typeof OutcomeSource>;
 
 export const FormatSpec = z.object({
@@ -46,15 +51,20 @@ export const OutcomeSummary = z.object({
   total_signals: z.number(),
   positive_signals: z.number(),
   negative_signals: z.number(),
-  by_tier: z.record(z.string(), z.object({
-    total: z.number(),
-    positive: z.number(),
-    negative: z.number(),
-    signals: z.array(z.object({
-      signal_type: z.string(),
-      signal_value: z.number(),
-      confidence: z.number().nullable(),
-    })),
-  })),
+  by_tier: z.record(
+    z.string(),
+    z.object({
+      total: z.number(),
+      positive: z.number(),
+      negative: z.number(),
+      signals: z.array(
+        z.object({
+          signal_type: z.string(),
+          signal_value: z.number(),
+          confidence: z.number().nullable(),
+        }),
+      ),
+    }),
+  ),
 });
 export type OutcomeSummary = z.infer<typeof OutcomeSummary>;

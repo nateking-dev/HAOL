@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { CreateAgentInput, UpdateAgentInput, AgentRegistration } from "../../src/types/agent.js";
+import {
+  CreateAgentInput,
+  UpdateAgentInput,
+  AgentRegistration,
+} from "../../src/types/agent.js";
 
 describe("CreateAgentInput schema", () => {
   const validInput = {
@@ -34,9 +38,7 @@ describe("CreateAgentInput schema", () => {
 
   it("fails when required fields are missing", () => {
     expect(() => CreateAgentInput.parse({})).toThrow();
-    expect(() =>
-      CreateAgentInput.parse({ agent_id: "x" }),
-    ).toThrow();
+    expect(() => CreateAgentInput.parse({ agent_id: "x" })).toThrow();
     expect(() =>
       CreateAgentInput.parse({
         agent_id: "x",

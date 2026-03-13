@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import {
+  createPool,
+  getPool,
+  query,
+  destroy,
+} from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { select } from "../../src/services/agent-selection.js";
@@ -58,14 +63,16 @@ afterAll(async () => {
 });
 
 describe("agent-selection service", () => {
-  it("default weights, T1 summarization — cheapest capable agent wins", async ({ skip }) => {
+  it("default weights, T1 summarization — cheapest capable agent wins", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     const classification: TaskClassification = {
       task_id: "test-t1-summarization",
       complexity_tier: 1,
       required_capabilities: ["summarization"],
-      cost_ceiling_usd: 0.10,
+      cost_ceiling_usd: 0.1,
       prompt_hash: "abc123",
     };
 
@@ -78,7 +85,9 @@ describe("agent-selection service", () => {
     expect(result.scored_candidates.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("capability-heavy weights — agent with most matching capabilities wins", async ({ skip }) => {
+  it("capability-heavy weights — agent with most matching capabilities wins", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     const capHeavyPolicy: RoutingPolicy = {
@@ -94,7 +103,12 @@ describe("agent-selection service", () => {
     const classification: TaskClassification = {
       task_id: "test-cap-heavy",
       complexity_tier: 2,
-      required_capabilities: ["classification", "summarization", "structured_output", "multilingual"],
+      required_capabilities: [
+        "classification",
+        "summarization",
+        "structured_output",
+        "multilingual",
+      ],
       cost_ceiling_usd: 1.0,
       prompt_hash: "def456",
     };
@@ -108,7 +122,9 @@ describe("agent-selection service", () => {
     expect(result.rationale.capability_score).toBe(0.6);
   });
 
-  it("no capable agents with low cost ceiling — NEXT_BEST fallback relaxes cost", async ({ skip }) => {
+  it("no capable agents with low cost ceiling — NEXT_BEST fallback relaxes cost", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     // sel-mini cost = (1 * 0.00015) + (0.5 * 0.0006) = 0.00015 + 0.0003 = 0.00045
@@ -119,7 +135,12 @@ describe("agent-selection service", () => {
     const classification: TaskClassification = {
       task_id: "test-fallback-next-best",
       complexity_tier: 2,
-      required_capabilities: ["classification", "summarization", "structured_output", "multilingual"],
+      required_capabilities: [
+        "classification",
+        "summarization",
+        "structured_output",
+        "multilingual",
+      ],
       cost_ceiling_usd: tightCeiling,
       prompt_hash: "ghi789",
     };
@@ -183,14 +204,16 @@ describe("agent-selection service", () => {
     expect(winner!.latency_score).toBe(1.0);
   });
 
-  it("selection rationale contains per-dimension scores as numbers", async ({ skip }) => {
+  it("selection rationale contains per-dimension scores as numbers", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     const classification: TaskClassification = {
       task_id: "test-rationale",
       complexity_tier: 1,
       required_capabilities: ["summarization"],
-      cost_ceiling_usd: 0.10,
+      cost_ceiling_usd: 0.1,
       prompt_hash: "pqr678",
     };
 
@@ -210,7 +233,9 @@ describe("agent-selection service", () => {
     expect(result.rationale.latency_score).toBeLessThanOrEqual(1);
   });
 
-  it("TIER_UP fallback — unlocks higher-tier agents, not just higher cost ceiling", async ({ skip }) => {
+  it("TIER_UP fallback — unlocks higher-tier agents, not just higher cost ceiling", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     const tierUpPolicy: RoutingPolicy = {
@@ -241,7 +266,9 @@ describe("agent-selection service", () => {
     expect(result.selected_agent_id).toBe("sel-sonnet");
   });
 
-  it("tiebreak — identical scores, lower alphabetical agent_id wins", async ({ skip }) => {
+  it("tiebreak — identical scores, lower alphabetical agent_id wins", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     // Insert two agents with identical stats but different IDs
