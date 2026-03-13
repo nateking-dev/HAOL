@@ -36,18 +36,41 @@ export interface TaskLogRecord {
 function parseRow(row: TaskLogRow): TaskLogRecord {
   let capabilities: string[] | null = null;
   if (row.required_capabilities) {
-    capabilities =
-      typeof row.required_capabilities === "string"
-        ? JSON.parse(row.required_capabilities)
-        : row.required_capabilities;
+    if (typeof row.required_capabilities === "string") {
+      try {
+        capabilities = JSON.parse(row.required_capabilities);
+      } catch {
+        capabilities = null;
+      }
+    } else {
+      capabilities = row.required_capabilities;
+    }
   }
 
   let rationale: Record<string, unknown> | null = null;
   if (row.selection_rationale) {
-    rationale =
-      typeof row.selection_rationale === "string"
-        ? JSON.parse(row.selection_rationale)
-        : (row.selection_rationale as Record<string, unknown>);
+    if (typeof row.selection_rationale === "string") {
+      try {
+        rationale = JSON.parse(row.selection_rationale);
+      } catch {
+        rationale = null;
+      }
+    } else {
+      rationale = row.selection_rationale as Record<string, unknown>;
+    }
+  }
+
+  let expectedFormat: Record<string, unknown> | null = null;
+  if (row.expected_format) {
+    if (typeof row.expected_format === "string") {
+      try {
+        expectedFormat = JSON.parse(row.expected_format);
+      } catch {
+        expectedFormat = null;
+      }
+    } else {
+      expectedFormat = row.expected_format as Record<string, unknown>;
+    }
   }
 
   return {
@@ -67,11 +90,7 @@ function parseRow(row: TaskLogRow): TaskLogRecord {
     selection_rationale: rationale,
     routing_confidence: row.routing_confidence,
     routing_layer: row.routing_layer,
-    expected_format: row.expected_format
-      ? typeof row.expected_format === "string"
-        ? JSON.parse(row.expected_format)
-        : (row.expected_format as Record<string, unknown>)
-      : null,
+    expected_format: expectedFormat,
   };
 }
 

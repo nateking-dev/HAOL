@@ -30,7 +30,7 @@ export const TaskOutcomeRecord = z.object({
   tier: OutcomeTier,
   source: OutcomeSource,
   signal_type: z.string(),
-  signal_value: z.union([z.literal(0), z.literal(1)]),
+  signal_value: z.union([z.literal(0), z.literal(1)]).nullable(),
   confidence: z.number().nullable().default(null),
   detail: z.record(z.string(), z.unknown()).nullable().default(null),
   reported_by: z.string().nullable().default(null),
@@ -60,7 +60,7 @@ export const OutcomeSummary = z.object({
       signals: z.array(
         z.object({
           signal_type: z.string(),
-          signal_value: z.number(),
+          signal_value: z.number().nullable(),
           confidence: z.number().nullable(),
         }),
       ),

@@ -212,15 +212,15 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
   const task = await taskLog.findById(taskId);
   if (!task) return;
 
-  // For now, log that evaluation was requested — actual LLM call
-  // requires escalation provider wiring which is deferred
+  // Placeholder — actual LLM evaluation is deferred.
+  // signal_value is null so this row won't inflate routing accuracy.
   const record: TaskOutcomeRecord = {
     outcome_id: uuidv7(),
     task_id: taskId,
     tier: 2,
     source: "routing_eval",
-    signal_type: "evaluation_sampled",
-    signal_value: 1,
+    signal_type: "evaluation_pending",
+    signal_value: null,
     confidence: task.routing_confidence,
     detail: {
       complexity_tier: task.complexity_tier,
@@ -267,6 +267,7 @@ export async function recordDownstreamOutcome(
     confidence: task.routing_confidence,
     detail: input.detail ?? null,
     reported_by: input.reported_by,
+    created_at: new Date().toISOString(),
   };
 
   await outcomeRepo.insert(record);

@@ -49,7 +49,7 @@ outcomes.get("/tasks/:id/outcomes/summary", async (c) => {
       negative: number;
       signals: Array<{
         signal_type: string;
-        signal_value: number;
+        signal_value: number | null;
         confidence: number | null;
       }>;
     }

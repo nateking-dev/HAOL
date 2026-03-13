@@ -337,6 +337,7 @@ export async function routingAccuracyByAgent(
      FROM task_outcome o
      JOIN task_log t ON t.task_id = o.task_id
      WHERE o.tier IN (2, 3)
+       AND o.signal_value IS NOT NULL
        AND o.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
        AND t.selected_agent_id IS NOT NULL
      GROUP BY t.selected_agent_id

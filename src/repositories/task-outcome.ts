@@ -9,7 +9,7 @@ interface TaskOutcomeRow extends RowDataPacket {
   tier: number;
   source: string;
   signal_type: string;
-  signal_value: number;
+  signal_value: number | null;
   confidence: number | null;
   detail: string | Record<string, unknown> | null;
   reported_by: string | null;
@@ -33,7 +33,7 @@ function parseRow(row: TaskOutcomeRow): TaskOutcomeRecord {
       | "routing_eval"
       | "downstream",
     signal_type: row.signal_type,
-    signal_value: row.signal_value as 0 | 1,
+    signal_value: row.signal_value != null ? (row.signal_value as 0 | 1) : null,
     confidence: row.confidence,
     detail,
     reported_by: row.reported_by,
