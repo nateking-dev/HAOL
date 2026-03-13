@@ -213,7 +213,20 @@ export class CascadeRouter {
         case "regex":
           try {
             if (!safe(rule.pattern)) {
-              console.warn(`Unsafe regex pattern rejected (ReDoS risk): ${rule.pattern}`);
+              console.warn(
+                `Unsafe regex pattern rejected (ReDoS risk): rule=${rule.rule_id} pattern=${rule.pattern}`,
+              );
+              // Log rejection so it surfaces in observability
+              store.logDecision(
+                uuidv7(),
+                prompt,
+                rule.tier_id,
+                "deterministic",
+                null,
+                0,
+                0,
+                { rejected_rule: rule.rule_id, reason: "unsafe_regex" },
+              ).catch(() => {});
               break;
             }
             matched = new RegExp(rule.pattern, "i").test(prompt);
