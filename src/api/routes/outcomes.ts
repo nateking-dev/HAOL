@@ -24,10 +24,11 @@ outcomes.get("/tasks/:id/outcomes", async (c) => {
 
   let records;
   if (tierParam != null) {
-    records = await outcomeRepo.findByTaskIdAndTier(
-      taskId,
-      parseInt(tierParam, 10),
-    );
+    const tier = parseInt(tierParam, 10);
+    if (isNaN(tier) || tier < 0 || tier > 3) {
+      return c.json({ error: "tier must be an integer 0-3" }, 400);
+    }
+    records = await outcomeRepo.findByTaskIdAndTier(taskId, tier);
   } else {
     records = await outcomeRepo.findByTaskId(taskId);
   }

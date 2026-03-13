@@ -211,7 +211,13 @@ export class CascadeRouter {
       switch (rule.rule_type) {
         case "regex":
           try {
-            matched = new RegExp(rule.pattern, "i").test(prompt);
+            const re = new RegExp(rule.pattern, "i");
+            const start = performance.now();
+            matched = re.test(prompt);
+            if (performance.now() - start > 50) {
+              console.warn(`Slow regex pattern (possible ReDoS): ${rule.pattern}`);
+              matched = false;
+            }
           } catch {
             // Invalid regex — skip
           }

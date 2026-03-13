@@ -101,7 +101,7 @@ function scoreCandidates(
 
     const outcomeScore = outcomeScores?.get(agent.agent_id) ?? 0.5;
 
-    const weightOutcome = (policy as any).weight_outcome ?? 0;
+    const weightOutcome = policy.weight_outcome ?? 0;
     const totalScore =
       capabilityScore * policy.weight_capability +
       costScore * policy.weight_cost +
@@ -148,7 +148,7 @@ export async function select(
 
   // Load outcome scores if weight_outcome > 0
   let outcomeScores: Map<string, number> | undefined;
-  const weightOutcome = (policy as any).weight_outcome ?? 0;
+  const weightOutcome = policy.weight_outcome ?? 0;
   if (weightOutcome > 0) {
     try {
       const rows = await query<
