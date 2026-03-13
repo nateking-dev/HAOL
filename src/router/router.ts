@@ -5,12 +5,11 @@ import { execute } from "../services/execution.js";
 import * as taskLog from "../repositories/task-log.js";
 import { getActivePolicy } from "../repositories/routing-policy.js";
 import { doltCommit } from "../db/dolt.js";
-import type { AgentRequest } from "../types/execution.js";
+import type { AgentRequest, ExecutionRecord } from "../types/execution.js";
 import type { TaskClassification } from "../types/task.js";
 import type { RoutingPolicy } from "../types/selection.js";
 import type { RouterTaskInput, TaskResult } from "../types/router.js";
 import { RouterTaskInput as RouterTaskInputSchema } from "../types/router.js";
-import * as execRepo from "../repositories/execution-log.js";
 import {
   collectStructuralSignals,
   runFormatVerification,
@@ -102,7 +101,9 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     };
 
     const maxRetries = policy?.max_retries ?? 2;
+    const allExecRecords: ExecutionRecord[] = [];
     let execResult = await execute(selection.selected_agent_id, agentRequest, maxRetries);
+    allExecRecords.push(execResult);
 
     // 6. Handle fallback on execution failure
     if (
@@ -127,6 +128,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
           agentRequest,
           0, // no retries on fallback
         );
+        allExecRecords.push(execResult);
       }
     }
 
@@ -142,7 +144,6 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     // 7b. Best-effort outcome collection
     try {
       const taskRecord = await taskLog.findById(taskId);
-      const allExecRecords = await execRepo.findByTaskId(taskId);
       await collectStructuralSignals(
         taskId,
         allExecRecords,

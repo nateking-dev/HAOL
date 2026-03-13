@@ -51,12 +51,14 @@ export const OutcomeSummary = z.object({
   total_signals: z.number(),
   positive_signals: z.number(),
   negative_signals: z.number(),
+  pending_signals: z.number(),
   by_tier: z.record(
     z.string(),
     z.object({
       total: z.number(),
       positive: z.number(),
       negative: z.number(),
+      pending: z.number(),
       signals: z.array(
         z.object({
           signal_type: z.string(),

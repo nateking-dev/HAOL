@@ -47,6 +47,7 @@ outcomes.get("/tasks/:id/outcomes/summary", async (c) => {
       total: number;
       positive: number;
       negative: number;
+      pending: number;
       signals: Array<{
         signal_type: string;
         signal_value: number | null;
@@ -58,11 +59,12 @@ outcomes.get("/tasks/:id/outcomes/summary", async (c) => {
   for (const r of records) {
     const key = String(r.tier);
     if (!byTier[key]) {
-      byTier[key] = { total: 0, positive: 0, negative: 0, signals: [] };
+      byTier[key] = { total: 0, positive: 0, negative: 0, pending: 0, signals: [] };
     }
     byTier[key].total++;
     if (r.signal_value === 1) byTier[key].positive++;
-    else byTier[key].negative++;
+    else if (r.signal_value === 0) byTier[key].negative++;
+    else byTier[key].pending++;
     byTier[key].signals.push({
       signal_type: r.signal_type,
       signal_value: r.signal_value,
@@ -75,6 +77,7 @@ outcomes.get("/tasks/:id/outcomes/summary", async (c) => {
     total_signals: records.length,
     positive_signals: records.filter((r) => r.signal_value === 1).length,
     negative_signals: records.filter((r) => r.signal_value === 0).length,
+    pending_signals: records.filter((r) => r.signal_value == null).length,
     by_tier: byTier,
   };
 

@@ -357,9 +357,11 @@ curl -X POST http://localhost:3000/tasks \
 
 #### Tier 2: Routing Evaluation (automatic, sampled)
 
-For low-confidence routing decisions (confidence < 0.6), the pipeline samples the classification for async re-evaluation. This catches systematic misrouting — for example, a class of prompts that the cascade router consistently under-tiers.
+For low-confidence routing decisions (confidence < 0.6), the pipeline samples the classification for LLM re-evaluation using Claude Haiku. The evaluator examines the task's complexity tier, required capabilities, selected agent, and execution results (latency, cost, success/failure) to judge whether the routing decision was reasonable. This catches systematic misrouting — for example, a class of prompts that the cascade router consistently under-tiers.
 
-The sampling is fire-and-forget: it doesn't block the task pipeline and failures are silently ignored. Each sampled evaluation produces a `task_outcome` row and a Dolt commit.
+Each evaluation produces two `task_outcome` rows: an `evaluation_pending` record (with `signal_value: null`) logged immediately as an audit trail, followed by an `evaluation_complete` record containing the LLM's binary verdict (`signal_value: 1` for reasonable, `0` for unreasonable) and a brief explanation in the `detail` field.
+
+The evaluation is fire-and-forget: it doesn't block the task pipeline and failures are silently ignored. Requires `ANTHROPIC_API_KEY` in the environment.
 
 #### Tier 3: Downstream Outcomes (external)
 

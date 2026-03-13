@@ -1,6 +1,7 @@
 import { uuidv7 } from "../types/task.js";
 import * as outcomeRepo from "../repositories/task-outcome.js";
 import * as taskLog from "../repositories/task-log.js";
+import * as execRepo from "../repositories/execution-log.js";
 import { query } from "../db/connection.js";
 import { doltCommit } from "../db/dolt.js";
 import type { TaskOutcomeRecord } from "../types/outcome.js";
@@ -212,9 +213,8 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
   const task = await taskLog.findById(taskId);
   if (!task) return;
 
-  // Placeholder — actual LLM evaluation is deferred.
-  // signal_value is null so this row won't inflate routing accuracy.
-  const record: TaskOutcomeRecord = {
+  // Insert a pending record so there's an audit trail that evaluation was attempted
+  const pendingRecord: TaskOutcomeRecord = {
     outcome_id: uuidv7(),
     task_id: taskId,
     tier: 2,
@@ -229,7 +229,74 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
     reported_by: null,
   };
 
-  await outcomeRepo.insert(record);
+  await outcomeRepo.insert(pendingRecord);
+
+  // Perform LLM evaluation via Claude Haiku
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return; // Cannot evaluate without API key
+    }
+
+    // Gather execution data for this task
+    const execRecords = await execRepo.findByTaskId(taskId);
+    const successRecord = execRecords.find((r) => r.outcome === "SUCCESS");
+
+    const prompt = buildEvaluationPrompt(task, execRecords, successRecord);
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-20250414",
+        max_tokens: 256,
+        temperature: 0,
+        messages: [{ role: "user", content: prompt }],
+        system:
+          "You are a routing quality evaluator for an AI orchestration system. " +
+          "Evaluate whether the routing decision was reasonable and respond with a JSON object: " +
+          '{"verdict": "YES" or "NO", "reason": "<brief explanation>"}. ' +
+          "Respond ONLY with the JSON object, no other text.",
+      }),
+    });
+
+    if (!response.ok) {
+      return; // Silent failure — don't break the pipeline
+    }
+
+    const data = (await response.json()) as {
+      content?: { text: string }[];
+    };
+
+    const responseText = data.content?.[0]?.text || "";
+    const signalValue = parseEvaluationResponse(responseText);
+
+    // Insert the completed evaluation as a separate record
+    const evalRecord: TaskOutcomeRecord = {
+      outcome_id: uuidv7(),
+      task_id: taskId,
+      tier: 2,
+      source: "routing_eval",
+      signal_type: "evaluation_complete",
+      signal_value: signalValue,
+      confidence: task.routing_confidence,
+      detail: {
+        complexity_tier: task.complexity_tier,
+        routing_layer: task.routing_layer,
+        selected_agent_id: task.selected_agent_id,
+        llm_reason: extractReason(responseText),
+      },
+      reported_by: null,
+    };
+
+    await outcomeRepo.insert(evalRecord);
+  } catch {
+    // Best-effort — LLM evaluation failures must never break the pipeline
+  }
 
   try {
     await doltCommit({
@@ -238,6 +305,107 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
     });
   } catch {
     // best-effort commit
+  }
+}
+
+function buildEvaluationPrompt(
+  task: TaskLogRecord,
+  execRecords: ExecutionRecord[],
+  successRecord: ExecutionRecord | undefined,
+): string {
+  const tierDescriptions: Record<number, string> = {
+    1: "T1 (trivial/low-complexity — simple lookups, greetings, factual Q&A)",
+    2: "T2 (standard — summarization, translation, moderate analysis)",
+    3: "T3 (complex — multi-step reasoning, code generation, creative writing)",
+    4: "T4 (expert — research synthesis, architectural design, specialized domains)",
+  };
+
+  const tierLabel =
+    task.complexity_tier != null
+      ? (tierDescriptions[task.complexity_tier] ??
+        `T${task.complexity_tier} (unknown)`)
+      : "unknown";
+
+  const parts: string[] = [
+    "Evaluate whether this routing decision was reasonable.\n",
+    `## Task Classification`,
+    `- Complexity Tier: ${tierLabel}`,
+    `- Required Capabilities: ${task.required_capabilities?.join(", ") ?? "none"}`,
+    `- Routing Layer: ${task.routing_layer ?? "unknown"}`,
+    `- Routing Confidence: ${task.routing_confidence ?? "unknown"}`,
+    `- Selected Agent: ${task.selected_agent_id ?? "unknown"}`,
+  ];
+
+  if (task.selection_rationale) {
+    parts.push(
+      `- Selection Rationale: ${JSON.stringify(task.selection_rationale)}`,
+    );
+  }
+
+  if (task.cost_ceiling_usd != null) {
+    parts.push(`- Cost Ceiling: $${task.cost_ceiling_usd}`);
+  }
+
+  // Include execution outcome data
+  if (execRecords.length > 0) {
+    parts.push(`\n## Execution Results`);
+    const totalAttempts = execRecords.length;
+    const successCount = execRecords.filter(
+      (r) => r.outcome === "SUCCESS",
+    ).length;
+    const errorCount = execRecords.filter((r) => r.outcome === "ERROR").length;
+    const timeoutCount = execRecords.filter(
+      (r) => r.outcome === "TIMEOUT",
+    ).length;
+    parts.push(`- Total attempts: ${totalAttempts}`);
+    parts.push(
+      `- Outcomes: ${successCount} success, ${errorCount} errors, ${timeoutCount} timeouts`,
+    );
+
+    if (successRecord) {
+      parts.push(`- Latency: ${successRecord.latency_ms}ms`);
+      parts.push(`- Cost: $${successRecord.cost_usd}`);
+      parts.push(
+        `- Tokens: ${successRecord.input_tokens} in / ${successRecord.output_tokens} out`,
+      );
+    }
+  }
+
+  parts.push(
+    `\n## Question`,
+    `Was assigning this task to tier ${task.complexity_tier ?? "unknown"} with agent "${task.selected_agent_id ?? "unknown"}" a reasonable routing decision? ` +
+      `Consider whether the complexity tier matches the required capabilities, and whether the execution outcome suggests the agent was appropriate.`,
+  );
+
+  return parts.join("\n");
+}
+
+function parseEvaluationResponse(responseText: string): 0 | 1 {
+  try {
+    const parsed = JSON.parse(responseText) as { verdict?: string };
+    if (
+      parsed.verdict &&
+      parsed.verdict.toUpperCase().startsWith("YES")
+    ) {
+      return 1;
+    }
+    return 0;
+  } catch {
+    // Fall back to text matching if JSON parsing fails
+    const upper = responseText.toUpperCase();
+    if (upper.includes('"YES"') || upper.startsWith("YES")) {
+      return 1;
+    }
+    return 0;
+  }
+}
+
+function extractReason(responseText: string): string | null {
+  try {
+    const parsed = JSON.parse(responseText) as { reason?: string };
+    return parsed.reason ?? null;
+  } catch {
+    return null;
   }
 }
 
