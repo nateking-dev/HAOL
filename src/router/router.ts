@@ -50,7 +50,11 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     }
     taskId = classification.task_id;
 
-    // Store routing confidence on task_log
+    // 2. Intake — write to task_log
+    await taskLog.create(taskId, classification.prompt_hash);
+    status = "RECEIVED";
+
+    // Store routing confidence on task_log (after create so the row exists)
     if (classification.routing_confidence != null) {
       await taskLog.updateRoutingConfidence(
         taskId,
@@ -58,10 +62,6 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
         classification.routing_layer,
       );
     }
-
-    // 2. Intake — write to task_log
-    await taskLog.create(taskId, classification.prompt_hash);
-    status = "RECEIVED";
 
     // Store expected format if provided
     if (parsed.expected_format) {

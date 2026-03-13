@@ -120,6 +120,16 @@ export async function create(input: CreateAgentInput): Promise<void> {
   );
 }
 
+const UPDATABLE_COLUMNS = new Set([
+  "capabilities",
+  "cost_per_1k_input",
+  "cost_per_1k_output",
+  "max_context_tokens",
+  "avg_latency_ms",
+  "status",
+  "tier_ceiling",
+]);
+
 export async function update(agentId: string, fields: UpdateAgentInput): Promise<void> {
   const setClauses: string[] = [];
   const params: unknown[] = [];
@@ -127,7 +137,8 @@ export async function update(agentId: string, fields: UpdateAgentInput): Promise
   const entries = Object.entries(fields) as [keyof UpdateAgentInput, unknown][];
   for (const [key, value] of entries) {
     if (value === undefined) continue;
-    setClauses.push(`${key} = ?`);
+    if (!UPDATABLE_COLUMNS.has(key)) continue;
+    setClauses.push(`\`${key}\` = ?`);
     if (key === "capabilities") {
       params.push(JSON.stringify(value));
     } else {
