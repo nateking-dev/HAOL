@@ -1,5 +1,18 @@
-import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from "vitest";
-import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "vitest";
+import {
+  createPool,
+  getPool,
+  query,
+  destroy,
+} from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { execute } from "../../src/services/execution.js";
@@ -17,19 +30,22 @@ afterEach(() => {
 describe("execution service — unit tests", () => {
   it("cost calculation: cost_usd = (input/1000 * rate_in) + (output/1000 * rate_out)", async () => {
     // Mock the agent-registry findById
-    const agentRegistryMod = await import("../../src/repositories/agent-registry.js");
-    const findByIdSpy = vi.spyOn(agentRegistryMod, "findById").mockResolvedValue({
-      agent_id: "test-agent-cost",
-      provider: "anthropic",
-      model_id: "claude-haiku-4-5-20251001",
-      capabilities: ["summarization"],
-      cost_per_1k_input: 0.25,
-      cost_per_1k_output: 1.25,
-      max_context_tokens: 200000,
-      avg_latency_ms: 500,
-      status: "active",
-      tier_ceiling: 2,
-    });
+    const agentRegistryMod =
+      await import("../../src/repositories/agent-registry.js");
+    const findByIdSpy = vi
+      .spyOn(agentRegistryMod, "findById")
+      .mockResolvedValue({
+        agent_id: "test-agent-cost",
+        provider: "anthropic",
+        model_id: "claude-haiku-4-5-20251001",
+        capabilities: ["summarization"],
+        cost_per_1k_input: 0.25,
+        cost_per_1k_output: 1.25,
+        max_context_tokens: 200000,
+        avg_latency_ms: 500,
+        status: "active",
+        tier_ceiling: 2,
+      });
 
     // Mock insertExecution to capture the record
     const insertSpy = vi.spyOn(execRepo, "insertExecution").mockResolvedValue();
@@ -65,8 +81,11 @@ describe("execution service — unit tests", () => {
   });
 
   it("throws when agent is not found", async () => {
-    const agentRegistryMod = await import("../../src/repositories/agent-registry.js");
-    const findByIdSpy = vi.spyOn(agentRegistryMod, "findById").mockResolvedValue(null);
+    const agentRegistryMod =
+      await import("../../src/repositories/agent-registry.js");
+    const findByIdSpy = vi
+      .spyOn(agentRegistryMod, "findById")
+      .mockResolvedValue(null);
 
     const request: AgentRequest = {
       task_id: "task-not-found",
@@ -75,30 +94,37 @@ describe("execution service — unit tests", () => {
       constraints: { max_tokens: 100, timeout_ms: 5000 },
     };
 
-    await expect(execute("nonexistent-agent", request)).rejects.toThrow("Agent not found");
+    await expect(execute("nonexistent-agent", request)).rejects.toThrow(
+      "Agent not found",
+    );
 
     findByIdSpy.mockRestore();
   });
 
   it("retry on failure: fail twice then succeed produces 3 records", async () => {
-    const agentRegistryMod = await import("../../src/repositories/agent-registry.js");
-    const findByIdSpy = vi.spyOn(agentRegistryMod, "findById").mockResolvedValue({
-      agent_id: "test-agent-retry",
-      provider: "anthropic",
-      model_id: "claude-haiku-4-5-20251001",
-      capabilities: ["summarization"],
-      cost_per_1k_input: 0.001,
-      cost_per_1k_output: 0.005,
-      max_context_tokens: 100000,
-      avg_latency_ms: 200,
-      status: "active",
-      tier_ceiling: 2,
-    });
+    const agentRegistryMod =
+      await import("../../src/repositories/agent-registry.js");
+    const findByIdSpy = vi
+      .spyOn(agentRegistryMod, "findById")
+      .mockResolvedValue({
+        agent_id: "test-agent-retry",
+        provider: "anthropic",
+        model_id: "claude-haiku-4-5-20251001",
+        capabilities: ["summarization"],
+        cost_per_1k_input: 0.001,
+        cost_per_1k_output: 0.005,
+        max_context_tokens: 100000,
+        avg_latency_ms: 200,
+        status: "active",
+        tier_ceiling: 2,
+      });
 
     const insertedRecords: unknown[] = [];
-    const insertSpy = vi.spyOn(execRepo, "insertExecution").mockImplementation(async (record) => {
-      insertedRecords.push(record);
-    });
+    const insertSpy = vi
+      .spyOn(execRepo, "insertExecution")
+      .mockImplementation(async (record) => {
+        insertedRecords.push(record);
+      });
 
     let callCount = 0;
     globalThis.fetch = vi.fn().mockImplementation(async () => {
@@ -127,7 +153,9 @@ describe("execution service — unit tests", () => {
     // Use maxRetries=2, so up to 3 attempts. We fail 2, succeed on 3.
     // Override backoff by mocking setTimeout to be near-instant
     const origSetTimeout = globalThis.setTimeout;
-    vi.stubGlobal("setTimeout", (fn: () => void, _ms?: number) => origSetTimeout(fn, 0));
+    vi.stubGlobal("setTimeout", (fn: () => void, _ms?: number) =>
+      origSetTimeout(fn, 0),
+    );
 
     try {
       const result = await execute("test-agent-retry", request, 2);
@@ -136,10 +164,16 @@ describe("execution service — unit tests", () => {
       expect(insertedRecords.length).toBe(3);
 
       // First two should be FALLBACK
-      expect((insertedRecords[0] as { outcome: string }).outcome).toBe("FALLBACK");
-      expect((insertedRecords[1] as { outcome: string }).outcome).toBe("FALLBACK");
+      expect((insertedRecords[0] as { outcome: string }).outcome).toBe(
+        "FALLBACK",
+      );
+      expect((insertedRecords[1] as { outcome: string }).outcome).toBe(
+        "FALLBACK",
+      );
       // Third should be SUCCESS
-      expect((insertedRecords[2] as { outcome: string }).outcome).toBe("SUCCESS");
+      expect((insertedRecords[2] as { outcome: string }).outcome).toBe(
+        "SUCCESS",
+      );
     } finally {
       vi.stubGlobal("setTimeout", origSetTimeout);
       findByIdSpy.mockRestore();
@@ -148,28 +182,33 @@ describe("execution service — unit tests", () => {
   });
 
   it("all retries exhausted: final outcome is ERROR", async () => {
-    const agentRegistryMod = await import("../../src/repositories/agent-registry.js");
-    const findByIdSpy = vi.spyOn(agentRegistryMod, "findById").mockResolvedValue({
-      agent_id: "test-agent-exhaust",
-      provider: "anthropic",
-      model_id: "claude-haiku-4-5-20251001",
-      capabilities: ["summarization"],
-      cost_per_1k_input: 0.001,
-      cost_per_1k_output: 0.005,
-      max_context_tokens: 100000,
-      avg_latency_ms: 200,
-      status: "active",
-      tier_ceiling: 2,
-    });
+    const agentRegistryMod =
+      await import("../../src/repositories/agent-registry.js");
+    const findByIdSpy = vi
+      .spyOn(agentRegistryMod, "findById")
+      .mockResolvedValue({
+        agent_id: "test-agent-exhaust",
+        provider: "anthropic",
+        model_id: "claude-haiku-4-5-20251001",
+        capabilities: ["summarization"],
+        cost_per_1k_input: 0.001,
+        cost_per_1k_output: 0.005,
+        max_context_tokens: 100000,
+        avg_latency_ms: 200,
+        status: "active",
+        tier_ceiling: 2,
+      });
 
     const insertedRecords: unknown[] = [];
-    const insertSpy = vi.spyOn(execRepo, "insertExecution").mockImplementation(async (record) => {
-      insertedRecords.push(record);
-    });
+    const insertSpy = vi
+      .spyOn(execRepo, "insertExecution")
+      .mockImplementation(async (record) => {
+        insertedRecords.push(record);
+      });
 
-    globalThis.fetch = vi.fn().mockRejectedValue(
-      new Error("Connection refused"),
-    ) as unknown as typeof fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error("Connection refused")) as unknown as typeof fetch;
 
     const request: AgentRequest = {
       task_id: "task-exhaust-test",
@@ -179,7 +218,9 @@ describe("execution service — unit tests", () => {
     };
 
     const origSetTimeout = globalThis.setTimeout;
-    vi.stubGlobal("setTimeout", (fn: () => void, _ms?: number) => origSetTimeout(fn, 0));
+    vi.stubGlobal("setTimeout", (fn: () => void, _ms?: number) =>
+      origSetTimeout(fn, 0),
+    );
 
     try {
       const result = await execute("test-agent-exhaust", request, 2);
@@ -188,8 +229,12 @@ describe("execution service — unit tests", () => {
       expect(insertedRecords.length).toBe(3);
 
       // First two FALLBACK, last one ERROR
-      expect((insertedRecords[0] as { outcome: string }).outcome).toBe("FALLBACK");
-      expect((insertedRecords[1] as { outcome: string }).outcome).toBe("FALLBACK");
+      expect((insertedRecords[0] as { outcome: string }).outcome).toBe(
+        "FALLBACK",
+      );
+      expect((insertedRecords[1] as { outcome: string }).outcome).toBe(
+        "FALLBACK",
+      );
       expect((insertedRecords[2] as { outcome: string }).outcome).toBe("ERROR");
     } finally {
       vi.stubGlobal("setTimeout", origSetTimeout);
@@ -199,28 +244,31 @@ describe("execution service — unit tests", () => {
   });
 
   it("all retries exhausted with TIMEOUT: final outcome is TIMEOUT", async () => {
-    const agentRegistryMod = await import("../../src/repositories/agent-registry.js");
-    const findByIdSpy = vi.spyOn(agentRegistryMod, "findById").mockResolvedValue({
-      agent_id: "test-agent-timeout",
-      provider: "anthropic",
-      model_id: "claude-haiku-4-5-20251001",
-      capabilities: ["summarization"],
-      cost_per_1k_input: 0.001,
-      cost_per_1k_output: 0.005,
-      max_context_tokens: 100000,
-      avg_latency_ms: 200,
-      status: "active",
-      tier_ceiling: 2,
-    });
+    const agentRegistryMod =
+      await import("../../src/repositories/agent-registry.js");
+    const findByIdSpy = vi
+      .spyOn(agentRegistryMod, "findById")
+      .mockResolvedValue({
+        agent_id: "test-agent-timeout",
+        provider: "anthropic",
+        model_id: "claude-haiku-4-5-20251001",
+        capabilities: ["summarization"],
+        cost_per_1k_input: 0.001,
+        cost_per_1k_output: 0.005,
+        max_context_tokens: 100000,
+        avg_latency_ms: 200,
+        status: "active",
+        tier_ceiling: 2,
+      });
 
     const insertedRecords: unknown[] = [];
-    const insertSpy = vi.spyOn(execRepo, "insertExecution").mockImplementation(async (record) => {
-      insertedRecords.push(record);
-    });
+    const insertSpy = vi
+      .spyOn(execRepo, "insertExecution")
+      .mockImplementation(async (record) => {
+        insertedRecords.push(record);
+      });
 
-    globalThis.fetch = vi.fn().mockRejectedValue(
-      new Error("TIMEOUT"),
-    ) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("TIMEOUT")) as unknown as typeof fetch;
 
     const request: AgentRequest = {
       task_id: "task-timeout-test",
@@ -230,7 +278,9 @@ describe("execution service — unit tests", () => {
     };
 
     const origSetTimeout = globalThis.setTimeout;
-    vi.stubGlobal("setTimeout", (fn: () => void, _ms?: number) => origSetTimeout(fn, 0));
+    vi.stubGlobal("setTimeout", (fn: () => void, _ms?: number) =>
+      origSetTimeout(fn, 0),
+    );
 
     try {
       const result = await execute("test-agent-timeout", request, 1);

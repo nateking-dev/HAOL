@@ -31,9 +31,10 @@ export function rankBySimilarity(
   return scored.slice(0, topK);
 }
 
-export function weightedTierVote(
-  matches: SimilarityMatch[],
-): { tier: TierId; confidence: number } {
+export function weightedTierVote(matches: SimilarityMatch[]): {
+  tier: TierId;
+  confidence: number;
+} {
   if (matches.length === 0) {
     return { tier: 3 as TierId, confidence: 0 };
   }
@@ -43,7 +44,10 @@ export function weightedTierVote(
 
   for (const match of matches) {
     const weight = match.score;
-    tierWeights.set(match.tier_id, (tierWeights.get(match.tier_id) ?? 0) + weight);
+    tierWeights.set(
+      match.tier_id,
+      (tierWeights.get(match.tier_id) ?? 0) + weight,
+    );
     totalWeight += weight;
   }
 

@@ -64,7 +64,8 @@ describe("OpenAIProvider", () => {
       constraints: { max_tokens: 100, timeout_ms: 5000, temperature: 0.7 },
     });
 
-    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0];
     const body = JSON.parse(callArgs[1].body as string);
     expect(body.messages[0]).toEqual({
       role: "system",

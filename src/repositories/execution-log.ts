@@ -25,10 +25,7 @@ function parseRow(row: ExecutionRow): ExecutionRecord {
     attempt_number: row.attempt_number,
     input_tokens: row.input_tokens,
     output_tokens: row.output_tokens,
-    cost_usd:
-      typeof row.cost_usd === "string"
-        ? parseFloat(row.cost_usd)
-        : row.cost_usd,
+    cost_usd: typeof row.cost_usd === "string" ? parseFloat(row.cost_usd) : row.cost_usd,
     latency_ms: row.latency_ms,
     ttft_ms: row.ttft_ms,
     outcome: row.outcome as ExecutionRecord["outcome"],

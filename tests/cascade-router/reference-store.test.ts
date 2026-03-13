@@ -29,9 +29,8 @@ afterAll(async () => {
 
 describe("reference-store", () => {
   it.skipIf(!doltAvailable)("loadConfig returns valid config shape", async () => {
-    const { loadConfig: loadRouterConfig } = await import(
-      "../../src/cascade-router/reference-store.js"
-    );
+    const { loadConfig: loadRouterConfig } =
+      await import("../../src/cascade-router/reference-store.js");
     const config = await loadRouterConfig();
 
     expect(config).toHaveProperty("similarity_threshold");
@@ -42,25 +41,19 @@ describe("reference-store", () => {
   });
 
   it.skipIf(!doltAvailable)("loadRules returns an array", async () => {
-    const { loadRules } = await import(
-      "../../src/cascade-router/reference-store.js"
-    );
+    const { loadRules } = await import("../../src/cascade-router/reference-store.js");
     const rules = await loadRules();
     expect(Array.isArray(rules)).toBe(true);
   });
 
   it.skipIf(!doltAvailable)("loadUtterances returns an array", async () => {
-    const { loadUtterances } = await import(
-      "../../src/cascade-router/reference-store.js"
-    );
+    const { loadUtterances } = await import("../../src/cascade-router/reference-store.js");
     const utterances = await loadUtterances();
     expect(Array.isArray(utterances)).toBe(true);
   });
 
   it.skipIf(!doltAvailable)("hasEmbeddings returns a boolean", async () => {
-    const { hasEmbeddings } = await import(
-      "../../src/cascade-router/reference-store.js"
-    );
+    const { hasEmbeddings } = await import("../../src/cascade-router/reference-store.js");
     const result = await hasEmbeddings();
     expect(typeof result).toBe("boolean");
   });

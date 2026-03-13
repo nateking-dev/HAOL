@@ -1,7 +1,11 @@
 import { query } from "../db/connection.js";
 import { doltCommit } from "../db/dolt.js";
 import * as repo from "../repositories/agent-registry.js";
-import type { CreateAgentInput, UpdateAgentInput, AgentRegistration } from "../types/agent.js";
+import type {
+  CreateAgentInput,
+  UpdateAgentInput,
+  AgentRegistration,
+} from "../types/agent.js";
 import type { RowDataPacket } from "mysql2/promise";
 
 interface CapabilityRow extends RowDataPacket {
@@ -18,7 +22,9 @@ async function commitSafely(message: string): Promise<void> {
   }
 }
 
-export async function createAgent(input: CreateAgentInput): Promise<AgentRegistration> {
+export async function createAgent(
+  input: CreateAgentInput,
+): Promise<AgentRegistration> {
   // Validate all capabilities exist in the taxonomy
   if (input.capabilities.length > 0) {
     const placeholders = input.capabilities.map(() => "?").join(", ");
@@ -55,7 +61,9 @@ export async function deleteAgent(agentId: string): Promise<void> {
   await commitSafely(`agent: disable ${agentId}`);
 }
 
-export async function getAgent(agentId: string): Promise<AgentRegistration | null> {
+export async function getAgent(
+  agentId: string,
+): Promise<AgentRegistration | null> {
   return repo.findById(agentId);
 }
 
@@ -66,8 +74,6 @@ export async function listAgents(filters?: {
   return repo.findAll(filters);
 }
 
-export async function findAgentsByCapabilities(
-  caps: string[],
-): Promise<AgentRegistration[]> {
+export async function findAgentsByCapabilities(caps: string[]): Promise<AgentRegistration[]> {
   return repo.findByCapabilities(caps);
 }

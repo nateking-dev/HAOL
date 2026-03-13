@@ -13,6 +13,9 @@ interface TaskLogRow extends RowDataPacket {
   cost_ceiling_usd: string | number | null;
   selected_agent_id: string | null;
   selection_rationale: string | Record<string, unknown> | null;
+  routing_confidence: number | null;
+  routing_layer: string | null;
+  expected_format: string | Record<string, unknown> | null;
 }
 
 export interface TaskLogRecord {
@@ -25,23 +28,49 @@ export interface TaskLogRecord {
   cost_ceiling_usd: number | null;
   selected_agent_id: string | null;
   selection_rationale: Record<string, unknown> | null;
+  routing_confidence: number | null;
+  routing_layer: string | null;
+  expected_format: Record<string, unknown> | null;
 }
 
 function parseRow(row: TaskLogRow): TaskLogRecord {
   let capabilities: string[] | null = null;
   if (row.required_capabilities) {
-    capabilities =
-      typeof row.required_capabilities === "string"
-        ? JSON.parse(row.required_capabilities)
-        : row.required_capabilities;
+    if (typeof row.required_capabilities === "string") {
+      try {
+        capabilities = JSON.parse(row.required_capabilities);
+      } catch {
+        capabilities = null;
+      }
+    } else {
+      capabilities = row.required_capabilities;
+    }
   }
 
   let rationale: Record<string, unknown> | null = null;
   if (row.selection_rationale) {
-    rationale =
-      typeof row.selection_rationale === "string"
-        ? JSON.parse(row.selection_rationale)
-        : (row.selection_rationale as Record<string, unknown>);
+    if (typeof row.selection_rationale === "string") {
+      try {
+        rationale = JSON.parse(row.selection_rationale);
+      } catch {
+        rationale = null;
+      }
+    } else {
+      rationale = row.selection_rationale as Record<string, unknown>;
+    }
+  }
+
+  let expectedFormat: Record<string, unknown> | null = null;
+  if (row.expected_format) {
+    if (typeof row.expected_format === "string") {
+      try {
+        expectedFormat = JSON.parse(row.expected_format);
+      } catch {
+        expectedFormat = null;
+      }
+    } else {
+      expectedFormat = row.expected_format as Record<string, unknown>;
+    }
   }
 
   return {
@@ -59,13 +88,13 @@ function parseRow(row: TaskLogRow): TaskLogRecord {
         : null,
     selected_agent_id: row.selected_agent_id,
     selection_rationale: rationale,
+    routing_confidence: row.routing_confidence,
+    routing_layer: row.routing_layer,
+    expected_format: expectedFormat,
   };
 }
 
-export async function create(
-  taskId: string,
-  promptHash: string,
-): Promise<void> {
+export async function create(taskId: string, promptHash: string): Promise<void> {
   const pool = getPool();
   await pool.query(
     `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'RECEIVED', ?)`,
@@ -107,24 +136,42 @@ export async function updateSelection(
   );
 }
 
-export async function updateStatus(
-  taskId: string,
-  status: TaskStatus,
-): Promise<void> {
+export async function updateStatus(taskId: string, status: TaskStatus): Promise<void> {
   const pool = getPool();
-  await pool.query(
-    `UPDATE task_log SET status = ? WHERE task_id = ?`,
-    [status, taskId],
-  );
+  await pool.query(`UPDATE task_log SET status = ? WHERE task_id = ?`, [
+    status,
+    taskId,
+  ]);
 }
 
-export async function findById(
-  taskId: string,
-): Promise<TaskLogRecord | null> {
+export async function findById(taskId: string): Promise<TaskLogRecord | null> {
   const rows = await query<TaskLogRow[]>(
     "SELECT * FROM task_log WHERE task_id = ?",
     [taskId],
   );
   if (rows.length === 0) return null;
   return parseRow(rows[0]);
+}
+
+export async function updateRoutingConfidence(
+  taskId: string,
+  confidence: number,
+  layer: string | undefined,
+): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `UPDATE task_log SET routing_confidence = ?, routing_layer = ? WHERE task_id = ?`,
+    [confidence, layer ?? null, taskId],
+  );
+}
+
+export async function updateExpectedFormat(
+  taskId: string,
+  formatSpec: Record<string, unknown>,
+): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `UPDATE task_log SET expected_format = ? WHERE task_id = ?`,
+    [JSON.stringify(formatSpec), taskId],
+  );
 }

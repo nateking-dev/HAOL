@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import {
+  createPool,
+  getPool,
+  query,
+  destroy,
+} from "../../src/db/connection.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { loadConfig } from "../../src/config.js";
 
@@ -38,16 +43,16 @@ describe("migrations", () => {
   it("applies all migration files without error", async ({ skip }) => {
     if (!doltAvailable) skip();
     const applied = await runMigrations();
-    expect(applied.length).toBe(9);
+    expect(applied.length).toBe(13);
     expect(applied[0]).toBe("001_create_agent_registry.sql");
-    expect(applied[8]).toBe("009_create_cascade_router.sql");
+    expect(applied[12]).toBe("013_add_outcome_weight_to_routing_policy.sql");
   });
 
   it("is idempotent — running twice produces no errors", async ({ skip }) => {
     if (!doltAvailable) skip();
     // Second run should not throw
     const applied = await runMigrations();
-    expect(applied.length).toBe(9);
+    expect(applied.length).toBe(13);
   });
 
   it("creates all 7 tables", async ({ skip }) => {
@@ -65,7 +70,9 @@ describe("migrations", () => {
 
   it("capability_taxonomy has 9 seed rows", async ({ skip }) => {
     if (!doltAvailable) skip();
-    const rows = await query<any>("SELECT COUNT(*) AS cnt FROM capability_taxonomy");
+    const rows = await query<any>(
+      "SELECT COUNT(*) AS cnt FROM capability_taxonomy",
+    );
     expect(rows[0].cnt).toBe(9);
   });
 

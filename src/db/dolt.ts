@@ -18,10 +18,7 @@ export async function doltCommit(opts: DoltCommitOptions): Promise<string> {
 
   // DOLT_COMMIT with -A flag to auto-stage all changes
   const placeholders = args.map(() => "?").join(", ");
-  const [rows] = await pool.query(
-    `CALL DOLT_COMMIT('-A', ${placeholders})`,
-    args,
-  );
+  const [rows] = await pool.query(`CALL DOLT_COMMIT('-A', ${placeholders})`, args);
   const result = rows as Record<string, string>[];
   return result[0]?.hash ?? "";
 }

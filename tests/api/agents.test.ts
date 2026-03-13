@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import {
+  createPool,
+  getPool,
+  query,
+  destroy,
+} from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { createApp } from "../../src/api/app.js";
@@ -29,7 +34,9 @@ beforeAll(async () => {
 afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
-    await pool.query("DELETE FROM agent_registry WHERE agent_id LIKE 'api-test-%'");
+    await pool.query(
+      "DELETE FROM agent_registry WHERE agent_id LIKE 'api-test-%'",
+    );
   }
   await destroy();
 });
@@ -139,9 +146,7 @@ describe("DELETE /agents/:id", () => {
     // Verify agent is disabled
     const getRes = await app.request("/agents?status=disabled");
     const body = await getRes.json();
-    const disabled = body.find(
-      (a: Record<string, unknown>) => a.agent_id === testAgentId,
-    );
+    const disabled = body.find((a: Record<string, unknown>) => a.agent_id === testAgentId);
     expect(disabled).toBeTruthy();
     expect(disabled.status).toBe("disabled");
   });

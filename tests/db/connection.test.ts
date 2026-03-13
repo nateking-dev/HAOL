@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPool, query, healthCheck, destroy } from "../../src/db/connection.js";
+import {
+  createPool,
+  query,
+  healthCheck,
+  destroy,
+} from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 
 let doltAvailable = false;

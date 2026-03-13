@@ -14,6 +14,7 @@ import { uuidv7, sha256 } from "../types/task.js";
 import type { TaskInput, TaskClassification } from "../types/task.js";
 import * as store from "./reference-store.js";
 import { rankBySimilarity, weightedTierVote } from "./similarity.js";
+import safe from "safe-regex";
 
 export interface CascadeRouterOpts {
   embeddingProvider?: EmbeddingProvider;
@@ -110,7 +111,11 @@ export class CascadeRouter {
       } else if (utterances.length > 0 && this.embeddingProvider) {
         // Layer 1: Semantic similarity
         const queryEmbedding = await this.embeddingProvider.embed(prompt);
-        const matches = rankBySimilarity(queryEmbedding, utterances, config.top_k);
+        const matches = rankBySimilarity(
+          queryEmbedding,
+          utterances,
+          config.top_k,
+        );
         const vote = weightedTierVote(matches);
         similarityScore = matches.length > 0 ? matches[0].score : null;
 
@@ -125,20 +130,22 @@ export class CascadeRouter {
           tiers.length > 0
         ) {
           // Layer 2: LLM escalation
-          const escalation = await this.escalationProvider.classify(prompt, tiers);
+          const escalation = await this.escalationProvider.classify(
+            prompt,
+            tiers,
+          );
           tier = escalation.tier;
           layer = "escalation";
           confidence = escalation.confidence;
           for (const cap of escalation.capabilities) {
             allCapabilities.add(cap);
           }
-        } else if (
-          config.enable_escalation &&
-          this.escalationProvider &&
-          tiers.length > 0
-        ) {
+        } else if (config.enable_escalation && this.escalationProvider && tiers.length > 0) {
           // Low confidence — also escalate
-          const escalation = await this.escalationProvider.classify(prompt, tiers);
+          const escalation = await this.escalationProvider.classify(
+            prompt,
+            tiers,
+          );
           tier = escalation.tier;
           layer = "escalation";
           confidence = escalation.confidence;
@@ -151,13 +158,12 @@ export class CascadeRouter {
           layer = "fallback";
           confidence = 0;
         }
-      } else if (
-        config.enable_escalation &&
-        this.escalationProvider &&
-        tiers.length > 0
-      ) {
+      } else if (config.enable_escalation && this.escalationProvider && tiers.length > 0) {
         // No utterances but escalation available
-        const escalation = await this.escalationProvider.classify(prompt, tiers);
+        const escalation = await this.escalationProvider.classify(
+          prompt,
+          tiers,
+        );
         tier = escalation.tier;
         layer = "escalation";
         confidence = escalation.confidence;
@@ -177,15 +183,7 @@ export class CascadeRouter {
 
     // Best-effort log
     try {
-      await store.logDecision(
-        taskId,
-        prompt,
-        tier,
-        layer,
-        similarityScore,
-        confidence,
-        latencyMs,
-      );
+      await store.logDecision(taskId, prompt, tier, layer, similarityScore, confidence, latencyMs);
     } catch {
       // Don't fail classification if logging fails
     }
@@ -196,6 +194,8 @@ export class CascadeRouter {
       required_capabilities: [...allCapabilities],
       cost_ceiling_usd: costCeilingForTier(tier),
       prompt_hash: sha256(prompt),
+      routing_confidence: confidence,
+      routing_layer: layer,
     };
   }
 
@@ -212,6 +212,23 @@ export class CascadeRouter {
       switch (rule.rule_type) {
         case "regex":
           try {
+            if (!safe(rule.pattern)) {
+              console.warn(
+                `Unsafe regex pattern rejected (ReDoS risk): rule=${rule.rule_id} pattern=${rule.pattern}`,
+              );
+              // Log rejection so it surfaces in observability
+              store.logDecision(
+                uuidv7(),
+                prompt,
+                rule.tier_id,
+                "deterministic",
+                null,
+                0,
+                0,
+                { rejected_rule: rule.rule_id, reason: "unsafe_regex" },
+              ).catch(() => {});
+              break;
+            }
             matched = new RegExp(rule.pattern, "i").test(prompt);
           } catch {
             // Invalid regex — skip

@@ -30,5 +30,6 @@ export const RoutingPolicy = z.object({
   fallback_strategy: z.enum(["NEXT_BEST", "TIER_UP", "ABORT"]),
   max_retries: z.number(),
   active: z.boolean(),
+  weight_outcome: z.number().default(0),
 });
 export type RoutingPolicy = z.infer<typeof RoutingPolicy>;

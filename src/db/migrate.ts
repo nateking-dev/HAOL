@@ -9,9 +9,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, "migrations");
 
 export async function runMigrations(): Promise<string[]> {
-  const files = (await readdir(MIGRATIONS_DIR))
-    .filter((f) => f.endsWith(".sql"))
-    .sort();
+  const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith(".sql")).sort();
 
   const pool = getPool();
   const applied: string[] = [];
@@ -24,7 +22,16 @@ export async function runMigrations(): Promise<string[]> {
       .filter((s) => s.length > 0);
 
     for (const statement of statements) {
-      await pool.query(statement);
+      try {
+        await pool.query(statement);
+      } catch (err: unknown) {
+        const msg = (err as { sqlMessage?: string }).sqlMessage ?? "";
+        // Skip "already exists" / "duplicate" errors for idempotent reruns
+        if (msg.includes("already exists") || msg.includes("Duplicate")) {
+          continue;
+        }
+        throw err;
+      }
     }
     applied.push(file);
   }

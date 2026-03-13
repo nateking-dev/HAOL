@@ -5,11 +5,17 @@ import { execute } from "../services/execution.js";
 import * as taskLog from "../repositories/task-log.js";
 import { getActivePolicy } from "../repositories/routing-policy.js";
 import { doltCommit } from "../db/dolt.js";
-import type { AgentRequest } from "../types/execution.js";
+import type { AgentRequest, ExecutionRecord } from "../types/execution.js";
 import type { TaskClassification } from "../types/task.js";
 import type { RoutingPolicy } from "../types/selection.js";
 import type { RouterTaskInput, TaskResult } from "../types/router.js";
 import { RouterTaskInput as RouterTaskInputSchema } from "../types/router.js";
+import {
+  collectStructuralSignals,
+  runFormatVerification,
+  shouldSampleForEvaluation,
+  evaluateRoutingDecision,
+} from "../services/outcome-collector.js";
 
 async function commitSafely(message: string): Promise<void> {
   try {
@@ -47,6 +53,20 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     await taskLog.create(taskId, classification.prompt_hash);
     status = "RECEIVED";
 
+    // Store routing confidence on task_log (after create so the row exists)
+    if (classification.routing_confidence != null) {
+      await taskLog.updateRoutingConfidence(
+        taskId,
+        classification.routing_confidence,
+        classification.routing_layer,
+      );
+    }
+
+    // Store expected format if provided
+    if (parsed.expected_format) {
+      await taskLog.updateExpectedFormat(taskId, parsed.expected_format);
+    }
+
     // 3. Update classification
     await taskLog.updateClassification(
       taskId,
@@ -60,7 +80,11 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     const policy = await getActivePolicy();
     const selection = await select(classification, policy ?? undefined);
 
-    await taskLog.updateSelection(taskId, selection.selected_agent_id, selection.rationale);
+    await taskLog.updateSelection(
+      taskId,
+      selection.selected_agent_id,
+      selection.rationale,
+    );
     status = "DISPATCHED";
 
     // 5. Execute
@@ -77,14 +101,15 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     };
 
     const maxRetries = policy?.max_retries ?? 2;
-    let execResult = await execute(
-      selection.selected_agent_id,
-      agentRequest,
-      maxRetries,
-    );
+    const allExecRecords: ExecutionRecord[] = [];
+    let execResult = await execute(selection.selected_agent_id, agentRequest, maxRetries);
+    allExecRecords.push(execResult);
 
     // 6. Handle fallback on execution failure
-    if (execResult.outcome !== "SUCCESS" && policy?.fallback_strategy !== "ABORT") {
+    if (
+      execResult.outcome !== "SUCCESS" &&
+      policy?.fallback_strategy !== "ABORT"
+    ) {
       // Try next-best agent if available
       const fallbackSelection = await tryFallbackAgent(
         classification,
@@ -98,11 +123,16 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
           reason: execResult.outcome,
         });
 
-        execResult = await execute(
-          fallbackSelection.agent_id,
-          agentRequest,
-          0, // no retries on fallback
-        );
+        try {
+          execResult = await execute(
+            fallbackSelection.agent_id,
+            agentRequest,
+            0, // no retries on fallback
+          );
+          allExecRecords.push(execResult);
+        } catch {
+          // Fallback execution failed — proceed with the original failed result
+        }
       }
     }
 
@@ -115,8 +145,37 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       status = "FAILED";
     }
 
+    // 7b. Best-effort outcome collection
+    try {
+      const taskRecord = await taskLog.findById(taskId);
+      await collectStructuralSignals(
+        taskId,
+        allExecRecords,
+        taskRecord,
+        agentRequest.constraints,
+      );
+
+      if (parsed.expected_format && execResult.response_content) {
+        await runFormatVerification(
+          taskId,
+          execResult.response_content,
+          parsed.expected_format,
+        );
+      }
+
+      if (
+        classification.routing_confidence != null &&
+        shouldSampleForEvaluation(classification.routing_confidence)
+      ) {
+        evaluateRoutingDecision(taskId).catch(() => {});
+      }
+    } catch {
+      // best-effort — never fail the task due to outcome collection
+    }
+
     // 8. Commit
-    const costStr = execResult.cost_usd > 0 ? `$${execResult.cost_usd.toFixed(4)}` : "$0";
+    const costStr =
+      execResult.cost_usd > 0 ? `$${execResult.cost_usd.toFixed(4)}` : "$0";
     await commitSafely(
       `task:${taskId} | tier:T${classification.complexity_tier} | agent:${execResult.agent_id} | cost:${costStr} | ${execResult.latency_ms}ms`,
     );
@@ -140,7 +199,9 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
         // best-effort status update
       }
       try {
-        await commitSafely(`task:${taskId} | FAILED | ${(err as Error).message}`);
+        await commitSafely(
+          `task:${taskId} | FAILED | ${(err as Error).message}`,
+        );
       } catch {
         // best-effort commit
       }
@@ -169,9 +230,7 @@ async function tryFallbackAgent(
     // If the same agent is selected, no point retrying
     if (result.selected_agent_id === excludeAgentId) {
       // Try the second-best if available
-      const secondBest = result.scored_candidates.find(
-        (c) => c.agent_id !== excludeAgentId,
-      );
+      const secondBest = result.scored_candidates.find((c) => c.agent_id !== excludeAgentId);
       return secondBest ? { agent_id: secondBest.agent_id } : null;
     }
     return { agent_id: result.selected_agent_id };

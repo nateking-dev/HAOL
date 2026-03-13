@@ -32,7 +32,12 @@ export interface AgentProvider {
   estimateTokens(prompt: string): number;
 }
 
-export const ExecutionOutcome = z.enum(["SUCCESS", "TIMEOUT", "ERROR", "FALLBACK"]);
+export const ExecutionOutcome = z.enum([
+  "SUCCESS",
+  "TIMEOUT",
+  "ERROR",
+  "FALLBACK",
+]);
 export type ExecutionOutcome = z.infer<typeof ExecutionOutcome>;
 
 export const ExecutionRecord = z.object({
