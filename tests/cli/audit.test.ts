@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { auditAgentsCommand, auditCommitsCommand } from "../../src/cli/commands/audit.js";
+import {
+  auditAgentsCommand,
+  auditCommitsCommand,
+} from "../../src/cli/commands/audit.js";
 import { run } from "../../src/cli/index.js";
 
 const originalFetch = globalThis.fetch;
@@ -123,7 +126,12 @@ describe("audit commits command", () => {
 describe("run() — audit via CLI entry", () => {
   it("haol audit agents shows changes", async () => {
     mockResponse([
-      { diff_type: "added", to_agent_id: "test-agent", from_status: null, to_status: "active" },
+      {
+        diff_type: "added",
+        to_agent_id: "test-agent",
+        from_status: null,
+        to_status: "active",
+      },
     ]);
     const output = await run(["node", "haol", "audit", "agents"]);
     expect(output).toContain("test-agent");

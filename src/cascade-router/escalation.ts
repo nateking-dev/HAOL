@@ -12,7 +12,9 @@ export class AnthropicEscalationProvider implements EscalationProvider {
   private modelId: string;
   private timeoutMs: number;
 
-  constructor(opts: { apiKey?: string; modelId?: string; timeoutMs?: number } = {}) {
+  constructor(
+    opts: { apiKey?: string; modelId?: string; timeoutMs?: number } = {},
+  ) {
     this.apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
     this.modelId = opts.modelId ?? "claude-haiku-4-5-20251001";
     this.timeoutMs = opts.timeoutMs ?? 15_000;
@@ -23,7 +25,10 @@ export class AnthropicEscalationProvider implements EscalationProvider {
     tiers: TierDefinition[],
   ): Promise<{ tier: TierId; capabilities: string[]; confidence: number }> {
     const tierDescriptions = tiers
-      .map((t) => `Tier ${t.tier_id} (${t.tier_name}): ${t.description ?? "No description"}`)
+      .map(
+        (t) =>
+          `Tier ${t.tier_id} (${t.tier_name}): ${t.description ?? "No description"}`,
+      )
       .join("\n");
 
     const systemPrompt = `You are a task complexity classifier. Given a user prompt, determine which complexity tier it belongs to and what capabilities are needed.

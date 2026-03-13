@@ -1,5 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
-import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  vi,
+} from "vitest";
+import {
+  createPool,
+  getPool,
+  query,
+  destroy,
+} from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { createApp } from "../../src/api/app.js";
@@ -93,14 +106,20 @@ afterEach(() => {
 afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
-    await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'api-task-%'");
-    await pool.query("DELETE FROM task_log WHERE selected_agent_id LIKE 'api-task-%'");
+    await pool.query(
+      "DELETE FROM execution_log WHERE agent_id LIKE 'api-task-%'",
+    );
+    await pool.query(
+      "DELETE FROM task_log WHERE selected_agent_id LIKE 'api-task-%'",
+    );
     // Re-enable seed agents
     await pool.query(
       `UPDATE agent_registry SET status = 'active'
        WHERE agent_id IN ('claude-haiku-4-5','claude-sonnet-4-5','gpt-4o-mini','local-llama')`,
     );
-    await pool.query("DELETE FROM agent_registry WHERE agent_id LIKE 'api-task-%'");
+    await pool.query(
+      "DELETE FROM agent_registry WHERE agent_id LIKE 'api-task-%'",
+    );
   }
   await destroy();
 });

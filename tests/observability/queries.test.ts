@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import {
+  createPool,
+  getPool,
+  query,
+  destroy,
+} from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import {
@@ -58,7 +63,9 @@ beforeAll(async () => {
 afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
-    await pool.query(`DELETE FROM execution_log WHERE task_id LIKE '${prefix}-%'`);
+    await pool.query(
+      `DELETE FROM execution_log WHERE task_id LIKE '${prefix}-%'`,
+    );
     await pool.query(`DELETE FROM task_log WHERE task_id LIKE '${prefix}-%'`);
   }
   await destroy();
@@ -154,7 +161,9 @@ describe("commitHistory", () => {
 });
 
 describe("agentRegistryDiff", () => {
-  it("returns diff rows (may be empty if no recent changes)", async ({ skip }) => {
+  it("returns diff rows (may be empty if no recent changes)", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     const result = await agentRegistryDiff("9999h");

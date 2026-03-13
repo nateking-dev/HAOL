@@ -1,5 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
-import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  vi,
+} from "vitest";
+import {
+  createPool,
+  getPool,
+  query,
+  destroy,
+} from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { routeTask } from "../../src/router/router.js";
@@ -112,7 +125,9 @@ afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'rtr-%'");
-    await pool.query("DELETE FROM task_log WHERE selected_agent_id LIKE 'rtr-%'");
+    await pool.query(
+      "DELETE FROM task_log WHERE selected_agent_id LIKE 'rtr-%'",
+    );
     // Re-enable seed agents
     await pool.query(
       `UPDATE agent_registry SET status = 'active'
@@ -128,7 +143,9 @@ describe("router pipeline", () => {
     if (!doltAvailable) skip();
     mockFetchSuccess("Here is your summary.");
 
-    const result = await routeTask({ prompt: "Summarize this paragraph about testing" });
+    const result = await routeTask({
+      prompt: "Summarize this paragraph about testing",
+    });
 
     expect(result.status).toBe("COMPLETED");
     expect(result.task_id).toBeTruthy();

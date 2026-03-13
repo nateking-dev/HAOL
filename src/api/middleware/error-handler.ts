@@ -26,7 +26,10 @@ export function errorHandler(err: Error, c: Context) {
     return c.json(
       {
         error: err.message,
-        details: "details" in err ? (err as Record<string, unknown>).details : undefined,
+        details:
+          "details" in err
+            ? (err as Record<string, unknown>).details
+            : undefined,
       },
       400,
     );

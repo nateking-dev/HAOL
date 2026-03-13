@@ -1,6 +1,10 @@
 import { query, getPool } from "../db/connection.js";
 import type { RowDataPacket } from "mysql2/promise";
-import type { AgentRegistration, CreateAgentInput, UpdateAgentInput } from "../types/agent.js";
+import type {
+  AgentRegistration,
+  CreateAgentInput,
+  UpdateAgentInput,
+} from "../types/agent.js";
 
 interface AgentRow extends RowDataPacket {
   agent_id: string;
@@ -69,15 +73,20 @@ export async function findAll(filters?: {
   return rows.map(parseAgentRow);
 }
 
-export async function findById(agentId: string): Promise<AgentRegistration | null> {
-  const rows = await query<AgentRow[]>("SELECT * FROM agent_registry WHERE agent_id = ?", [
-    agentId,
-  ]);
+export async function findById(
+  agentId: string,
+): Promise<AgentRegistration | null> {
+  const rows = await query<AgentRow[]>(
+    "SELECT * FROM agent_registry WHERE agent_id = ?",
+    [agentId],
+  );
   if (rows.length === 0) return null;
   return parseAgentRow(rows[0]);
 }
 
-export async function findByCapabilities(caps: string[]): Promise<AgentRegistration[]> {
+export async function findByCapabilities(
+  caps: string[],
+): Promise<AgentRegistration[]> {
   if (caps.length === 0) {
     return findAll({ status: "active" });
   }

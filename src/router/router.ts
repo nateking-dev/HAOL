@@ -10,6 +10,13 @@ import type { TaskClassification } from "../types/task.js";
 import type { RoutingPolicy } from "../types/selection.js";
 import type { RouterTaskInput, TaskResult } from "../types/router.js";
 import { RouterTaskInput as RouterTaskInputSchema } from "../types/router.js";
+import * as execRepo from "../repositories/execution-log.js";
+import {
+  collectStructuralSignals,
+  runFormatVerification,
+  shouldSampleForEvaluation,
+  evaluateRoutingDecision,
+} from "../services/outcome-collector.js";
 
 async function commitSafely(message: string): Promise<void> {
   try {
@@ -43,9 +50,23 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     }
     taskId = classification.task_id;
 
+    // Store routing confidence on task_log
+    if (classification.routing_confidence != null) {
+      await taskLog.updateRoutingConfidence(
+        taskId,
+        classification.routing_confidence,
+        classification.routing_layer,
+      );
+    }
+
     // 2. Intake — write to task_log
     await taskLog.create(taskId, classification.prompt_hash);
     status = "RECEIVED";
+
+    // Store expected format if provided
+    if (parsed.expected_format) {
+      await taskLog.updateExpectedFormat(taskId, parsed.expected_format);
+    }
 
     // 3. Update classification
     await taskLog.updateClassification(
@@ -60,7 +81,11 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     const policy = await getActivePolicy();
     const selection = await select(classification, policy ?? undefined);
 
-    await taskLog.updateSelection(taskId, selection.selected_agent_id, selection.rationale);
+    await taskLog.updateSelection(
+      taskId,
+      selection.selected_agent_id,
+      selection.rationale,
+    );
     status = "DISPATCHED";
 
     // 5. Execute
@@ -80,7 +105,10 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     let execResult = await execute(selection.selected_agent_id, agentRequest, maxRetries);
 
     // 6. Handle fallback on execution failure
-    if (execResult.outcome !== "SUCCESS" && policy?.fallback_strategy !== "ABORT") {
+    if (
+      execResult.outcome !== "SUCCESS" &&
+      policy?.fallback_strategy !== "ABORT"
+    ) {
       // Try next-best agent if available
       const fallbackSelection = await tryFallbackAgent(
         classification,
@@ -111,8 +139,38 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       status = "FAILED";
     }
 
+    // 7b. Best-effort outcome collection
+    try {
+      const taskRecord = await taskLog.findById(taskId);
+      const allExecRecords = await execRepo.findByTaskId(taskId);
+      await collectStructuralSignals(
+        taskId,
+        allExecRecords,
+        taskRecord,
+        agentRequest.constraints,
+      );
+
+      if (parsed.expected_format && execResult.response_content) {
+        await runFormatVerification(
+          taskId,
+          execResult.response_content,
+          parsed.expected_format,
+        );
+      }
+
+      if (
+        classification.routing_confidence != null &&
+        shouldSampleForEvaluation(classification.routing_confidence)
+      ) {
+        evaluateRoutingDecision(taskId).catch(() => {});
+      }
+    } catch {
+      // best-effort — never fail the task due to outcome collection
+    }
+
     // 8. Commit
-    const costStr = execResult.cost_usd > 0 ? `$${execResult.cost_usd.toFixed(4)}` : "$0";
+    const costStr =
+      execResult.cost_usd > 0 ? `$${execResult.cost_usd.toFixed(4)}` : "$0";
     await commitSafely(
       `task:${taskId} | tier:T${classification.complexity_tier} | agent:${execResult.agent_id} | cost:${costStr} | ${execResult.latency_ms}ms`,
     );
@@ -136,7 +194,9 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
         // best-effort status update
       }
       try {
-        await commitSafely(`task:${taskId} | FAILED | ${(err as Error).message}`);
+        await commitSafely(
+          `task:${taskId} | FAILED | ${(err as Error).message}`,
+        );
       } catch {
         // best-effort commit
       }

@@ -5,6 +5,7 @@ import { health } from "./routes/health.js";
 import { agents } from "./routes/agents.js";
 import { tasks } from "./routes/tasks.js";
 import { observability } from "./routes/observability.js";
+import { outcomes } from "./routes/outcomes.js";
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -17,6 +18,7 @@ export function createApp(): Hono {
   app.route("/", agents);
   app.route("/", tasks);
   app.route("/", observability);
+  app.route("/", outcomes);
 
   // Error handler
   app.onError(errorHandler);

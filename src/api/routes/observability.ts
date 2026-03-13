@@ -7,6 +7,8 @@ import {
   costCeilingBreaches,
   agentRegistryDiff,
   commitHistory,
+  outcomeSignalRates,
+  routingAccuracyByAgent,
 } from "../../observability/queries.js";
 import { getDashboard } from "../../observability/dashboard.js";
 
@@ -46,6 +48,18 @@ observability.get("/stats/tiers", async (c) => {
 
 observability.get("/stats/breaches", async (c) => {
   const data = await costCeilingBreaches();
+  return c.json(data, 200);
+});
+
+observability.get("/stats/outcomes", async (c) => {
+  const hours = parseInt(c.req.query("hours") ?? "24", 10);
+  const data = await outcomeSignalRates(hours);
+  return c.json(data, 200);
+});
+
+observability.get("/stats/routing-accuracy", async (c) => {
+  const hours = parseInt(c.req.query("hours") ?? "24", 10);
+  const data = await routingAccuracyByAgent(hours);
   return c.json(data, 200);
 });
 

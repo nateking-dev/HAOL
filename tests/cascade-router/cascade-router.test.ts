@@ -216,7 +216,9 @@ describe("CascadeRouter", () => {
 
       const embedder = mockEmbedder([1, 0, 0]);
 
-      const router = await CascadeRouter.create({ embeddingProvider: embedder });
+      const router = await CascadeRouter.create({
+        embeddingProvider: embedder,
+      });
       const result = await router.classify({ prompt: "some ambiguous query" });
 
       expect(result.complexity_tier).toBe(2);
@@ -256,7 +258,9 @@ describe("CascadeRouter", () => {
         embeddingProvider: embedder,
         escalationProvider: escalation,
       });
-      const result = await router.classify({ prompt: "ambiguous multi-domain task" });
+      const result = await router.classify({
+        prompt: "ambiguous multi-domain task",
+      });
 
       expect(result.complexity_tier).toBe(4);
       expect(result.required_capabilities).toContain("vision");
@@ -279,7 +283,9 @@ describe("CascadeRouter", () => {
 
       const embedder = mockEmbedder([0, 1, 0]);
 
-      const router = await CascadeRouter.create({ embeddingProvider: embedder });
+      const router = await CascadeRouter.create({
+        embeddingProvider: embedder,
+      });
       const result = await router.classify({ prompt: "something unknown" });
 
       expect(result.complexity_tier).toBe(3); // default_tier

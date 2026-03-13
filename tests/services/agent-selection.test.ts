@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import {
+  createPool,
+  getPool,
+  query,
+  destroy,
+} from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { select } from "../../src/services/agent-selection.js";
@@ -58,7 +63,9 @@ afterAll(async () => {
 });
 
 describe("agent-selection service", () => {
-  it("default weights, T1 summarization — cheapest capable agent wins", async ({ skip }) => {
+  it("default weights, T1 summarization — cheapest capable agent wins", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     const classification: TaskClassification = {
@@ -78,7 +85,9 @@ describe("agent-selection service", () => {
     expect(result.scored_candidates.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("capability-heavy weights — agent with most matching capabilities wins", async ({ skip }) => {
+  it("capability-heavy weights — agent with most matching capabilities wins", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     const capHeavyPolicy: RoutingPolicy = {
@@ -193,7 +202,9 @@ describe("agent-selection service", () => {
     expect(winner!.latency_score).toBe(1.0);
   });
 
-  it("selection rationale contains per-dimension scores as numbers", async ({ skip }) => {
+  it("selection rationale contains per-dimension scores as numbers", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     const classification: TaskClassification = {
@@ -253,7 +264,9 @@ describe("agent-selection service", () => {
     expect(result.selected_agent_id).toBe("sel-sonnet");
   });
 
-  it("tiebreak — identical scores, lower alphabetical agent_id wins", async ({ skip }) => {
+  it("tiebreak — identical scores, lower alphabetical agent_id wins", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     // Insert two agents with identical stats but different IDs

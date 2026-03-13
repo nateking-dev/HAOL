@@ -12,7 +12,9 @@ async function getInstance(): Promise<CascadeRouter> {
     const rules = await store.loadRules();
     const hasEmbed = await store.hasEmbeddings();
     if (rules.length === 0 && !hasEmbed) {
-      throw new Error("Cascade router not seeded — falling back to old classifier");
+      throw new Error(
+        "Cascade router not seeded — falling back to old classifier",
+      );
     }
 
     const config = await store.loadConfig();
@@ -43,7 +45,9 @@ async function getInstance(): Promise<CascadeRouter> {
   return instance;
 }
 
-export async function classifyCascade(input: TaskInput): Promise<TaskClassification> {
+export async function classifyCascade(
+  input: TaskInput,
+): Promise<TaskClassification> {
   const router = await getInstance();
   return router.classify(input);
 }

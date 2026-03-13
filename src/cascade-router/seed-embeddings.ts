@@ -1,5 +1,11 @@
 import { loadConfig } from "../config.js";
-import { createPool, getPool, query, execute, destroy } from "../db/connection.js";
+import {
+  createPool,
+  getPool,
+  query,
+  execute,
+  destroy,
+} from "../db/connection.js";
 import { doltCommit } from "../db/dolt.js";
 import { OpenAIEmbeddingProvider } from "./embedding-openai.js";
 
@@ -17,7 +23,9 @@ async function main() {
   }
 
   // Find utterances that need embedding
-  const pending = await query<(PendingUtterance & import("mysql2/promise").RowDataPacket)[]>(
+  const pending = await query<
+    (PendingUtterance & import("mysql2/promise").RowDataPacket)[]
+  >(
     `SELECT utterance_id, utterance_text
      FROM routing_utterances
      WHERE embedding_model = 'pending'
@@ -48,7 +56,12 @@ async function main() {
         `UPDATE routing_utterances
          SET embedding = ?, embedding_model = ?, embedding_dim = ?
          WHERE utterance_id = ?`,
-        [JSON.stringify(embeddings[i]), modelId, embeddings[i].length, pending[i].utterance_id],
+        [
+          JSON.stringify(embeddings[i]),
+          modelId,
+          embeddings[i].length,
+          pending[i].utterance_id,
+        ],
       );
       console.log(
         `  [${i + 1}/${pending.length}] ${pending[i].utterance_id}: "${pending[i].utterance_text.slice(0, 60)}..."`,

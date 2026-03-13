@@ -29,11 +29,15 @@ All routing decisions are stored in [Dolt](https://www.dolthub.com/), a Git-like
                  ▼
         ┌────────────────┐
         │ Agent Selection│  Weighted scoring across candidates
-        └────────┬───────┘  capability × 0.5 + cost × 0.3 + latency × 0.2
+        └────────┬───────┘  capability × w + cost × w + latency × w + outcome × w
                  ▼
           ┌──────────────┐
           │  Execution   │  Provider-specific invocation + retry logic
           └──────┬───────┘
+                 ▼
+        ┌──────────────────┐
+        │ Outcome Capture  │  4-tier feedback (structural → format → eval → downstream)
+        └────────┬─────────┘
                  ▼
            ┌───────────┐
            │  Commit   │  Atomic Dolt commit with full telemetry
@@ -267,12 +271,13 @@ Candidates are eliminated if they don't meet the minimum requirements:
 Surviving candidates are scored with a weighted formula:
 
 ```
-score = capability × 0.5 + cost × 0.3 + latency × 0.2
+score = capability × 0.5 + cost × 0.3 + latency × 0.2 + outcome × 0.0
 ```
 
 - **Capability score** — Fraction of the agent's capabilities that match the task's requirements (agents with extra capabilities score higher)
 - **Cost score** — Inverse of cost relative to the ceiling (cheaper agents score higher)
 - **Latency score** — Inverse of latency relative to the slowest candidate (faster agents score higher)
+- **Outcome score** — Average signal_value from Tier 1-3 outcomes over the last 72 hours (see [Outcome Capture](#outcome-capture-routing-feedback-loop)). Defaults to 0 weight — opt-in via `weight_outcome` in the routing policy
 
 The weights are configurable via the `routing_policy` table.
 
@@ -286,16 +291,173 @@ If execution fails with the selected agent, the fallback strategy kicks in:
 | `TIER_UP`   | Relax tier constraints and re-select     |
 | `ABORT`     | Mark the task as failed                  |
 
+
+## Outcome Capture: Routing Feedback Loop
+
+HAOL captures structured feedback about every routing decision through a 4-tier outcome taxonomy. These signals range from free structural data (automatically extracted from the pipeline) to delayed ground-truth signals from downstream systems. All outcomes are stored in the `task_outcome` table and version-controlled via Dolt commits.
+
+### Why Outcomes?
+
+The execution_log tells you _if_ a call succeeded, but not _whether the routing decision was good_. A task might complete successfully but:
+
+- Be routed to an overqualified (expensive) agent
+- Return malformed output that the consumer can't parse
+- Produce a low-quality result that a user later rejects
+
+Outcome signals close this gap. They're collected automatically where possible and accepted from external systems where human or downstream judgment is needed.
+
+### The 4-Tier Taxonomy
+
+```
+Tier 0: Structural       Free — extracted from pipeline data already in memory
+Tier 1: Format           Cheap — programmatic verification against a format spec
+Tier 2: Routing Eval     Moderate — LLM re-evaluates low-confidence classifications
+Tier 3: Downstream       External — ground-truth signals from consuming systems
+```
+
+#### Tier 0: Structural Signals (automatic)
+
+Computed at the end of every pipeline run from data already in memory — no extra DB reads or API calls. These are negative-signal detectors: if everything went well, a single `clean_execution` positive signal is recorded.
+
+| Signal                 | Condition                                        | Value        |
+| ---------------------- | ------------------------------------------------ | ------------ |
+| `clean_execution`      | No issues detected                               | 1 (positive) |
+| `fallback_activated`   | Selection rationale contains `fallback_from`     | 0 (negative) |
+| `error_occurred`       | Any execution record has outcome `ERROR`         | 0            |
+| `timeout_occurred`     | Any execution record has outcome `TIMEOUT`       | 0            |
+| `token_budget_overrun` | Output tokens ≥ `max_tokens` constraint          | 0            |
+| `cost_ceiling_breach`  | Total execution cost > task's `cost_ceiling_usd` | 0            |
+| `latency_anomaly`      | Actual latency > 3× agent's `avg_latency_ms`     | 0            |
+
+#### Tier 1: Format Verification (automatic, opt-in)
+
+When a task includes an `expected_format` spec, the pipeline programmatically verifies the response after execution. This catches cases where the model returns valid output that doesn't match what the consumer needs.
+
+| Signal                    | Condition                                   | Value  |
+| ------------------------- | ------------------------------------------- | ------ |
+| `json_valid`              | `JSON.parse()` succeeds on response content | 1 or 0 |
+| `required_fields_present` | Parsed object contains all required fields  | 1 or 0 |
+| `length_within_bounds`    | Response length within min/max bounds       | 1 or 0 |
+
+To use Tier 1, include `expected_format` in your task submission:
+
+```bash
+curl -X POST http://localhost:3000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Return a JSON object with title, summary, and tags",
+    "expected_format": {
+      "type": "json",
+      "required_fields": ["title", "summary", "tags"],
+      "max_length": 2000,
+      "min_length": 50
+    }
+  }'
+```
+
+#### Tier 2: Routing Evaluation (automatic, sampled)
+
+For low-confidence routing decisions (confidence < 0.6), the pipeline samples the classification for async re-evaluation. This catches systematic misrouting — for example, a class of prompts that the cascade router consistently under-tiers.
+
+The sampling is fire-and-forget: it doesn't block the task pipeline and failures are silently ignored. Each sampled evaluation produces a `task_outcome` row and a Dolt commit.
+
+#### Tier 3: Downstream Outcomes (external)
+
+Ground-truth signals from systems or humans that consume HAOL's output. These are the most valuable signals — they tell you whether the _end result_ was actually useful — but they arrive asynchronously and require integration with downstream systems.
+
+```bash
+# Report a positive outcome
+curl -X POST http://localhost:3000/tasks/<task_id>/outcome \
+  -H "Content-Type: application/json" \
+  -d '{
+    "signal_type": "user_satisfied",
+    "signal_value": 1,
+    "reported_by": "feedback-service",
+    "detail": {"rating": 5, "comment": "Accurate summary"}
+  }'
+
+# Report a negative outcome
+curl -X POST http://localhost:3000/tasks/<task_id>/outcome \
+  -H "Content-Type: application/json" \
+  -d '{
+    "signal_type": "output_rejected",
+    "signal_value": 0,
+    "reported_by": "qa-pipeline",
+    "detail": {"reason": "hallucinated a citation"}
+  }'
+```
+
+### Querying Outcomes
+
+```bash
+# All outcomes for a task
+curl http://localhost:3000/tasks/<task_id>/outcomes
+
+# Filter by tier
+curl http://localhost:3000/tasks/<task_id>/outcomes?tier=0
+
+# Aggregated summary
+curl http://localhost:3000/tasks/<task_id>/outcomes/summary
+```
+
+The summary endpoint returns signal counts broken down by tier:
+
+```json
+{
+  "task_id": "019ce79f-96a0-7a48-aaf0-b36d2d022ea2",
+  "total_signals": 3,
+  "positive_signals": 2,
+  "negative_signals": 1,
+  "by_tier": {
+    "0": { "total": 1, "positive": 1, "negative": 0, "signals": [...] },
+    "1": { "total": 2, "positive": 1, "negative": 1, "signals": [...] }
+  }
+}
+```
+
+### Outcome-Weighted Agent Selection
+
+Outcome data feeds back into agent selection through an optional `weight_outcome` parameter on the routing policy. When enabled, the scoring formula becomes:
+
+```
+score = capability × w_cap + cost × w_cost + latency × w_lat + outcome × w_outcome
+```
+
+The outcome score for each agent is computed as the average `signal_value` across Tier 1-3 outcomes from the last 72 hours. Agents with consistently positive outcomes score higher; agents that produce rejected or malformed output score lower.
+
+**This is opt-in.** The default `weight_outcome` is `0.00` — outcome data is collected from day one, but routing decisions aren't influenced until an operator enables the weight:
+
+```sql
+UPDATE routing_policy SET weight_outcome = 0.15 WHERE active = TRUE;
+```
+
+A reasonable starting point is to shift 15% of the weight from cost to outcomes: `weight_capability=0.50, weight_cost=0.15, weight_latency=0.20, weight_outcome=0.15`.
+
+### Observability
+
+Two observability endpoints aggregate outcome data across all tasks:
+
+```bash
+# Signal pass/fail rates by type (last 24 hours)
+curl http://localhost:3000/stats/outcomes?hours=24
+
+# Per-agent routing accuracy from Tier 2+3 signals
+curl http://localhost:3000/stats/routing-accuracy?hours=24
+```
+
+---
+
 ## Core Subsystems
 
-| Subsystem             | Location                          | Purpose                                                      |
-| --------------------- | --------------------------------- | ------------------------------------------------------------ |
-| **Cascade Router**    | `src/cascade-router/`             | 3-layer task classification (rules → similarity → LLM)       |
-| **Legacy Classifier** | `src/classifier/`                 | Original regex-only classifier (kept as fallback)            |
-| **Agent Selection**   | `src/services/agent-selection.ts` | Filters candidates, scores them, picks the best match        |
-| **Execution Engine**  | `src/services/execution.ts`       | Invokes agents via provider adapters with retry and fallback |
-| **Router**            | `src/router/router.ts`            | Orchestrates the full pipeline from intake to commit         |
-| **Memory Manager**    | `src/memory/`                     | Session branches in Dolt for per-task context persistence    |
+| Subsystem             | Location                            | Purpose                                                                |
+| --------------------- | ----------------------------------- | ---------------------------------------------------------------------- |
+| **Cascade Router**    | `src/cascade-router/`               | 3-layer task classification (rules → similarity → LLM)                 |
+| **Legacy Classifier** | `src/classifier/`                   | Original regex-only classifier (kept as fallback)                      |
+| **Agent Selection**   | `src/services/agent-selection.ts`   | Filters candidates, scores them, picks the best match                  |
+| **Execution Engine**  | `src/services/execution.ts`         | Invokes agents via provider adapters with retry and fallback           |
+| **Outcome Collector** | `src/services/outcome-collector.ts` | 4-tier feedback capture (structural, format, routing eval, downstream) |
+| **Router**            | `src/router/router.ts`              | Orchestrates the full pipeline from intake to commit                   |
+| **Memory Manager**    | `src/memory/`                       | Session branches in Dolt for per-task context persistence              |
 
 ### Provider Adapters
 
@@ -360,7 +522,7 @@ cp .env.example .env
 Run migrations, seed data, and compute embeddings:
 
 ```bash
-npm run migrate          # Apply schema (9 migrations, 12 tables)
+npm run migrate          # Apply schema (13 migrations, 13 tables)
 npm run seed             # Insert agents, routing policy, tiers, rules, config, and reference utterances
 npm run seed:embeddings  # Compute embeddings for the 32 reference utterances via OpenAI (requires OPENAI_API_KEY)
 ```
@@ -446,9 +608,23 @@ curl -X POST http://localhost:3000/agents \
 ### Observability
 
 ```bash
-curl http://localhost:3000/observability/costs
-curl http://localhost:3000/observability/stats
-curl http://localhost:3000/observability/history
+# Dashboard overview
+curl http://localhost:3000/stats
+
+# Cost, latency, failures, tiers, breaches
+curl http://localhost:3000/stats/cost?hours=24
+curl http://localhost:3000/stats/latency?hours=24
+curl http://localhost:3000/stats/failures?hours=24
+curl http://localhost:3000/stats/tiers?hours=24
+curl http://localhost:3000/stats/breaches
+
+# Outcome signals and routing accuracy
+curl http://localhost:3000/stats/outcomes?hours=24
+curl http://localhost:3000/stats/routing-accuracy?hours=24
+
+# Audit trail
+curl http://localhost:3000/audit/commits?limit=50
+curl http://localhost:3000/audit/agents?since=7d
 ```
 
 ### Health Check
@@ -491,7 +667,7 @@ Output formats: `--format table` (default), `--format json`, `--format minimal`
 
 ## Database Schema
 
-HAOL uses 12 tables in Dolt:
+HAOL uses 13 tables in Dolt:
 
 | Table                 | Purpose                                                                          |
 | --------------------- | -------------------------------------------------------------------------------- |
@@ -507,6 +683,7 @@ HAOL uses 12 tables in Dolt:
 | `routing_utterances`  | Reference utterances with pre-computed embeddings for Layer 1                    |
 | `router_config`       | Key-value configuration for cascade router thresholds                            |
 | `routing_log`         | Audit trail of every routing decision — layer, confidence, latency               |
+| `task_outcome`        | 4-tier outcome signals — structural, format, routing eval, downstream            |
 
 Because the backing store is Dolt, every change is a commit. You can:
 
@@ -535,16 +712,16 @@ src/
 ├── classifier/          # Legacy regex-only classifier (fallback)
 ├── cli/                 # CLI commands and output formatting
 ├── db/                  # Dolt connection, migrations, seeds
-│   └── migrations/      # SQL migration files (001–009)
+│   └── migrations/      # SQL migration files (001–013)
 ├── memory/              # Session branch management + cleanup
 ├── observability/       # Dashboard metrics + analytics queries
 ├── providers/           # LLM provider adapters (Anthropic, OpenAI, local)
 ├── repositories/        # Data access layer for each table
 ├── router/              # Main orchestration pipeline
-├── services/            # Business logic (selection, execution)
+├── services/            # Business logic (selection, execution, outcome collection)
 ├── types/               # TypeScript interfaces + Zod schemas
 └── index.ts             # Server entry point
-tests/                   # Mirrors src/ structure (215+ tests)
+tests/                   # Mirrors src/ structure (240+ tests)
 ```
 
 ## How Routing Works (End to End)
@@ -556,10 +733,11 @@ tests/                   # Mirrors src/ structure (215+ tests)
    - Tries Layer 2 (LLM escalation) — asks Claude Haiku to classify ambiguous prompts
    - Falls back to T3 if all layers are inconclusive
    - If the cascade router isn't available (tables not seeded, no API keys), the legacy regex classifier handles it
-3. **Agent Selection** — Candidates are filtered by tier ceiling, capabilities, and cost. Survivors are scored: `capability × 0.5 + cost × 0.3 + latency × 0.2`. The top scorer is selected
+3. **Agent Selection** — Candidates are filtered by tier ceiling, capabilities, and cost. Survivors are scored: `capability × 0.5 + cost × 0.3 + latency × 0.2 + outcome × 0.0`. The top scorer is selected
 4. **Execution** — The selected agent is invoked via its provider adapter. On failure, exponential backoff retries are attempted (1s, 2s, 4s)
 5. **Fallback** — If execution still fails, the fallback strategy kicks in (`NEXT_BEST` picks the runner-up, `TIER_UP` relaxes constraints, `ABORT` gives up)
-6. **Commit** — An atomic Dolt commit records the full lifecycle: `task:<id> | tier:T3 | agent:claude-sonnet | cost:$0.0045 | 1234ms`
+6. **Outcome Collection** — Best-effort capture of Tier 0 structural signals, Tier 1 format verification (if `expected_format` was provided), and Tier 2 routing evaluation sampling (if confidence was low). Never fails the task
+7. **Commit** — An atomic Dolt commit records the full lifecycle: `task:<id> | tier:T3 | agent:claude-sonnet | cost:$0.0045 | 1234ms`
 
 ## Seed Data
 
@@ -572,7 +750,7 @@ The seed script (`npm run seed`) provisions:
 | `gpt-4o-mini`       | OpenAI    | T2           | Standard tasks     |
 | `local-llama`       | Local     | T1           | Trivial/free tasks |
 
-Default routing policy: 50% capability weight, 30% cost weight, 20% latency weight, `NEXT_BEST` fallback, 2 max retries.
+Default routing policy: 50% capability weight, 30% cost weight, 20% latency weight, 0% outcome weight, `NEXT_BEST` fallback, 2 max retries.
 
 ### Adding Reference Utterances
 
