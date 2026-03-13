@@ -1,0 +1,2 @@
+ALTER TABLE task_log ADD COLUMN routing_confidence FLOAT DEFAULT NULL;
+ALTER TABLE task_log ADD COLUMN routing_layer VARCHAR(32) DEFAULT NULL;

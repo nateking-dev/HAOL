@@ -196,6 +196,8 @@ export class CascadeRouter {
       required_capabilities: [...allCapabilities],
       cost_ceiling_usd: costCeilingForTier(tier),
       prompt_hash: sha256(prompt),
+      routing_confidence: confidence,
+      routing_layer: layer,
     };
   }
 

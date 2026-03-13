@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FormatSpec } from "./outcome.js";
 
 export const TaskStatus = z.enum([
   "RECEIVED",
@@ -24,6 +25,7 @@ export const RouterTaskInput = z.object({
       temperature: z.number().optional(),
     })
     .optional(),
+  expected_format: FormatSpec.optional(),
 });
 export type RouterTaskInput = z.infer<typeof RouterTaskInput>;
 

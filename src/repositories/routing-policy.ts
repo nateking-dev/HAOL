@@ -10,6 +10,7 @@ interface RoutingPolicyRow extends RowDataPacket {
   fallback_strategy: string;
   max_retries: number;
   active: number | boolean;
+  weight_outcome: string | number | null;
 }
 
 export async function getActivePolicy(): Promise<RoutingPolicy | null> {
@@ -37,5 +38,10 @@ export async function getActivePolicy(): Promise<RoutingPolicy | null> {
     fallback_strategy: row.fallback_strategy as RoutingPolicy["fallback_strategy"],
     max_retries: row.max_retries,
     active: row.active === 1 || row.active === true,
+    weight_outcome: row.weight_outcome
+      ? typeof row.weight_outcome === "string"
+        ? parseFloat(row.weight_outcome)
+        : row.weight_outcome
+      : 0,
   };
 }

@@ -1,0 +1,1 @@
+ALTER TABLE task_log ADD COLUMN expected_format JSON DEFAULT NULL;

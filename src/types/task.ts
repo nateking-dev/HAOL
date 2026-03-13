@@ -48,5 +48,7 @@ export const TaskClassification = z.object({
   required_capabilities: z.array(z.string()),
   cost_ceiling_usd: z.number(),
   prompt_hash: z.string(),
+  routing_confidence: z.number().optional(),
+  routing_layer: z.string().optional(),
 });
 export type TaskClassification = z.infer<typeof TaskClassification>;

@@ -249,6 +249,87 @@ export async function commitHistory(limit: number): Promise<CommitHistoryRow[]> 
   }));
 }
 
+// --- Outcome signal rates ---
+
+export interface OutcomeSignalRateRow {
+  signal_type: string;
+  total: number;
+  positive: number;
+  negative: number;
+  rate: number;
+}
+
+interface OutcomeSignalRateRaw extends RowDataPacket {
+  signal_type: string;
+  total: string | number;
+  positive: string | number;
+}
+
+export async function outcomeSignalRates(hours: number): Promise<OutcomeSignalRateRow[]> {
+  const rows = await query<OutcomeSignalRateRaw[]>(
+    `SELECT signal_type,
+            COUNT(*) AS total,
+            SUM(CASE WHEN signal_value = 1 THEN 1 ELSE 0 END) AS positive
+     FROM task_outcome
+     WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+     GROUP BY signal_type
+     ORDER BY total DESC`,
+    [hours],
+  );
+  return rows.map((r) => {
+    const total = typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total);
+    const positive = typeof r.positive === "string" ? parseInt(r.positive, 10) : Number(r.positive);
+    return {
+      signal_type: r.signal_type,
+      total,
+      positive,
+      negative: total - positive,
+      rate: total > 0 ? positive / total : 0,
+    };
+  });
+}
+
+// --- Routing accuracy by agent ---
+
+export interface RoutingAccuracyRow {
+  agent_id: string;
+  total_outcomes: number;
+  positive_outcomes: number;
+  accuracy: number;
+}
+
+interface RoutingAccuracyRaw extends RowDataPacket {
+  agent_id: string;
+  total_outcomes: string | number;
+  positive_outcomes: string | number;
+}
+
+export async function routingAccuracyByAgent(hours: number): Promise<RoutingAccuracyRow[]> {
+  const rows = await query<RoutingAccuracyRaw[]>(
+    `SELECT t.selected_agent_id AS agent_id,
+            COUNT(*) AS total_outcomes,
+            SUM(CASE WHEN o.signal_value = 1 THEN 1 ELSE 0 END) AS positive_outcomes
+     FROM task_outcome o
+     JOIN task_log t ON t.task_id = o.task_id
+     WHERE o.tier IN (2, 3)
+       AND o.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+       AND t.selected_agent_id IS NOT NULL
+     GROUP BY t.selected_agent_id
+     ORDER BY agent_id`,
+    [hours],
+  );
+  return rows.map((r) => {
+    const total = typeof r.total_outcomes === "string" ? parseInt(r.total_outcomes, 10) : Number(r.total_outcomes);
+    const positive = typeof r.positive_outcomes === "string" ? parseInt(r.positive_outcomes, 10) : Number(r.positive_outcomes);
+    return {
+      agent_id: r.agent_id,
+      total_outcomes: total,
+      positive_outcomes: positive,
+      accuracy: total > 0 ? positive / total : 0,
+    };
+  });
+}
+
 // --- Helpers ---
 
 function parseDurationToHours(duration: string): number {
