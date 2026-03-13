@@ -14,11 +14,13 @@ export function createApp(): Hono {
   // Middleware
   app.use("*", requestId);
 
-  // Health check is unauthenticated
+  // Health check is unauthenticated (load balancers, K8s probes)
   app.route("/", health);
 
-  // All other routes require API key auth (when HAOL_API_KEY is set)
-  app.use("*", apiKeyAuth);
+  // Protected routes require API key auth (when HAOL_API_KEY is set)
+  app.use("/tasks/*", apiKeyAuth);
+  app.use("/agents/*", apiKeyAuth);
+  app.use("/observability/*", apiKeyAuth);
   app.route("/", agents);
   app.route("/", tasks);
   app.route("/", observability);

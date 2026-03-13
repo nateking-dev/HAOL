@@ -11,10 +11,20 @@ outcomes.post("/tasks/:id/outcome", async (c) => {
   const taskId = c.req.param("id");
   const body = await c.req.json();
 
-  const parsed = DownstreamOutcomeInput.parse(body);
-  const record = await recordDownstreamOutcome(taskId, parsed);
+  const result = DownstreamOutcomeInput.safeParse(body);
+  if (!result.success) {
+    return c.json({ error: result.error.flatten() }, 400);
+  }
 
-  return c.json(record, 201);
+  try {
+    const record = await recordDownstreamOutcome(taskId, result.data);
+    return c.json(record, 201);
+  } catch (err) {
+    if ((err as Error).message?.startsWith("Task not found")) {
+      return c.json({ error: `Task not found: ${taskId}` }, 404);
+    }
+    throw err;
+  }
 });
 
 // GET /tasks/:id/outcomes — All outcome signals for a task
