@@ -19,8 +19,15 @@ interface TaskOutcomeRow extends RowDataPacket {
 function parseRow(row: TaskOutcomeRow): TaskOutcomeRecord {
   let detail: Record<string, unknown> | null = null;
   if (row.detail) {
-    detail =
-      typeof row.detail === "string" ? JSON.parse(row.detail) : row.detail;
+    if (typeof row.detail === "string") {
+      try {
+        detail = JSON.parse(row.detail);
+      } catch {
+        detail = null;
+      }
+    } else {
+      detail = row.detail;
+    }
   }
 
   return {

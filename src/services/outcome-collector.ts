@@ -243,7 +243,7 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
     const successRecord = execRecords.find((r) => r.outcome === "SUCCESS");
 
     const evalPrompt = buildEvaluationPrompt(task, execRecords, successRecord);
-    const provider = new AnthropicProvider("claude-haiku-4-20250414");
+    const provider = new AnthropicProvider("claude-haiku-4-5-20251001");
 
     const llmResponse = await provider.invoke({
       task_id: taskId,
