@@ -6,6 +6,7 @@ import {
   collectStructuralSignals,
   runFormatVerification,
   shouldSampleForEvaluation,
+  evaluateRoutingDecision,
   recordDownstreamOutcome,
 } from "../../src/services/outcome-collector.js";
 import * as outcomeRepo from "../../src/repositories/task-outcome.js";
@@ -356,5 +357,126 @@ describe("recordDownstreamOutcome", () => {
         reported_by: "test-system",
       }),
     ).rejects.toThrow("Task not found");
+  });
+});
+
+describe("evaluateRoutingDecision — failure handling", () => {
+  const testId = `test-oco-evalfail-${Date.now()}`;
+
+  beforeAll(async () => {
+    if (!doltAvailable) return;
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO task_log (task_id, status, prompt_hash, routing_confidence, complexity_tier, routing_layer)
+       VALUES (?, 'COMPLETED', 'hash-evalfail', 0.4, 2, 'semantic')`,
+      [testId],
+    );
+  });
+
+  it("inserts evaluation_failed record when LLM call fails", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    // Set an invalid API key to force the provider to fail
+    const originalKey = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-invalid-key-for-testing";
+    try {
+      await evaluateRoutingDecision(testId);
+    } finally {
+      if (originalKey) {
+        process.env.ANTHROPIC_API_KEY = originalKey;
+      } else {
+        delete process.env.ANTHROPIC_API_KEY;
+      }
+    }
+
+    const signals = await outcomeRepo.findByTaskIdAndTier(testId, 2);
+    const pendingSignal = signals.find((s) => s.signal_type === "evaluation_pending");
+    expect(pendingSignal).toBeDefined();
+
+    const failedSignal = signals.find((s) => s.signal_type === "evaluation_failed");
+    expect(failedSignal).toBeDefined();
+    expect(failedSignal!.signal_value).toBeNull();
+    expect(failedSignal!.detail).toBeDefined();
+    expect((failedSignal!.detail as Record<string, unknown>).error).toBeDefined();
+  });
+});
+
+describe("cleanupOrphanedPendingRecords", () => {
+  // Use short suffixes to stay within VARCHAR(36)
+  const ts = Date.now().toString(36);
+  const orphanId = `test-oco-orph-${ts}`;
+  const completeId = `test-oco-comp-${ts}`;
+
+  beforeAll(async () => {
+    if (!doltAvailable) return;
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'COMPLETED', 'hash-cleanup1')`,
+      [orphanId],
+    );
+    await pool.query(
+      `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'COMPLETED', 'hash-cleanup2')`,
+      [completeId],
+    );
+
+    // Insert an old orphaned pending record (backdated 48h)
+    await pool.query(
+      `INSERT INTO task_outcome (outcome_id, task_id, tier, source, signal_type, signal_value, confidence, detail, reported_by, created_at)
+       VALUES (?, ?, 2, 'routing_eval', 'evaluation_pending', NULL, 0.4, NULL, NULL, DATE_SUB(NOW(), INTERVAL 48 HOUR))`,
+      [`test-oco-oid1-${ts}`, orphanId],
+    );
+
+    // Insert a pending + complete pair (should NOT be cleaned up)
+    await pool.query(
+      `INSERT INTO task_outcome (outcome_id, task_id, tier, source, signal_type, signal_value, confidence, detail, reported_by, created_at)
+       VALUES (?, ?, 2, 'routing_eval', 'evaluation_pending', NULL, 0.4, NULL, NULL, DATE_SUB(NOW(), INTERVAL 48 HOUR))`,
+      [`test-oco-oid2-${ts}`, completeId],
+    );
+    await pool.query(
+      `INSERT INTO task_outcome (outcome_id, task_id, tier, source, signal_type, signal_value, confidence, detail, reported_by, created_at)
+       VALUES (?, ?, 2, 'routing_eval', 'evaluation_complete', 1, 0.4, NULL, NULL, DATE_SUB(NOW(), INTERVAL 47 HOUR))`,
+      [`test-oco-oid3-${ts}`, completeId],
+    );
+  });
+
+  it("deletes only orphaned pending records", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const deleted = await outcomeRepo.cleanupOrphanedPendingRecords(24);
+    expect(deleted).toBeGreaterThanOrEqual(1);
+
+    // Orphaned record should be gone
+    const orphanSignals = await outcomeRepo.findByTaskId(orphanId);
+    const orphanPending = orphanSignals.find((s) => s.signal_type === "evaluation_pending");
+    expect(orphanPending).toBeUndefined();
+
+    // Completed pair's pending record should still exist
+    const completeSignals = await outcomeRepo.findByTaskId(completeId);
+    const completePending = completeSignals.find((s) => s.signal_type === "evaluation_pending");
+    expect(completePending).toBeDefined();
+  });
+});
+
+describe("countOrphanedPendingRecords", () => {
+  const ts = Date.now().toString(36);
+  const orphanId = `test-oco-cnt-${ts}`;
+
+  beforeAll(async () => {
+    if (!doltAvailable) return;
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'COMPLETED', 'hash-cnt')`,
+      [orphanId],
+    );
+    await pool.query(
+      `INSERT INTO task_outcome (outcome_id, task_id, tier, source, signal_type, signal_value, confidence, detail, reported_by, created_at)
+       VALUES (?, ?, 2, 'routing_eval', 'evaluation_pending', NULL, 0.4, NULL, NULL, DATE_SUB(NOW(), INTERVAL 48 HOUR))`,
+      [`test-oco-coid-${ts}`, orphanId],
+    );
+  });
+
+  it("counts orphaned pending records correctly", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const count = await outcomeRepo.countOrphanedPendingRecords(24);
+    expect(typeof count).toBe("number");
+    expect(count).toBeGreaterThanOrEqual(1);
   });
 });

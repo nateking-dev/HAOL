@@ -11,8 +11,16 @@ import {
   routingAccuracyByAgent,
 } from "../../observability/queries.js";
 import { getDashboard } from "../../observability/dashboard.js";
+import {
+  cleanupOrphanedPendingRecords,
+  countOrphanedPendingRecords,
+} from "../../repositories/task-outcome.js";
+import { doltCommit } from "../../db/dolt.js";
+import { apiKeyAuth } from "../middleware/api-key-auth.js";
 
 const observability = new Hono();
+
+const MAX_HOURS = 8760; // 1 year
 
 function parseIntParam(val: string | undefined, def: number, min: number, max: number): number {
   const n = parseInt(val ?? String(def), 10);
@@ -23,31 +31,31 @@ function parseIntParam(val: string | undefined, def: number, min: number, max: n
 // --- Stats routes ---
 
 observability.get("/stats", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, 8760);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
   const dashboard = await getDashboard(hours);
   return c.json(dashboard, 200);
 });
 
 observability.get("/stats/cost", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, 8760);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
   const data = await costByAgent(hours);
   return c.json(data, 200);
 });
 
 observability.get("/stats/latency", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, 8760);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
   const data = await avgLatencyByAgent(hours);
   return c.json(data, 200);
 });
 
 observability.get("/stats/failures", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, 8760);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
   const data = await failureRate(hours);
   return c.json(data, 200);
 });
 
 observability.get("/stats/tiers", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, 8760);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
   const data = await tasksByTier(hours);
   return c.json(data, 200);
 });
@@ -58,15 +66,44 @@ observability.get("/stats/breaches", async (c) => {
 });
 
 observability.get("/stats/outcomes", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, 8760);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
   const data = await outcomeSignalRates(hours);
   return c.json(data, 200);
 });
 
 observability.get("/stats/routing-accuracy", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, 8760);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
   const data = await routingAccuracyByAgent(hours);
   return c.json(data, 200);
+});
+
+observability.get("/stats/orphaned-pending", async (c) => {
+  const maxAgeHours = parseIntParam(c.req.query("max_age_hours"), 24, 1, MAX_HOURS);
+  const count = await countOrphanedPendingRecords(maxAgeHours);
+  return c.json({ orphaned_pending: count, max_age_hours: maxAgeHours }, 200);
+});
+
+// --- Maintenance routes (require auth even when HAOL_API_KEY is unset) ---
+
+observability.use("/maintenance/*", apiKeyAuth);
+
+observability.post("/maintenance/cleanup-pending", async (c) => {
+  const maxAgeHours = parseIntParam(c.req.query("max_age_hours"), 24, 1, MAX_HOURS);
+  const deleted = await cleanupOrphanedPendingRecords(maxAgeHours);
+  let committed: boolean | null = null;
+  if (deleted > 0) {
+    committed = true;
+    try {
+      await doltCommit({
+        message: `maintenance:cleanup | deleted ${deleted} orphaned evaluation_pending records older than ${maxAgeHours}h`,
+        author: "haol-maintenance <haol@system>",
+      });
+    } catch (err) {
+      committed = false;
+      console.error("doltCommit failed after cleanup-pending:", err);
+    }
+  }
+  return c.json({ deleted, max_age_hours: maxAgeHours, committed }, 200);
 });
 
 // --- Audit routes ---

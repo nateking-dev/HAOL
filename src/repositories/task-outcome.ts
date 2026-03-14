@@ -1,6 +1,6 @@
 import { getPool } from "../db/connection.js";
 import { query } from "../db/connection.js";
-import type { RowDataPacket } from "mysql2/promise";
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { TaskOutcomeRecord } from "../types/outcome.js";
 
 interface TaskOutcomeRow extends RowDataPacket {
@@ -129,6 +129,65 @@ export async function findTasksWithoutTier2Eval(
     task_id: r.task_id,
     routing_confidence: r.routing_confidence,
   }));
+}
+
+/**
+ * Deletes evaluation_pending records older than maxAgeHours that have
+ * no matching evaluation_complete or evaluation_failed record.
+ * Deletes in batches of `batchSize` (default 1000) to avoid long-running
+ * table-locking transactions. Returns the total number of rows deleted.
+ */
+export async function cleanupOrphanedPendingRecords(
+  maxAgeHours: number,
+  batchSize: number = 1000,
+): Promise<number> {
+  const pool = getPool();
+  // The derived table (subquery wrapped in FROM (...) AS t2) is required because
+  // MySQL/Dolt forbids a correlated NOT EXISTS that references the same table
+  // being deleted from. The count query uses a plain NOT EXISTS since SELECT
+  // doesn't have this restriction.
+  let totalDeleted = 0;
+  let batchDeleted: number;
+  do {
+    const [result] = await pool.query<ResultSetHeader>(
+      `DELETE FROM task_outcome
+       WHERE signal_type = 'evaluation_pending'
+         AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
+         AND NOT EXISTS (
+           SELECT 1 FROM (
+             SELECT DISTINCT task_id FROM task_outcome
+             WHERE signal_type IN ('evaluation_complete', 'evaluation_failed')
+           ) AS t2
+           WHERE t2.task_id = task_outcome.task_id
+         )
+       LIMIT ?`,
+      [maxAgeHours, batchSize],
+    );
+    batchDeleted = result.affectedRows ?? 0;
+    totalDeleted += batchDeleted;
+  } while (batchDeleted === batchSize);
+  return totalDeleted;
+}
+
+/**
+ * Counts evaluation_pending records older than staleThresholdHours
+ * with no matching completion/failure record.
+ */
+export async function countOrphanedPendingRecords(staleThresholdHours: number): Promise<number> {
+  const rows = await query<(RowDataPacket & { count: string | number })[]>(
+    `SELECT COUNT(*) AS count
+     FROM task_outcome p
+     WHERE p.signal_type = 'evaluation_pending'
+       AND p.created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
+       AND NOT EXISTS (
+         SELECT 1 FROM task_outcome t2
+         WHERE t2.task_id = p.task_id
+           AND t2.signal_type IN ('evaluation_complete', 'evaluation_failed')
+       )`,
+    [staleThresholdHours],
+  );
+  const raw = rows[0]?.count ?? 0;
+  return typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
 }
 
 export interface AgentOutcomeScore {
