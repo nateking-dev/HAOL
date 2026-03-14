@@ -38,16 +38,16 @@ describe("migrations", () => {
   it("applies all migration files without error", async ({ skip }) => {
     if (!doltAvailable) skip();
     const applied = await runMigrations();
-    expect(applied.length).toBe(13);
+    expect(applied.length).toBe(14);
     expect(applied[0]).toBe("001_create_agent_registry.sql");
-    expect(applied[12]).toBe("013_add_outcome_weight_to_routing_policy.sql");
+    expect(applied[13]).toBe("014_add_tool_use_vision_to_sonnet.sql");
   });
 
   it("is idempotent — running twice produces no errors", async ({ skip }) => {
     if (!doltAvailable) skip();
     // Second run should not throw
     const applied = await runMigrations();
-    expect(applied.length).toBe(13);
+    expect(applied.length).toBe(14);
   });
 
   it("creates all 7 tables", async ({ skip }) => {
