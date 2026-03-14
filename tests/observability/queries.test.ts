@@ -15,6 +15,7 @@ import {
   failureRate,
   commitHistory,
   agentRegistryDiff,
+  outcomeSignalRates,
 } from "../../src/observability/queries.js";
 
 let doltAvailable = false;
@@ -54,6 +55,17 @@ beforeAll(async () => {
          ('${prefix}-e4', '${prefix}-t4', '${prefix}-agent-a', 1, 100, 0, 0.0000, 5000, 0, 'TIMEOUT', 'Connection timed out'),
          ('${prefix}-e5', '${prefix}-t4', '${prefix}-agent-a', 2, 100, 0, 0.0000, 5000, 0, 'ERROR', 'Server error')`,
     );
+
+    // Seed task_outcome rows (for outcomeSignalRates)
+    await pool.query(
+      `INSERT IGNORE INTO task_outcome (outcome_id, task_id, tier, source, signal_type, signal_value)
+       VALUES
+         ('${prefix}-o1', '${prefix}-t1', 1, 'auto', 'accuracy', 1),
+         ('${prefix}-o2', '${prefix}-t2', 2, 'auto', 'accuracy', 0),
+         ('${prefix}-o3', '${prefix}-t3', 3, 'auto', 'accuracy', NULL),
+         ('${prefix}-o4', '${prefix}-t1', 1, 'auto', 'latency', 1),
+         ('${prefix}-o5', '${prefix}-t2', 2, 'auto', 'latency', 1)`,
+    );
   } catch (err) {
     console.warn("Dolt not available — skipping observability tests");
     console.warn("Error:", (err as Error).message);
@@ -63,6 +75,9 @@ beforeAll(async () => {
 afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
+    await pool.query(
+      `DELETE FROM task_outcome WHERE outcome_id LIKE '${prefix}-%'`,
+    );
     await pool.query(
       `DELETE FROM execution_log WHERE task_id LIKE '${prefix}-%'`,
     );
@@ -169,6 +184,30 @@ describe("agentRegistryDiff", () => {
     const result = await agentRegistryDiff("9999h");
     // Should return an array (possibly empty)
     expect(Array.isArray(result)).toBe(true);
+  });
+});
+
+describe("outcomeSignalRates", () => {
+  it("excludes pending rows where signal_value IS NULL", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const result = await outcomeSignalRates(9999);
+
+    const accuracy = result.find((r) => r.signal_type === "accuracy");
+    expect(accuracy).toBeTruthy();
+    // Seeded: o1 (1), o2 (0), o3 (NULL) — NULL should be excluded
+    expect(accuracy!.total).toBe(2);
+    expect(accuracy!.positive).toBe(1);
+    expect(accuracy!.negative).toBe(1);
+    expect(accuracy!.rate).toBeCloseTo(0.5, 2);
+
+    const latency = result.find((r) => r.signal_type === "latency");
+    expect(latency).toBeTruthy();
+    // Seeded: o4 (1), o5 (1) — both positive
+    expect(latency!.total).toBe(2);
+    expect(latency!.positive).toBe(2);
+    expect(latency!.negative).toBe(0);
+    expect(latency!.rate).toBeCloseTo(1.0, 2);
   });
 });
 
