@@ -90,6 +90,10 @@ function scoreCandidates(
     const latencyScore =
       latencyRange === 0 ? 1.0 : 1 - (agent.avg_latency_ms - minLatency) / latencyRange;
 
+    // Default to 0.5 (neutral) for agents with no outcome history. This means
+    // new agents compete equally with agents that have a 50/50 positive/negative
+    // track record, which is intentional — it avoids penalizing newly registered
+    // agents that simply haven't accumulated outcome data yet.
     const outcomeScore = outcomeScores?.get(agent.agent_id) ?? 0.5;
 
     const weightOutcome = policy.weight_outcome ?? 0;
