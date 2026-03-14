@@ -68,6 +68,39 @@ describe("rules", () => {
       expect(rule.patterns.some((p) => p.test("Translate this text"))).toBe(true);
       expect(rule.patterns.some((p) => p.test("Multilingual support"))).toBe(true);
     });
+
+    it("reasoning also matches 'analysis'", () => {
+      const rule = rules.find((r) => r.name === "reasoning")!;
+      expect(rule.patterns.some((p) => p.test("Complex data analysis"))).toBe(true);
+    });
+
+    it("multi_step matches step-by-step and complexity keywords", () => {
+      const rule = rules.find((r) => r.name === "multi_step")!;
+      expect(rule.patterns.some((p) => p.test("Do this step by step"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Multi-step reasoning chain"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Build a pipeline"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Design the workflow"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Phased rollout plan"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Complex data analysis"))).toBe(true);
+    });
+
+    it("diagnostic matches troubleshooting keywords", () => {
+      const rule = rules.find((r) => r.name === "diagnostic")!;
+      expect(rule.patterns.some((p) => p.test("Find the root cause"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Diagnose this issue"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Troubleshoot the error"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Intermittent failure"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Investigate the outage"))).toBe(true);
+    });
+
+    it("system_design matches architecture keywords", () => {
+      const rule = rules.find((r) => r.name === "system_design")!;
+      expect(rule.patterns.some((p) => p.test("Design the architecture"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("System design review"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Microservices approach"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Improve scalability"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Distributed system"))).toBe(true);
+    });
   });
 
   describe("rules do not match unrelated text", () => {
@@ -89,6 +122,21 @@ describe("rules", () => {
     it("multilingual does not match unrelated text", () => {
       const rule = rules.find((r) => r.name === "multilingual")!;
       expect(rule.patterns.some((p) => p.test("Debug this function"))).toBe(false);
+    });
+
+    it("multi_step does not match unrelated text", () => {
+      const rule = rules.find((r) => r.name === "multi_step")!;
+      expect(rule.patterns.some((p) => p.test("Translate this to French"))).toBe(false);
+    });
+
+    it("diagnostic does not match unrelated text", () => {
+      const rule = rules.find((r) => r.name === "diagnostic")!;
+      expect(rule.patterns.some((p) => p.test("Summarize this article"))).toBe(false);
+    });
+
+    it("system_design does not match unrelated text", () => {
+      const rule = rules.find((r) => r.name === "system_design")!;
+      expect(rule.patterns.some((p) => p.test("Translate this to French"))).toBe(false);
     });
   });
 
@@ -118,6 +166,27 @@ describe("rules", () => {
       expect(result.capabilities).toEqual(
         expect.arrayContaining(["classification", "vision", "structured_output"]),
       );
+    });
+
+    it("produces higher tierBump for complex analytical prompts", () => {
+      // "Complex data analysis" should match reasoning (via "analysis") and multi_step (via "complex")
+      const result = matchRules("Complex data analysis");
+      expect(result.tierBump).toBeGreaterThanOrEqual(2);
+      expect(result.capabilities).toContain("reasoning");
+    });
+
+    it("produces higher tierBump for multi-step reasoning prompts", () => {
+      // "Multi-step reasoning chain" should match reasoning (via "reason") and multi_step (via "multi-step")
+      const result = matchRules("Multi-step reasoning chain");
+      expect(result.tierBump).toBeGreaterThanOrEqual(2);
+      expect(result.capabilities).toContain("reasoning");
+    });
+
+    it("deduplicates reasoning capability from multiple rules", () => {
+      // Both reasoning and multi_step add "reasoning", should appear only once
+      const result = matchRules("Complex data analysis");
+      const reasoningCount = result.capabilities.filter((c) => c === "reasoning").length;
+      expect(reasoningCount).toBe(1);
     });
   });
 });

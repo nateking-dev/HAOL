@@ -84,6 +84,32 @@ describe("classify", () => {
     });
   });
 
+  describe("complex analytical prompts", () => {
+    it("classifies 'Complex data analysis' as T3", () => {
+      const result = classify({ prompt: "Complex data analysis" });
+      expect(result.complexity_tier).toBe(3);
+      expect(result.required_capabilities).toContain("reasoning");
+    });
+
+    it("classifies 'Multi-step reasoning chain' as T3", () => {
+      const result = classify({ prompt: "Multi-step reasoning chain" });
+      expect(result.complexity_tier).toBe(3);
+      expect(result.required_capabilities).toContain("reasoning");
+    });
+
+    it("classifies complex diagnostic prompts at T3 or higher", () => {
+      const result = classify({ prompt: "Investigate the root cause of this complex intermittent failure and analyze the logs" });
+      expect(result.complexity_tier).toBeGreaterThanOrEqual(3);
+      expect(result.required_capabilities).toContain("reasoning");
+    });
+
+    it("classifies complex system design prompts at T3 or higher", () => {
+      const result = classify({ prompt: "Analyze requirements and design a scalable microservices architecture" });
+      expect(result.complexity_tier).toBeGreaterThanOrEqual(3);
+      expect(result.required_capabilities).toContain("reasoning");
+    });
+  });
+
   describe("cost ceiling", () => {
     it("returns 0.01 for tier 1", () => {
       const result = classify({ prompt: "Hello", metadata: { tier: 1 } });
