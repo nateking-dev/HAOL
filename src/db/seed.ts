@@ -7,7 +7,7 @@ INSERT IGNORE INTO routing_tiers (tier_id, tier_name, description, default_agent
   (1, 'Simple', 'Basic tasks: summarization, classification, simple Q&A', 'local-llama'),
   (2, 'Moderate', 'Moderate tasks: structured output, translation, multi-step reasoning', 'gpt-4o-mini'),
   (3, 'Complex', 'Complex tasks: code generation, analysis, long-context reasoning', 'claude-sonnet-4-5'),
-  (4, 'Expert', 'Expert tasks: multi-capability, vision, tool use, advanced reasoning', 'claude-sonnet-4-5')
+  (4, 'Expert', 'Expert tasks: multi-capability, vision, tool use, advanced reasoning', 'claude-opus-4-6')
 `;
 
 const SEED_ROUTING_RULES = `
@@ -93,6 +93,11 @@ VALUES
   ('gpt-4o-mini', 'openai', 'gpt-4o-mini',
    '["classification","summarization","structured_output","multilingual"]',
    0.000150, 0.000600, 128000, 400, 'active', 2),
+
+  -- Pricing: $15/$75 per MTok (https://docs.anthropic.com/en/docs/about-claude/models)
+  ('claude-opus-4-6', 'anthropic', 'claude-opus-4-6',
+   '["code_generation","reasoning","structured_output","long_context","tool_use","vision","multilingual"]',
+   0.015000, 0.075000, 1048576, 1200, 'active', 4),
 
   ('local-llama', 'local', 'llama-3.2-8b',
    '["summarization","classification"]',
