@@ -297,7 +297,7 @@ HAOL captures structured feedback about every routing decision through a 4-tier 
 
 ### Why Outcomes?
 
-The execution*log tells you \_if* a call succeeded, but not _whether the routing decision was good_. A task might complete successfully but:
+The `execution_log` tells you _if_ a call succeeded, but not _whether the routing decision was good_. A task might complete successfully but:
 
 - Be routed to an overqualified (expensive) agent
 - Return malformed output that the consumer can't parse
