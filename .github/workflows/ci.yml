@@ -36,12 +36,12 @@ jobs:
           dolt config --global --add user.name "HAOL CI"
           mkdir -p haol-db && cd haol-db
           dolt init
-          dolt sql-server --host 127.0.0.1 --port 3306 --user root &
-          for i in $(seq 1 10); do
-            dolt sql -q "SELECT 1" 2>/dev/null && break
+          dolt sql-server --host 0.0.0.0 --port 3306 --user root --no-auto-commit &
+          for i in $(seq 1 30); do
+            mysql -h 127.0.0.1 -P 3306 -u root -e "SELECT 1" 2>/dev/null && break
             sleep 1
           done
-          dolt sql -q "CREATE DATABASE IF NOT EXISTS haol"
+          mysql -h 127.0.0.1 -P 3306 -u root -e "CREATE DATABASE IF NOT EXISTS haol"
 
       - name: Run migrations and seed
         run: |
