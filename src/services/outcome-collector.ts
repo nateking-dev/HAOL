@@ -188,10 +188,13 @@ export async function runFormatVerification(
 
 // --- Tier 2: Routing evaluation sampling ---
 
-const CONFIDENCE_THRESHOLD = 0.6;
+const DEFAULT_CONFIDENCE_THRESHOLD = 0.6;
 
-export function shouldSampleForEvaluation(confidence: number): boolean {
-  return confidence < CONFIDENCE_THRESHOLD;
+export function shouldSampleForEvaluation(
+  confidence: number,
+  threshold: number = DEFAULT_CONFIDENCE_THRESHOLD,
+): boolean {
+  return confidence < threshold;
 }
 
 export async function evaluateRoutingDecision(taskId: string): Promise<void> {

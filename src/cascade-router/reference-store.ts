@@ -82,6 +82,7 @@ const CONFIG_DEFAULTS: RouterConfig = {
   default_tier: 3 as TierId,
   top_k: 5,
   enable_escalation: true,
+  confidence_threshold: 0.6,
 };
 
 export async function loadConfig(): Promise<RouterConfig> {
@@ -107,6 +108,9 @@ export async function loadConfig(): Promise<RouterConfig> {
     ) as TierId,
     top_k: parseInt(map.get("top_k") ?? String(CONFIG_DEFAULTS.top_k), 10),
     enable_escalation: (map.get("enable_escalation") ?? "true") === "true",
+    confidence_threshold: parseFloat(
+      map.get("confidence_threshold") ?? String(CONFIG_DEFAULTS.confidence_threshold),
+    ),
   };
 }
 
