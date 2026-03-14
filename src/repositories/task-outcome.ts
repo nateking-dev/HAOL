@@ -1,6 +1,6 @@
 import { getPool } from "../db/connection.js";
 import { query } from "../db/connection.js";
-import type { RowDataPacket } from "mysql2/promise";
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { TaskOutcomeRecord } from "../types/outcome.js";
 
 interface TaskOutcomeRow extends RowDataPacket {
@@ -138,19 +138,20 @@ export async function findTasksWithoutTier2Eval(
  */
 export async function cleanupOrphanedPendingRecords(maxAgeHours: number): Promise<number> {
   const pool = getPool();
-  const [result] = await pool.query(
+  const [result] = await pool.query<ResultSetHeader>(
     `DELETE FROM task_outcome
      WHERE signal_type = 'evaluation_pending'
        AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
-       AND task_id NOT IN (
-         SELECT t2.task_id FROM (
+       AND NOT EXISTS (
+         SELECT 1 FROM (
            SELECT DISTINCT task_id FROM task_outcome
            WHERE signal_type IN ('evaluation_complete', 'evaluation_failed')
          ) AS t2
+         WHERE t2.task_id = task_outcome.task_id
        )`,
     [maxAgeHours],
   );
-  return (result as any).affectedRows ?? 0;
+  return result.affectedRows ?? 0;
 }
 
 /**

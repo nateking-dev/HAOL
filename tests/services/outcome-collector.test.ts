@@ -363,8 +363,8 @@ describe("recordDownstreamOutcome", () => {
 describe("evaluateRoutingDecision — failure handling", () => {
   const testId = `test-oco-evalfail-${Date.now()}`;
 
-  it("setup: insert task_log entry", async ({ skip }) => {
-    if (!doltAvailable) skip();
+  beforeAll(async () => {
+    if (!doltAvailable) return;
     const pool = getPool();
     await pool.query(
       `INSERT INTO task_log (task_id, status, prompt_hash, routing_confidence, complexity_tier, routing_layer)
@@ -394,7 +394,7 @@ describe("evaluateRoutingDecision — failure handling", () => {
 
     const failedSignal = signals.find((s) => s.signal_type === "evaluation_failed");
     expect(failedSignal).toBeDefined();
-    expect(failedSignal!.signal_value).toBe(0);
+    expect(failedSignal!.signal_value).toBeNull();
     expect(failedSignal!.detail).toBeDefined();
     expect((failedSignal!.detail as Record<string, unknown>).error).toBeDefined();
   });
@@ -406,8 +406,8 @@ describe("cleanupOrphanedPendingRecords", () => {
   const orphanId = `test-oco-orph-${ts}`;
   const completeId = `test-oco-comp-${ts}`;
 
-  it("setup: insert orphaned and non-orphaned pending records", async ({ skip }) => {
-    if (!doltAvailable) skip();
+  beforeAll(async () => {
+    if (!doltAvailable) return;
     const pool = getPool();
     await pool.query(
       `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'COMPLETED', 'hash-cleanup1')`,
@@ -459,8 +459,8 @@ describe("countOrphanedPendingRecords", () => {
   const ts = Date.now().toString(36);
   const orphanId = `test-oco-cnt-${ts}`;
 
-  it("setup: insert orphaned pending record", async ({ skip }) => {
-    if (!doltAvailable) skip();
+  beforeAll(async () => {
+    if (!doltAvailable) return;
     const pool = getPool();
     await pool.query(
       `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'COMPLETED', 'hash-cnt')`,

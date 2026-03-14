@@ -75,7 +75,7 @@ observability.get("/stats/routing-accuracy", async (c) => {
 });
 
 observability.get("/stats/orphaned-pending", async (c) => {
-  const staleHours = parseIntParam(c.req.query("stale_hours"), 1, 1, 8760);
+  const staleHours = parseIntParam(c.req.query("stale_hours"), 24, 1, 8760);
   const count = await countOrphanedPendingRecords(staleHours);
   return c.json({ orphaned_pending: count, stale_threshold_hours: staleHours }, 200);
 });
