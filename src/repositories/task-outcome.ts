@@ -95,7 +95,7 @@ export async function findByTaskId(
   taskId: string,
 ): Promise<TaskOutcomeRecord[]> {
   const rows = await query<TaskOutcomeRow[]>(
-    "SELECT * FROM task_outcome WHERE task_id = ? ORDER BY created_at",
+    "SELECT * FROM task_outcome WHERE task_id = ? ORDER BY created_at, outcome_id",
     [taskId],
   );
   return rows.map(parseRow);
@@ -106,7 +106,7 @@ export async function findByTaskIdAndTier(
   tier: number,
 ): Promise<TaskOutcomeRecord[]> {
   const rows = await query<TaskOutcomeRow[]>(
-    "SELECT * FROM task_outcome WHERE task_id = ? AND tier = ? ORDER BY created_at",
+    "SELECT * FROM task_outcome WHERE task_id = ? AND tier = ? ORDER BY created_at, outcome_id",
     [taskId, tier],
   );
   return rows.map(parseRow);
