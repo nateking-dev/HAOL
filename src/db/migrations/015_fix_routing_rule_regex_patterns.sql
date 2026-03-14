@@ -19,7 +19,7 @@ WHERE rule_id = 'rule-vision';
 UPDATE routing_rules SET pattern = '\\b(json\\b|schema\\b|structured\\b|table\\b)'
 WHERE rule_id = 'rule-structured';
 
-UPDATE routing_rules SET pattern = '\\bentire\\b.*\\bdocument'
+UPDATE routing_rules SET pattern = '\\bentire\\b.*\\bdocument\\b'
 WHERE rule_id = 'rule-longctx';
 
 UPDATE routing_rules SET pattern = '\\b(tool\\b|api\\b.*\\bcall\\b|function.call)'
