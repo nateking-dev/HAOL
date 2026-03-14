@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { clearConfigCache } from "../../src/cascade-router/reference-store.js";
 import { createPool, getPool, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
@@ -26,6 +27,8 @@ afterAll(async () => {
     await destroy();
   }
 });
+
+beforeEach(() => clearConfigCache());
 
 describe("reference-store", () => {
   it.skipIf(!doltAvailable)("loadConfig returns valid config shape", async () => {

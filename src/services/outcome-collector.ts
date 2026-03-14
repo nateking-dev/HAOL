@@ -5,6 +5,7 @@ import * as execRepo from "../repositories/execution-log.js";
 import { query } from "../db/connection.js";
 import { doltCommit } from "../db/dolt.js";
 import { AnthropicProvider } from "../providers/anthropic.js";
+import { CONFIG_DEFAULTS } from "../cascade-router/reference-store.js";
 import type { TaskOutcomeRecord } from "../types/outcome.js";
 import type { ExecutionRecord } from "../types/execution.js";
 import type { TaskLogRecord } from "../repositories/task-log.js";
@@ -190,8 +191,7 @@ export async function runFormatVerification(
 
 export function shouldSampleForEvaluation(
   confidence: number,
-  // Default matches CONFIG_DEFAULTS.confidence_threshold in reference-store.ts
-  threshold: number = 0.6,
+  threshold: number = CONFIG_DEFAULTS.confidence_threshold,
 ): boolean {
   return confidence < threshold;
 }
