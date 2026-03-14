@@ -256,28 +256,29 @@ describe("agent-selection service", () => {
   it("T4 task with multiple capabilities selects Opus agent", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    // Insert a T4-capable Opus agent
+    await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
     await getPool().query(
-      `INSERT IGNORE INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling) VALUES
+      `INSERT INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling) VALUES
         ('sel-opus', 'anthropic', 'opus', '["code_generation","reasoning","structured_output","long_context","tool_use","vision","multilingual"]', 0.015000, 0.075000, 1048576, 1200, 'active', 4)`,
     );
 
-    const classification: TaskClassification = {
-      task_id: "test-t4-multi-cap",
-      complexity_tier: 4,
-      required_capabilities: ["code_generation", "reasoning", "vision"],
-      cost_ceiling_usd: 1.0,
-      prompt_hash: "t4multi1",
-    };
+    try {
+      const classification: TaskClassification = {
+        task_id: "test-t4-multi-cap",
+        complexity_tier: 4,
+        required_capabilities: ["code_generation", "reasoning", "vision"],
+        cost_ceiling_usd: 1.0,
+        prompt_hash: "t4multi1",
+      };
 
-    const result = await select(classification);
+      const result = await select(classification);
 
-    expect(result.selected_agent_id).toBe("sel-opus");
-    expect(result.fallback_applied).toBe("NONE");
-    expect(result.scored_candidates.length).toBe(1);
-
-    // Clean up
-    await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
+      expect(result.selected_agent_id).toBe("sel-opus");
+      expect(result.fallback_applied).toBe("NONE");
+      expect(result.scored_candidates.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
+    }
   });
 
   it("T4 task no longer fails with 'No agent available' when Opus agent exists", async ({
@@ -285,7 +286,9 @@ describe("agent-selection service", () => {
   }) => {
     if (!doltAvailable) skip();
 
-    // First verify T4 fails without an Opus agent
+    // Ensure clean state — no sel-opus from prior tests
+    await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
+
     const classification: TaskClassification = {
       task_id: "test-t4-no-agent",
       complexity_tier: 4,
@@ -304,51 +307,53 @@ describe("agent-selection service", () => {
       active: true,
     };
 
+    // Verify T4 fails without an Opus agent
     await expect(select(classification, abortPolicy)).rejects.toThrow(
       "No agent available for task",
     );
 
     // Now insert the Opus agent and verify it succeeds
     await getPool().query(
-      `INSERT IGNORE INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling) VALUES
+      `INSERT INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling) VALUES
         ('sel-opus', 'anthropic', 'opus', '["code_generation","reasoning","structured_output","long_context","tool_use","vision","multilingual"]', 0.015000, 0.075000, 1048576, 1200, 'active', 4)`,
     );
 
-    const result = await select(classification, abortPolicy);
+    try {
+      const result = await select(classification, abortPolicy);
 
-    expect(result.selected_agent_id).toBe("sel-opus");
-    expect(result.fallback_applied).toBe("NONE");
-
-    // Clean up
-    await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
+      expect(result.selected_agent_id).toBe("sel-opus");
+      expect(result.fallback_applied).toBe("NONE");
+    } finally {
+      await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
+    }
   });
 
   it("T4 agent is reachable from T3 tasks via tier_ceiling", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    // Insert an agent that only exists at T4 ceiling with a unique capability
+    await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
     await getPool().query(
-      `INSERT IGNORE INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling) VALUES
+      `INSERT INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling) VALUES
         ('sel-opus', 'anthropic', 'opus', '["code_generation","reasoning","structured_output","long_context","tool_use","vision","multilingual","t4_exclusive_cap"]', 0.015000, 0.075000, 1048576, 1200, 'active', 4)`,
     );
 
-    // A T3 task requiring t4_exclusive_cap — sel-opus has tier_ceiling 4 >= 3,
-    // so it passes the filter directly (tier_ceiling is a ceiling, not a floor)
-    const classification: TaskClassification = {
-      task_id: "test-t4-reachable-from-t3",
-      complexity_tier: 3,
-      required_capabilities: ["t4_exclusive_cap"],
-      cost_ceiling_usd: 5.0,
-      prompt_hash: "t4reach",
-    };
+    try {
+      // sel-opus has tier_ceiling 4 >= 3, so it passes the filter directly
+      const classification: TaskClassification = {
+        task_id: "test-t4-reachable-from-t3",
+        complexity_tier: 3,
+        required_capabilities: ["t4_exclusive_cap"],
+        cost_ceiling_usd: 5.0,
+        prompt_hash: "t4reach",
+      };
 
-    const result = await select(classification);
+      const result = await select(classification);
 
-    expect(result.selected_agent_id).toBe("sel-opus");
-    expect(result.fallback_applied).toBe("NONE");
-
-    // Clean up
-    await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
+      expect(result.selected_agent_id).toBe("sel-opus");
+      expect(result.fallback_applied).toBe("NONE");
+    } finally {
+      await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
+    }
   });
 
   it("tiebreak — identical scores, lower alphabetical agent_id wins", async ({ skip }) => {

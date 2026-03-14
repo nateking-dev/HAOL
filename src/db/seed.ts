@@ -94,6 +94,7 @@ VALUES
    '["classification","summarization","structured_output","multilingual"]',
    0.000150, 0.000600, 128000, 400, 'active', 2),
 
+  -- Pricing: $15/$75 per MTok (https://docs.anthropic.com/en/docs/about-claude/models)
   ('claude-opus-4-6', 'anthropic', 'claude-opus-4-6',
    '["code_generation","reasoning","structured_output","long_context","tool_use","vision","multilingual"]',
    0.015000, 0.075000, 1048576, 1200, 'active', 4),
