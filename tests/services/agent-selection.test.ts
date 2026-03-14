@@ -356,6 +356,74 @@ describe("agent-selection service", () => {
     }
   });
 
+  describe("tool_use and vision capability routing", () => {
+    const CAP_AGENT_ID = "aaa-test-caps";
+
+    beforeAll(async () => {
+      if (!doltAvailable) return;
+      await getPool().query(
+        `INSERT IGNORE INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling) VALUES
+          ('${CAP_AGENT_ID}', 'anthropic', 'sonnet-caps', '["code_generation","reasoning","structured_output","long_context","tool_use","vision"]', 0.003000, 0.015000, 200000, 800, 'active', 3)`,
+      );
+    });
+
+    afterAll(async () => {
+      if (!doltAvailable) return;
+      await getPool().query(`DELETE FROM agent_registry WHERE agent_id = '${CAP_AGENT_ID}'`);
+    });
+
+    it("routes a task requiring tool_use to an agent with that capability", async ({ skip }) => {
+      if (!doltAvailable) skip();
+
+      const classification: TaskClassification = {
+        task_id: "test-tool-use",
+        complexity_tier: 3,
+        required_capabilities: ["tool_use"],
+        cost_ceiling_usd: 1.0,
+        prompt_hash: "tooluse1",
+      };
+
+      const result = await select(classification);
+
+      expect(result.selected_agent_id).toBe(CAP_AGENT_ID);
+      expect(result.fallback_applied).toBe("NONE");
+    });
+
+    it("routes a task requiring vision to an agent with that capability", async ({ skip }) => {
+      if (!doltAvailable) skip();
+
+      const classification: TaskClassification = {
+        task_id: "test-vision",
+        complexity_tier: 3,
+        required_capabilities: ["vision"],
+        cost_ceiling_usd: 1.0,
+        prompt_hash: "vision1",
+      };
+
+      const result = await select(classification);
+
+      expect(result.selected_agent_id).toBe(CAP_AGENT_ID);
+      expect(result.fallback_applied).toBe("NONE");
+    });
+
+    it("routes a task requiring both tool_use and vision simultaneously", async ({ skip }) => {
+      if (!doltAvailable) skip();
+
+      const classification: TaskClassification = {
+        task_id: "test-tool-vision",
+        complexity_tier: 3,
+        required_capabilities: ["tool_use", "vision"],
+        cost_ceiling_usd: 1.0,
+        prompt_hash: "toolvision1",
+      };
+
+      const result = await select(classification);
+
+      expect(result.selected_agent_id).toBe(CAP_AGENT_ID);
+      expect(result.fallback_applied).toBe("NONE");
+    });
+  });
+
   it("tiebreak — identical scores, lower alphabetical agent_id wins", async ({ skip }) => {
     if (!doltAvailable) skip();
 

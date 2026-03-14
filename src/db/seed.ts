@@ -87,7 +87,7 @@ VALUES
    0.000800, 0.004000, 200000, 300, 'active', 2),
 
   ('claude-sonnet-4-5', 'anthropic', 'claude-sonnet-4-20250514',
-   '["code_generation","reasoning","structured_output","long_context"]',
+   '["code_generation","reasoning","structured_output","long_context","tool_use","vision"]',
    0.003000, 0.015000, 200000, 800, 'active', 3),
 
   ('gpt-4o-mini', 'openai', 'gpt-4o-mini',
