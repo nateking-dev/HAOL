@@ -219,11 +219,6 @@ describe("router pipeline", () => {
         capturedRecords = execRecords;
       });
 
-    onTestFinished(() => {
-      executeSpy.mockRestore();
-      signalsSpy.mockRestore();
-    });
-
     // First call to execute returns a failed record (triggers fallback);
     // second call throws (simulating a thrown fallback execution).
     let callCount = 0;
@@ -251,6 +246,11 @@ describe("router pipeline", () => {
         // Fallback execution throws
         throw new Error("Fallback connection refused");
       });
+
+    onTestFinished(() => {
+      executeSpy.mockRestore();
+      signalsSpy.mockRestore();
+    });
 
     const result = await routeTask({
       prompt: "Summarize this article about fallback testing",
