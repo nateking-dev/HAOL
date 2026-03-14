@@ -8,6 +8,7 @@ import type { Hono } from "hono";
 let doltAvailable = false;
 let app: Hono;
 const testTaskId = `test-oapi-${Date.now()}`;
+const emptyTaskId = `test-oapi-empty-${Date.now()}`;
 
 beforeAll(async () => {
   const config = loadConfig();
@@ -23,8 +24,9 @@ beforeAll(async () => {
     const pool = getPool();
     await pool.query(
       `INSERT INTO task_log (task_id, status, prompt_hash, routing_confidence, routing_layer)
-       VALUES (?, 'COMPLETED', 'testhash', 0.75, 'semantic')`,
-      [testTaskId],
+       VALUES (?, 'COMPLETED', 'testhash', 0.75, 'semantic'),
+              (?, 'COMPLETED', 'testhash', 0.80, 'semantic')`,
+      [testTaskId, emptyTaskId],
     );
     doltAvailable = true;
   } catch {
@@ -111,6 +113,17 @@ describe("GET /tasks/:id/outcomes", () => {
     }
   });
 
+  it("returns empty array for valid task with no outcomes", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const res = await app.request("/tasks/" + emptyTaskId + "/outcomes");
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBe(0);
+  });
+
   it("returns 404 for non-existent task", async ({ skip }) => {
     if (!doltAvailable) skip();
 
@@ -135,6 +148,17 @@ describe("GET /tasks/:id/outcomes/summary", () => {
     expect(typeof body.negative_signals).toBe("number");
     expect(body.by_tier).toBeTruthy();
     expect(typeof body.by_tier).toBe("object");
+  });
+
+  it("returns empty summary for valid task with no outcomes", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const res = await app.request("/tasks/" + emptyTaskId + "/outcomes/summary");
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.task_id).toBe(emptyTaskId);
+    expect(body.total_signals).toBe(0);
   });
 
   it("returns 404 for non-existent task", async ({ skip }) => {
