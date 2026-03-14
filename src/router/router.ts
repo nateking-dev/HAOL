@@ -179,7 +179,10 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       const routerConfig = await loadConfig();
       if (
         classification.routing_confidence != null &&
-        shouldSampleForEvaluation(classification.routing_confidence, routerConfig.confidence_threshold)
+        shouldSampleForEvaluation(
+          classification.routing_confidence,
+          routerConfig.confidence_threshold,
+        )
       ) {
         evaluateRoutingDecision(taskId).catch(() => {});
       }
