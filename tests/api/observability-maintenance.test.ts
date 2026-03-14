@@ -43,22 +43,22 @@ describe("GET /stats/orphaned-pending", () => {
 
     const body = await res.json();
     expect(typeof body.orphaned_pending).toBe("number");
-    expect(typeof body.stale_threshold_hours).toBe("number");
+    expect(body.max_age_hours).toBe(24);
   });
 
-  it("accepts stale_hours parameter", async ({ skip }) => {
+  it("accepts max_age_hours parameter", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/stats/orphaned-pending?stale_hours=48");
+    const res = await app.request("/stats/orphaned-pending?max_age_hours=48");
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.stale_threshold_hours).toBe(48);
+    expect(body.max_age_hours).toBe(48);
   });
 });
 
 describe("POST /maintenance/cleanup-pending", () => {
-  it("returns deleted count and committed status", async ({ skip }) => {
+  it("returns deleted count with committed null when nothing deleted", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const res = await app.request("/maintenance/cleanup-pending", {
@@ -69,7 +69,12 @@ describe("POST /maintenance/cleanup-pending", () => {
     const body = await res.json();
     expect(typeof body.deleted).toBe("number");
     expect(body.max_age_hours).toBe(24);
-    expect(typeof body.committed).toBe("boolean");
+    // committed is null when no rows were deleted (no commit attempted)
+    if (body.deleted === 0) {
+      expect(body.committed).toBeNull();
+    } else {
+      expect(typeof body.committed).toBe("boolean");
+    }
   });
 
   it("accepts max_age_hours parameter", async ({ skip }) => {
@@ -94,6 +99,26 @@ describe("POST /maintenance/cleanup-pending", () => {
         method: "POST",
       });
       expect(res.status).toBe(401);
+    } finally {
+      if (originalKey) {
+        process.env.HAOL_API_KEY = originalKey;
+      } else {
+        delete process.env.HAOL_API_KEY;
+      }
+    }
+  });
+
+  it("allows authenticated requests when HAOL_API_KEY is set", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const originalKey = process.env.HAOL_API_KEY;
+    process.env.HAOL_API_KEY = "test-secret-key";
+    try {
+      const res = await app.request("/maintenance/cleanup-pending", {
+        method: "POST",
+        headers: { Authorization: "Bearer test-secret-key" },
+      });
+      expect(res.status).toBe(200);
     } finally {
       if (originalKey) {
         process.env.HAOL_API_KEY = originalKey;

@@ -134,28 +134,39 @@ export async function findTasksWithoutTier2Eval(
 /**
  * Deletes evaluation_pending records older than maxAgeHours that have
  * no matching evaluation_complete or evaluation_failed record.
- * Returns the number of rows deleted.
+ * Deletes in batches of `batchSize` (default 1000) to avoid long-running
+ * table-locking transactions. Returns the total number of rows deleted.
  */
-export async function cleanupOrphanedPendingRecords(maxAgeHours: number): Promise<number> {
+export async function cleanupOrphanedPendingRecords(
+  maxAgeHours: number,
+  batchSize: number = 1000,
+): Promise<number> {
   const pool = getPool();
   // The derived table (subquery wrapped in FROM (...) AS t2) is required because
   // MySQL/Dolt forbids a correlated NOT EXISTS that references the same table
   // being deleted from. The count query uses a plain NOT EXISTS since SELECT
   // doesn't have this restriction.
-  const [result] = await pool.query<ResultSetHeader>(
-    `DELETE FROM task_outcome
-     WHERE signal_type = 'evaluation_pending'
-       AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
-       AND NOT EXISTS (
-         SELECT 1 FROM (
-           SELECT DISTINCT task_id FROM task_outcome
-           WHERE signal_type IN ('evaluation_complete', 'evaluation_failed')
-         ) AS t2
-         WHERE t2.task_id = task_outcome.task_id
-       )`,
-    [maxAgeHours],
-  );
-  return result.affectedRows ?? 0;
+  let totalDeleted = 0;
+  let batchDeleted: number;
+  do {
+    const [result] = await pool.query<ResultSetHeader>(
+      `DELETE FROM task_outcome
+       WHERE signal_type = 'evaluation_pending'
+         AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
+         AND NOT EXISTS (
+           SELECT 1 FROM (
+             SELECT DISTINCT task_id FROM task_outcome
+             WHERE signal_type IN ('evaluation_complete', 'evaluation_failed')
+           ) AS t2
+           WHERE t2.task_id = task_outcome.task_id
+         )
+       LIMIT ?`,
+      [maxAgeHours, batchSize],
+    );
+    batchDeleted = result.affectedRows ?? 0;
+    totalDeleted += batchDeleted;
+  } while (batchDeleted === batchSize);
+  return totalDeleted;
 }
 
 /**
