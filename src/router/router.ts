@@ -100,7 +100,10 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       context: {},
       constraints: {
         max_tokens: parsed.constraints?.max_tokens ?? 4096,
-        timeout_ms: parsed.constraints?.timeout_ms ?? DEFAULT_TIMEOUT_MS[classification.complexity_tier] ?? 30_000,
+        timeout_ms:
+          parsed.constraints?.timeout_ms ??
+          DEFAULT_TIMEOUT_MS[classification.complexity_tier] ??
+          30_000,
         temperature: parsed.constraints?.temperature,
       },
     };
