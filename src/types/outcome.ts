@@ -1,19 +1,9 @@
 import { z } from "zod";
 
-export const OutcomeTier = z.union([
-  z.literal(0),
-  z.literal(1),
-  z.literal(2),
-  z.literal(3),
-]);
+export const OutcomeTier = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]);
 export type OutcomeTier = z.infer<typeof OutcomeTier>;
 
-export const OutcomeSource = z.enum([
-  "pipeline",
-  "format_check",
-  "routing_eval",
-  "downstream",
-]);
+export const OutcomeSource = z.enum(["pipeline", "format_check", "routing_eval", "downstream"]);
 export type OutcomeSource = z.infer<typeof OutcomeSource>;
 
 export const FormatSpec = z.object({
@@ -42,7 +32,12 @@ export const DownstreamOutcomeInput = z.object({
   signal_type: z.string().min(1),
   signal_value: z.union([z.literal(0), z.literal(1)]),
   reported_by: z.string().min(1),
-  detail: z.record(z.string(), z.unknown()).optional(),
+  detail: z
+    .record(z.string(), z.unknown())
+    .refine((d) => JSON.stringify(d).length <= 4096, {
+      message: "detail must not exceed 4096 bytes when serialized",
+    })
+    .optional(),
 });
 export type DownstreamOutcomeInput = z.infer<typeof DownstreamOutcomeInput>;
 
