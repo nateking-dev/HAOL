@@ -200,9 +200,7 @@ export class CascadeRouter {
         case "regex":
           try {
             if (!safe(rule.pattern)) {
-              console.warn(
-                `Unsafe regex pattern rejected (ReDoS risk): rule=${rule.rule_id} pattern=${rule.pattern}`,
-              );
+              console.warn(`Unsafe regex pattern rejected (ReDoS risk): rule=${rule.rule_id}`);
               // Log rejection so it surfaces in observability
               store
                 .logDecision(uuidv7(), prompt, rule.tier_id, "deterministic", null, 0, 0, {
