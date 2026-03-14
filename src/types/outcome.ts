@@ -34,7 +34,7 @@ export const DownstreamOutcomeInput = z.object({
   reported_by: z.string().min(1),
   detail: z
     .record(z.string(), z.unknown())
-    .refine((d) => JSON.stringify(d).length <= 4096, {
+    .refine((d) => Buffer.byteLength(JSON.stringify(d), "utf8") <= 4096, {
       message: "detail must not exceed 4096 bytes when serialized",
     })
     .optional(),
