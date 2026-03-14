@@ -326,10 +326,10 @@ describe("agent-selection service", () => {
   it("TIER_UP fallback from T3 can reach T4 Opus agent", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    // Insert the Opus agent with T4 ceiling
+    // Insert the Opus agent with a unique capability only it has
     await getPool().query(
       `INSERT IGNORE INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling) VALUES
-        ('sel-opus', 'anthropic', 'opus', '["code_generation","reasoning","structured_output","long_context","tool_use","vision","multilingual"]', 0.015000, 0.075000, 1048576, 1200, 'active', 4)`,
+        ('sel-opus', 'anthropic', 'opus', '["code_generation","reasoning","structured_output","long_context","tool_use","vision","multilingual","t4_exclusive_cap"]', 0.015000, 0.075000, 1048576, 1200, 'active', 4)`,
     );
 
     const tierUpPolicy: RoutingPolicy = {
@@ -342,13 +342,13 @@ describe("agent-selection service", () => {
       active: true,
     };
 
-    // T3 task requiring vision — sel-sonnet (tier_ceiling 3) doesn't have vision,
+    // T3 task requiring t4_exclusive_cap — no T3 agent has it,
     // so TIER_UP should raise to T4 and find sel-opus
     const classification: TaskClassification = {
       task_id: "test-tier-up-t4",
       complexity_tier: 3,
-      required_capabilities: ["vision"],
-      cost_ceiling_usd: 1.0,
+      required_capabilities: ["t4_exclusive_cap"],
+      cost_ceiling_usd: 5.0,
       prompt_hash: "tierupt4",
     };
 
