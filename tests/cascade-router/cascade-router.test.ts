@@ -223,6 +223,92 @@ describe("CascadeRouter", () => {
     });
   });
 
+  describe("Layer 0 — seed rule patterns match inflected forms", () => {
+    // These tests use the actual patterns from SEED_ROUTING_RULES to verify
+    // they correctly match common inflected forms (the original patterns had
+    // trailing \b word boundaries that broke partial stem matching).
+    const seedRules = [
+      {
+        rule_id: "rule-classify",
+        tier_id: 1 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(classif|categoriz|label\\b)",
+        capabilities: ["classification"],
+        priority: 10,
+        enabled: true,
+        description: null,
+      },
+      {
+        rule_id: "rule-code",
+        tier_id: 3 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(code\\b|implement|function\\b|debug\\b|refactor)",
+        capabilities: ["code_generation"],
+        priority: 20,
+        enabled: true,
+        description: null,
+      },
+      {
+        rule_id: "rule-reasoning",
+        tier_id: 3 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(analyz|analys|compar|reason|evaluat)",
+        capabilities: ["reasoning"],
+        priority: 20,
+        enabled: true,
+        description: null,
+      },
+    ];
+
+    it("rule-classify matches 'Classify', 'Categorize', 'Classification'", async () => {
+      mockLoadRules.mockResolvedValue(seedRules);
+      mockLoadUtterances.mockResolvedValue([]);
+
+      const router = await CascadeRouter.create();
+
+      for (const prompt of [
+        "Classify this email as spam",
+        "Categorize the sentiment",
+        "Classification of support tickets",
+      ]) {
+        const result = await router.classify({ prompt });
+        expect(result.complexity_tier).toBe(1);
+        expect(result.required_capabilities).toContain("classification");
+      }
+    });
+
+    it("rule-code matches 'Implement', 'Refactoring', 'Debug'", async () => {
+      mockLoadRules.mockResolvedValue(seedRules);
+      mockLoadUtterances.mockResolvedValue([]);
+
+      const router = await CascadeRouter.create();
+
+      for (const prompt of ["Implement a cache", "Refactoring the module", "Debug this issue"]) {
+        const result = await router.classify({ prompt });
+        expect(result.complexity_tier).toBe(3);
+        expect(result.required_capabilities).toContain("code_generation");
+      }
+    });
+
+    it("rule-reasoning matches 'Analyze', 'Analysis', 'Comparison', 'Evaluate'", async () => {
+      mockLoadRules.mockResolvedValue(seedRules);
+      mockLoadUtterances.mockResolvedValue([]);
+
+      const router = await CascadeRouter.create();
+
+      for (const prompt of [
+        "Analyze the data",
+        "Data analysis report",
+        "Comparison of options",
+        "Evaluate the approach",
+      ]) {
+        const result = await router.classify({ prompt });
+        expect(result.complexity_tier).toBe(3);
+        expect(result.required_capabilities).toContain("reasoning");
+      }
+    });
+  });
+
   describe("Layer 1 — semantic similarity", () => {
     it("uses embedding when no rules match and confidence is high", async () => {
       mockLoadRules.mockResolvedValue([]);
