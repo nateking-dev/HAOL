@@ -1,4 +1,4 @@
-import { getPool } from "./connection.js";
+import { getPool, type Queryable } from "./connection.js";
 
 export interface DoltCommitOptions {
   message: string;
@@ -6,8 +6,8 @@ export interface DoltCommitOptions {
   allowEmpty?: boolean;
 }
 
-export async function doltCommit(opts: DoltCommitOptions): Promise<string> {
-  const pool = getPool();
+export async function doltCommit(opts: DoltCommitOptions, conn?: Queryable): Promise<string> {
+  const db = conn ?? getPool();
   const args: string[] = ["-m", opts.message];
   if (opts.author) {
     args.push("--author", opts.author);
@@ -18,14 +18,14 @@ export async function doltCommit(opts: DoltCommitOptions): Promise<string> {
 
   // DOLT_COMMIT with -A flag to auto-stage all changes
   const placeholders = args.map(() => "?").join(", ");
-  const [rows] = await pool.query(`CALL DOLT_COMMIT('-A', ${placeholders})`, args);
+  const [rows] = await db.query(`CALL DOLT_COMMIT('-A', ${placeholders})`, args);
   const result = rows as Record<string, string>[];
   return result[0]?.hash ?? "";
 }
 
-export async function doltCheckout(branch: string): Promise<void> {
-  const pool = getPool();
-  await pool.query("CALL DOLT_CHECKOUT(?)", [branch]);
+export async function doltCheckout(branch: string, conn?: Queryable): Promise<void> {
+  const db = conn ?? getPool();
+  await db.query("CALL DOLT_CHECKOUT(?)", [branch]);
 }
 
 export interface DoltBranchOptions {
@@ -33,18 +33,18 @@ export interface DoltBranchOptions {
   startPoint?: string;
 }
 
-export async function doltBranch(opts: DoltBranchOptions): Promise<void> {
-  const pool = getPool();
+export async function doltBranch(opts: DoltBranchOptions, conn?: Queryable): Promise<void> {
+  const db = conn ?? getPool();
   if (opts.startPoint) {
-    await pool.query("CALL DOLT_BRANCH(?, ?)", [opts.name, opts.startPoint]);
+    await db.query("CALL DOLT_BRANCH(?, ?)", [opts.name, opts.startPoint]);
   } else {
-    await pool.query("CALL DOLT_BRANCH(?)", [opts.name]);
+    await db.query("CALL DOLT_BRANCH(?)", [opts.name]);
   }
 }
 
-export async function doltDeleteBranch(name: string): Promise<void> {
-  const pool = getPool();
-  await pool.query("CALL DOLT_BRANCH('-d', ?)", [name]);
+export async function doltDeleteBranch(name: string, conn?: Queryable): Promise<void> {
+  const db = conn ?? getPool();
+  await db.query("CALL DOLT_BRANCH('-d', ?)", [name]);
 }
 
 export interface DoltMergeResult {
@@ -53,9 +53,9 @@ export interface DoltMergeResult {
   conflicts: number;
 }
 
-export async function doltMerge(branch: string): Promise<DoltMergeResult> {
-  const pool = getPool();
-  const [rows] = await pool.query("CALL DOLT_MERGE(?)", [branch]);
+export async function doltMerge(branch: string, conn?: Queryable): Promise<DoltMergeResult> {
+  const db = conn ?? getPool();
+  const [rows] = await db.query("CALL DOLT_MERGE(?)", [branch]);
   const result = rows as Record<string, unknown>[];
   const row = result[0] ?? {};
   return {
@@ -65,9 +65,9 @@ export async function doltMerge(branch: string): Promise<DoltMergeResult> {
   };
 }
 
-export async function doltActiveBranch(): Promise<string> {
-  const pool = getPool();
-  const [rows] = await pool.query("SELECT active_branch() AS branch");
+export async function doltActiveBranch(conn?: Queryable): Promise<string> {
+  const db = conn ?? getPool();
+  const [rows] = await db.query("SELECT active_branch() AS branch");
   const result = rows as Record<string, string>[];
   return result[0]?.branch ?? "main";
 }

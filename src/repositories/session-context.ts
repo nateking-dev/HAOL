@@ -1,4 +1,4 @@
-import { query, getPool } from "../db/connection.js";
+import { query, getPool, type Queryable } from "../db/connection.js";
 import type { RowDataPacket } from "mysql2/promise";
 
 export interface SessionContextRecord {
@@ -24,9 +24,14 @@ function parseRow(row: SessionContextRow): SessionContextRecord {
   };
 }
 
-export async function upsert(sessionId: string, key: string, value: unknown): Promise<void> {
-  const pool = getPool();
-  await pool.query(
+export async function upsert(
+  sessionId: string,
+  key: string,
+  value: unknown,
+  conn?: Queryable,
+): Promise<void> {
+  const db = conn ?? getPool();
+  await db.query(
     `INSERT INTO session_context (session_id, \`key\`, value)
      VALUES (?, ?, ?)
      ON DUPLICATE KEY UPDATE value = VALUES(value)`,

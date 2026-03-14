@@ -1,5 +1,12 @@
-import mysql, { type Pool, type PoolOptions, type RowDataPacket } from "mysql2/promise";
+import mysql, {
+  type Pool,
+  type PoolConnection,
+  type PoolOptions,
+  type RowDataPacket,
+} from "mysql2/promise";
 import { type DoltConfig } from "../config.js";
+
+export type Queryable = Pool | PoolConnection;
 
 let pool: Pool | null = null;
 
@@ -44,6 +51,16 @@ export async function healthCheck(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+export async function withConnection<T>(fn: (conn: PoolConnection) => Promise<T>): Promise<T> {
+  const p = getPool();
+  const conn = await p.getConnection();
+  try {
+    return await fn(conn);
+  } finally {
+    conn.release();
   }
 }
 
