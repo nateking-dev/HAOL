@@ -25,5 +25,34 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Install Dolt
+        run: |
+          sudo bash -c 'curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash'
+
+      - name: Start Dolt SQL server
+        run: |
+          mkdir -p /tmp/haol-db && cd /tmp/haol-db
+          dolt init
+          dolt sql-server --host 127.0.0.1 --port 3306 --user root &
+          sleep 2
+          dolt sql -q "CREATE DATABASE IF NOT EXISTS haol"
+
+      - name: Run migrations and seed
+        run: |
+          npm run migrate
+          npm run seed
+        env:
+          DOLT_HOST: 127.0.0.1
+          DOLT_PORT: 3306
+          DOLT_USER: root
+          DOLT_PASSWORD: ""
+          DOLT_DATABASE: haol
+
       - name: Test
         run: npm run test
+        env:
+          DOLT_HOST: 127.0.0.1
+          DOLT_PORT: 3306
+          DOLT_USER: root
+          DOLT_PASSWORD: ""
+          DOLT_DATABASE: haol
