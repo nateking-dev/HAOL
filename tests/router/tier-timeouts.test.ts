@@ -108,8 +108,10 @@ afterAll(async () => {
     const pool = getPool();
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'tto-%'");
     await pool.query("DELETE FROM task_log WHERE selected_agent_id LIKE 'tto-%'");
-    // Re-enable all previously disabled agents (safe: only changes 'disabled' → 'active')
-    await pool.query("UPDATE agent_registry SET status = 'active' WHERE status = 'disabled'");
+    // Re-enable only the agents this test disabled (scoped to non-tto- rows)
+    await pool.query(
+      "UPDATE agent_registry SET status = 'active' WHERE agent_id NOT LIKE 'tto-%' AND status = 'disabled'",
+    );
     await pool.query("DELETE FROM agent_registry WHERE agent_id LIKE 'tto-%'");
   }
   await destroy();
