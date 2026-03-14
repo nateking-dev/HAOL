@@ -323,39 +323,29 @@ describe("agent-selection service", () => {
     await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
   });
 
-  it("TIER_UP fallback from T3 can reach T4 Opus agent", async ({ skip }) => {
+  it("T4 agent is reachable from T3 tasks via tier_ceiling", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    // Insert the Opus agent with a unique capability only it has
+    // Insert an agent that only exists at T4 ceiling with a unique capability
     await getPool().query(
       `INSERT IGNORE INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling) VALUES
         ('sel-opus', 'anthropic', 'opus', '["code_generation","reasoning","structured_output","long_context","tool_use","vision","multilingual","t4_exclusive_cap"]', 0.015000, 0.075000, 1048576, 1200, 'active', 4)`,
     );
 
-    const tierUpPolicy: RoutingPolicy = {
-      policy_id: "tier-up-t4",
-      weight_capability: 0.5,
-      weight_cost: 0.3,
-      weight_latency: 0.2,
-      fallback_strategy: "TIER_UP",
-      max_retries: 0,
-      active: true,
-    };
-
-    // T3 task requiring t4_exclusive_cap — no T3 agent has it,
-    // so TIER_UP should raise to T4 and find sel-opus
+    // A T3 task requiring t4_exclusive_cap — sel-opus has tier_ceiling 4 >= 3,
+    // so it passes the filter directly (tier_ceiling is a ceiling, not a floor)
     const classification: TaskClassification = {
-      task_id: "test-tier-up-t4",
+      task_id: "test-t4-reachable-from-t3",
       complexity_tier: 3,
       required_capabilities: ["t4_exclusive_cap"],
       cost_ceiling_usd: 5.0,
-      prompt_hash: "tierupt4",
+      prompt_hash: "t4reach",
     };
 
-    const result = await select(classification, tierUpPolicy);
+    const result = await select(classification);
 
-    expect(result.fallback_applied).toBe("TIER_UP");
     expect(result.selected_agent_id).toBe("sel-opus");
+    expect(result.fallback_applied).toBe("NONE");
 
     // Clean up
     await getPool().query("DELETE FROM agent_registry WHERE agent_id = 'sel-opus'");
