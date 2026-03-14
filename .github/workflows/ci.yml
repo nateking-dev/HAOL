@@ -27,7 +27,7 @@ jobs:
 
       - name: Install Dolt
         run: |
-          sudo bash -c 'curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash'
+          curl -L https://github.com/dolthub/dolt/releases/download/v1.83.6/install.sh | sudo bash
 
       - name: Start Dolt SQL server
         working-directory: /tmp

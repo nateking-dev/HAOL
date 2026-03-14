@@ -65,6 +65,9 @@ export async function writeContext(
         },
         conn,
       );
+    } catch (err) {
+      await conn.query("ROLLBACK");
+      throw err;
     } finally {
       await conn.query("SET @@autocommit = 1");
       await ensureOnMain(conn);
@@ -117,12 +120,9 @@ export async function commitSession(session: SessionHandle): Promise<void> {
   });
 }
 
-export async function discardSession(session: SessionHandle): Promise<void> {
-  await withConnection(async (conn) => {
-    await ensureOnMain(conn);
-  });
-  // Branch is preserved for debugging, not deleted
-  // Data stays on the session branch but is not merged to main
+export async function discardSession(_session: SessionHandle): Promise<void> {
+  // Intentional no-op: branch is preserved for debugging, not deleted.
+  // Data stays on the session branch but is not merged to main.
 }
 
 export async function writeHandoffSummary(

@@ -4,9 +4,9 @@ import mysql, {
   type PoolOptions,
   type RowDataPacket,
 } from "mysql2/promise";
+import { type DoltConfig } from "../config.js";
 
 export type Queryable = Pool | PoolConnection;
-import { type DoltConfig } from "../config.js";
 
 let pool: Pool | null = null;
 
