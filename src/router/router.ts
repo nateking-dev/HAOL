@@ -6,7 +6,7 @@ import * as taskLog from "../repositories/task-log.js";
 import { getActivePolicy } from "../repositories/routing-policy.js";
 import { doltCommit } from "../db/dolt.js";
 import type { AgentRequest, ExecutionRecord } from "../types/execution.js";
-import type { TaskClassification } from "../types/task.js";
+import type { ComplexityTier, TaskClassification } from "../types/task.js";
 import { uuidv7 } from "../types/task.js";
 import type { RoutingPolicy } from "../types/selection.js";
 import * as execRepo from "../repositories/execution-log.js";
@@ -18,6 +18,13 @@ import {
   shouldSampleForEvaluation,
   evaluateRoutingDecision,
 } from "../services/outcome-collector.js";
+
+export const DEFAULT_TIMEOUT_MS: Record<ComplexityTier, number> = {
+  1: 15_000,
+  2: 30_000,
+  3: 60_000,
+  4: 120_000,
+};
 
 async function commitSafely(message: string): Promise<void> {
   try {
@@ -93,7 +100,8 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       context: {},
       constraints: {
         max_tokens: parsed.constraints?.max_tokens ?? 4096,
-        timeout_ms: parsed.constraints?.timeout_ms ?? 30_000,
+        timeout_ms:
+          parsed.constraints?.timeout_ms ?? DEFAULT_TIMEOUT_MS[classification.complexity_tier],
         temperature: parsed.constraints?.temperature,
       },
     };
