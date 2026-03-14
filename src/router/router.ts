@@ -6,7 +6,7 @@ import * as taskLog from "../repositories/task-log.js";
 import { getActivePolicy } from "../repositories/routing-policy.js";
 import { doltCommit } from "../db/dolt.js";
 import type { AgentRequest, ExecutionRecord } from "../types/execution.js";
-import type { TaskClassification } from "../types/task.js";
+import type { ComplexityTier, TaskClassification } from "../types/task.js";
 import { uuidv7 } from "../types/task.js";
 import type { RoutingPolicy } from "../types/selection.js";
 import * as execRepo from "../repositories/execution-log.js";
@@ -19,7 +19,7 @@ import {
   evaluateRoutingDecision,
 } from "../services/outcome-collector.js";
 
-export const DEFAULT_TIMEOUT_MS: Record<number, number> = {
+export const DEFAULT_TIMEOUT_MS: Record<ComplexityTier, number> = {
   1: 15_000,
   2: 30_000,
   3: 60_000,
