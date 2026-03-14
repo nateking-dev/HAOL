@@ -456,10 +456,27 @@ describe("cleanupOrphanedPendingRecords", () => {
 });
 
 describe("countOrphanedPendingRecords", () => {
-  it("returns a number", async ({ skip }) => {
+  const ts = Date.now().toString(36);
+  const orphanId = `test-oco-cnt-${ts}`;
+
+  it("setup: insert orphaned pending record", async ({ skip }) => {
     if (!doltAvailable) skip();
-    const count = await outcomeRepo.countOrphanedPendingRecords(1);
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'COMPLETED', 'hash-cnt')`,
+      [orphanId],
+    );
+    await pool.query(
+      `INSERT INTO task_outcome (outcome_id, task_id, tier, source, signal_type, signal_value, confidence, detail, reported_by, created_at)
+       VALUES (?, ?, 2, 'routing_eval', 'evaluation_pending', NULL, 0.4, NULL, NULL, DATE_SUB(NOW(), INTERVAL 48 HOUR))`,
+      [`test-oco-coid-${ts}`, orphanId],
+    );
+  });
+
+  it("counts orphaned pending records correctly", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const count = await outcomeRepo.countOrphanedPendingRecords(24);
     expect(typeof count).toBe("number");
-    expect(count).toBeGreaterThanOrEqual(0);
+    expect(count).toBeGreaterThanOrEqual(1);
   });
 });

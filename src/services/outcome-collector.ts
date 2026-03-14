@@ -272,7 +272,7 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
     const failedRecord: TaskOutcomeRecord = {
       outcome_id: uuidv7(),
       task_id: taskId,
-      tier: 2,
+      tier: (task.complexity_tier as 0 | 1 | 2 | 3) ?? 2,
       source: "routing_eval",
       signal_type: "evaluation_failed",
       signal_value: 0,

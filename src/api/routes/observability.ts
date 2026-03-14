@@ -91,8 +91,8 @@ observability.post("/maintenance/cleanup-pending", async (c) => {
         message: `maintenance:cleanup | deleted ${deleted} orphaned evaluation_pending records older than ${maxAgeHours}h`,
         author: "haol-maintenance <haol@system>",
       });
-    } catch {
-      // best-effort commit
+    } catch (err) {
+      console.error("doltCommit failed after cleanup-pending:", err);
     }
   }
   return c.json({ deleted, max_age_hours: maxAgeHours }, 200);

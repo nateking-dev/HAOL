@@ -143,10 +143,10 @@ export async function cleanupOrphanedPendingRecords(maxAgeHours: number): Promis
      WHERE signal_type = 'evaluation_pending'
        AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
        AND task_id NOT IN (
-         SELECT task_id FROM (
+         SELECT t2.task_id FROM (
            SELECT DISTINCT task_id FROM task_outcome
            WHERE signal_type IN ('evaluation_complete', 'evaluation_failed')
-         ) AS completed
+         ) AS t2
        )`,
     [maxAgeHours],
   );
@@ -163,11 +163,10 @@ export async function countOrphanedPendingRecords(staleThresholdHours: number): 
      FROM task_outcome p
      WHERE p.signal_type = 'evaluation_pending'
        AND p.created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
-       AND p.task_id NOT IN (
-         SELECT task_id FROM (
-           SELECT DISTINCT task_id FROM task_outcome
-           WHERE signal_type IN ('evaluation_complete', 'evaluation_failed')
-         ) AS completed
+       AND NOT EXISTS (
+         SELECT 1 FROM task_outcome t2
+         WHERE t2.task_id = p.task_id
+           AND t2.signal_type IN ('evaluation_complete', 'evaluation_failed')
        )`,
     [staleThresholdHours],
   );
