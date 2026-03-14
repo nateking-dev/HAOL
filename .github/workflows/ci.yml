@@ -31,6 +31,8 @@ jobs:
 
       - name: Start Dolt SQL server
         run: |
+          dolt config --global --add user.email "ci@haol.dev"
+          dolt config --global --add user.name "HAOL CI"
           mkdir -p /tmp/haol-db && cd /tmp/haol-db
           dolt init
           dolt sql-server --host 127.0.0.1 --port 3306 --user root &
