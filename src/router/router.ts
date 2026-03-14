@@ -19,6 +19,13 @@ import {
   evaluateRoutingDecision,
 } from "../services/outcome-collector.js";
 
+export const DEFAULT_TIMEOUT_MS: Record<number, number> = {
+  1: 15_000,
+  2: 30_000,
+  3: 60_000,
+  4: 120_000,
+};
+
 async function commitSafely(message: string): Promise<void> {
   try {
     await doltCommit({ message, author: "haol-router <haol@system>", allowEmpty: true });
@@ -93,7 +100,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       context: {},
       constraints: {
         max_tokens: parsed.constraints?.max_tokens ?? 4096,
-        timeout_ms: parsed.constraints?.timeout_ms ?? 30_000,
+        timeout_ms: parsed.constraints?.timeout_ms ?? DEFAULT_TIMEOUT_MS[classification.complexity_tier] ?? 30_000,
         temperature: parsed.constraints?.temperature,
       },
     };
