@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import { DEFAULT_TIMEOUT_MS } from "../../src/router/router.js";
 import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
@@ -6,6 +6,7 @@ import { runMigrations } from "../../src/db/migrate.js";
 import { routeTask } from "../../src/router/router.js";
 import * as executionService from "../../src/services/execution.js";
 import type { ExecutionRecord } from "../../src/types/execution.js";
+import type { RowDataPacket } from "mysql2/promise";
 
 /* ------------------------------------------------------------------ */
 /*  Unit tests — no DB required                                       */
@@ -25,28 +26,8 @@ describe("DEFAULT_TIMEOUT_MS mapping", () => {
 /* ------------------------------------------------------------------ */
 
 let doltAvailable = false;
-
-function mockExecute(): { getCapturedTimeout: () => number | undefined; restore: () => void } {
-  let capturedTimeout: number | undefined;
-  const spy = vi.spyOn(executionService, "execute").mockImplementation(async (agentId, request) => {
-    capturedTimeout = request.constraints.timeout_ms;
-    return {
-      execution_id: "timeout-test-exec",
-      task_id: request.task_id,
-      agent_id: agentId,
-      attempt_number: 1,
-      input_tokens: 50,
-      output_tokens: 25,
-      cost_usd: 0.001,
-      latency_ms: 100,
-      ttft_ms: 50,
-      outcome: "SUCCESS",
-      error_detail: null,
-      response_content: "Done.",
-    } satisfies ExecutionRecord;
-  });
-  return { getCapturedTimeout: () => capturedTimeout, restore: () => spy.mockRestore() };
-}
+let previouslyActiveIds: string[] = [];
+let capturedTimeout: number | undefined;
 
 beforeAll(async () => {
   const config = loadConfig();
@@ -72,6 +53,12 @@ beforeAll(async () => {
          (policy_id, weight_capability, weight_cost, weight_latency, fallback_strategy, max_retries, active)
        VALUES ('default', 0.50, 0.30, 0.20, 'NEXT_BEST', 2, TRUE)`,
     );
+
+    // Snapshot which agents are currently active before disabling
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT agent_id FROM agent_registry WHERE agent_id NOT LIKE 'tto-%' AND status = 'active'",
+    );
+    previouslyActiveIds = rows.map((r) => r.agent_id);
 
     // Disable all non-tto agents to isolate tests
     await pool.query(
@@ -99,6 +86,27 @@ beforeAll(async () => {
   }
 });
 
+beforeEach(() => {
+  capturedTimeout = undefined;
+  vi.spyOn(executionService, "execute").mockImplementation(async (agentId, request) => {
+    capturedTimeout = request.constraints.timeout_ms;
+    return {
+      execution_id: "timeout-test-exec",
+      task_id: request.task_id,
+      agent_id: agentId,
+      attempt_number: 1,
+      input_tokens: 50,
+      output_tokens: 25,
+      cost_usd: 0.001,
+      latency_ms: 100,
+      ttft_ms: 50,
+      outcome: "SUCCESS",
+      error_detail: null,
+      response_content: "Done.",
+    } satisfies ExecutionRecord;
+  });
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -108,10 +116,13 @@ afterAll(async () => {
     const pool = getPool();
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'tto-%'");
     await pool.query("DELETE FROM task_log WHERE selected_agent_id LIKE 'tto-%'");
-    // Re-enable only the agents this test disabled (scoped to non-tto- rows)
-    await pool.query(
-      "UPDATE agent_registry SET status = 'active' WHERE agent_id NOT LIKE 'tto-%' AND status = 'disabled'",
-    );
+    // Re-enable only the agents that were active before this test ran
+    if (previouslyActiveIds.length > 0) {
+      await pool.query(
+        `UPDATE agent_registry SET status = 'active' WHERE agent_id IN (${previouslyActiveIds.map(() => "?").join(",")})`,
+        previouslyActiveIds,
+      );
+    }
     await pool.query("DELETE FROM agent_registry WHERE agent_id LIKE 'tto-%'");
   }
   await destroy();
@@ -121,22 +132,17 @@ describe("tier-based timeouts in routeTask", () => {
   it("T1 — uses 15s default", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const { getCapturedTimeout, restore } = mockExecute();
-
     const result = await routeTask({
       prompt: "Summarize this",
       metadata: { tier: 1 },
     });
 
     expect(result.status).toBe("COMPLETED");
-    expect(getCapturedTimeout()).toBe(15_000);
-    restore();
+    expect(capturedTimeout).toBe(15_000);
   });
 
   it("T2 — uses 30s default", async ({ skip }) => {
     if (!doltAvailable) skip();
-
-    const { getCapturedTimeout, restore } = mockExecute();
 
     const result = await routeTask({
       prompt: "Hello",
@@ -144,14 +150,11 @@ describe("tier-based timeouts in routeTask", () => {
     });
 
     expect(result.status).toBe("COMPLETED");
-    expect(getCapturedTimeout()).toBe(30_000);
-    restore();
+    expect(capturedTimeout).toBe(30_000);
   });
 
   it("T3 — uses 60s default", async ({ skip }) => {
     if (!doltAvailable) skip();
-
-    const { getCapturedTimeout, restore } = mockExecute();
 
     const result = await routeTask({
       prompt: "Hello",
@@ -159,14 +162,11 @@ describe("tier-based timeouts in routeTask", () => {
     });
 
     expect(result.status).toBe("COMPLETED");
-    expect(getCapturedTimeout()).toBe(60_000);
-    restore();
+    expect(capturedTimeout).toBe(60_000);
   });
 
   it("T4 — uses 120s default", async ({ skip }) => {
     if (!doltAvailable) skip();
-
-    const { getCapturedTimeout, restore } = mockExecute();
 
     const result = await routeTask({
       prompt: "Hello",
@@ -174,14 +174,11 @@ describe("tier-based timeouts in routeTask", () => {
     });
 
     expect(result.status).toBe("COMPLETED");
-    expect(getCapturedTimeout()).toBe(120_000);
-    restore();
+    expect(capturedTimeout).toBe(120_000);
   });
 
   it("user-supplied timeout takes precedence over tier default", async ({ skip }) => {
     if (!doltAvailable) skip();
-
-    const { getCapturedTimeout, restore } = mockExecute();
 
     const result = await routeTask({
       prompt: "Hello",
@@ -190,7 +187,6 @@ describe("tier-based timeouts in routeTask", () => {
     });
 
     expect(result.status).toBe("COMPLETED");
-    expect(getCapturedTimeout()).toBe(5_000);
-    restore();
+    expect(capturedTimeout).toBe(5_000);
   });
 });
