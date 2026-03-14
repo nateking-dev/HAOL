@@ -138,6 +138,10 @@ export async function findTasksWithoutTier2Eval(
  */
 export async function cleanupOrphanedPendingRecords(maxAgeHours: number): Promise<number> {
   const pool = getPool();
+  // The derived table (subquery wrapped in FROM (...) AS t2) is required because
+  // MySQL/Dolt forbids a correlated NOT EXISTS that references the same table
+  // being deleted from. The count query uses a plain NOT EXISTS since SELECT
+  // doesn't have this restriction.
   const [result] = await pool.query<ResultSetHeader>(
     `DELETE FROM task_outcome
      WHERE signal_type = 'evaluation_pending'

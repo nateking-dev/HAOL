@@ -16,6 +16,7 @@ import {
   countOrphanedPendingRecords,
 } from "../../repositories/task-outcome.js";
 import { doltCommit } from "../../db/dolt.js";
+import { apiKeyAuth } from "../middleware/api-key-auth.js";
 
 const observability = new Hono();
 
@@ -80,11 +81,14 @@ observability.get("/stats/orphaned-pending", async (c) => {
   return c.json({ orphaned_pending: count, stale_threshold_hours: staleHours }, 200);
 });
 
-// --- Maintenance routes ---
+// --- Maintenance routes (require auth even when HAOL_API_KEY is unset) ---
+
+observability.use("/maintenance/*", apiKeyAuth);
 
 observability.post("/maintenance/cleanup-pending", async (c) => {
   const maxAgeHours = parseIntParam(c.req.query("max_age_hours"), 24, 1, 8760);
   const deleted = await cleanupOrphanedPendingRecords(maxAgeHours);
+  let committed = true;
   if (deleted > 0) {
     try {
       await doltCommit({
@@ -92,10 +96,11 @@ observability.post("/maintenance/cleanup-pending", async (c) => {
         author: "haol-maintenance <haol@system>",
       });
     } catch (err) {
+      committed = false;
       console.error("doltCommit failed after cleanup-pending:", err);
     }
   }
-  return c.json({ deleted, max_age_hours: maxAgeHours }, 200);
+  return c.json({ deleted, max_age_hours: maxAgeHours, committed }, 200);
 });
 
 // --- Audit routes ---

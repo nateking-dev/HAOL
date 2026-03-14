@@ -7,7 +7,6 @@ import type { Hono } from "hono";
 
 let doltAvailable = false;
 let app: Hono;
-const ts = Date.now().toString(36);
 
 beforeAll(async () => {
   const config = loadConfig();
@@ -59,7 +58,7 @@ describe("GET /stats/orphaned-pending", () => {
 });
 
 describe("POST /maintenance/cleanup-pending", () => {
-  it("returns deleted count", async ({ skip }) => {
+  it("returns deleted count and committed status", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const res = await app.request("/maintenance/cleanup-pending", {
@@ -70,6 +69,7 @@ describe("POST /maintenance/cleanup-pending", () => {
     const body = await res.json();
     expect(typeof body.deleted).toBe("number");
     expect(body.max_age_hours).toBe(24);
+    expect(typeof body.committed).toBe("boolean");
   });
 
   it("accepts max_age_hours parameter", async ({ skip }) => {
@@ -82,5 +82,24 @@ describe("POST /maintenance/cleanup-pending", () => {
 
     const body = await res.json();
     expect(body.max_age_hours).toBe(48);
+  });
+
+  it("rejects unauthenticated requests when HAOL_API_KEY is set", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const originalKey = process.env.HAOL_API_KEY;
+    process.env.HAOL_API_KEY = "test-secret-key";
+    try {
+      const res = await app.request("/maintenance/cleanup-pending", {
+        method: "POST",
+      });
+      expect(res.status).toBe(401);
+    } finally {
+      if (originalKey) {
+        process.env.HAOL_API_KEY = originalKey;
+      } else {
+        delete process.env.HAOL_API_KEY;
+      }
+    }
   });
 });
