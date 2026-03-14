@@ -74,7 +74,7 @@ export async function loadUtterances(): Promise<ReferenceUtterance[]> {
 }
 
 /** Safe parseFloat that falls back to the default on NaN and clamps thresholds to [0, 1]. */
-function safeParseThreshold(raw: string | undefined, fallback: number): number {
+export function safeParseThreshold(raw: string | undefined, fallback: number): number {
   const parsed = parseFloat(raw ?? String(fallback));
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(0, Math.min(1, parsed));
@@ -93,13 +93,10 @@ export const CONFIG_DEFAULTS: RouterConfig = {
 };
 
 let cachedConfig: { value: RouterConfig; expiry: number } | null = null;
+let inflightConfig: Promise<RouterConfig> | null = null;
 const CONFIG_TTL_MS = 60_000;
 
-export async function loadConfig(): Promise<RouterConfig> {
-  if (cachedConfig && Date.now() < cachedConfig.expiry) {
-    return cachedConfig.value;
-  }
-
+async function fetchConfig(): Promise<RouterConfig> {
   const rows = await query<ConfigRow[]>(`SELECT config_key, config_value FROM router_config`);
   const map = new Map(rows.map((r) => [r.config_key, r.config_value]));
 
@@ -134,9 +131,23 @@ export async function loadConfig(): Promise<RouterConfig> {
   return config;
 }
 
+export async function loadConfig(): Promise<RouterConfig> {
+  if (cachedConfig && Date.now() < cachedConfig.expiry) {
+    return cachedConfig.value;
+  }
+  // Coalesce concurrent callers into a single DB query
+  if (!inflightConfig) {
+    inflightConfig = fetchConfig().finally(() => {
+      inflightConfig = null;
+    });
+  }
+  return inflightConfig;
+}
+
 /** Clear the config cache (for testing). */
 export function clearConfigCache(): void {
   cachedConfig = null;
+  inflightConfig = null;
 }
 
 export async function logDecision(
