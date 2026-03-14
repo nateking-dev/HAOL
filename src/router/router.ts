@@ -130,8 +130,25 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
             0, // no retries on fallback
           );
           allExecRecords.push(execResult);
-        } catch {
-          // Fallback execution failed — proceed with the original failed result
+        } catch (fallbackErr) {
+          // Fallback execution threw — insert a synthetic error record
+          // so collectStructuralSignals can see the failed attempt.
+          const syntheticRecord: ExecutionRecord = {
+            execution_id: `fallback-err-${taskId}`,
+            task_id: taskId,
+            agent_id: fallbackSelection.agent_id,
+            attempt_number: allExecRecords.length + 1,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost_usd: 0,
+            latency_ms: 0,
+            ttft_ms: 0,
+            outcome: "ERROR",
+            error_detail: (fallbackErr as Error).message ?? "Unknown fallback error",
+            response_content: null,
+          };
+          allExecRecords.push(syntheticRecord);
+          // execResult stays as the original failure — proceed with it
         }
       }
     }
