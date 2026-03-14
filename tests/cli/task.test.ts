@@ -112,10 +112,7 @@ describe("task command", () => {
     const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const body = JSON.parse(call[1].body);
     expect(body.metadata.tier).toBe(3);
-    expect(body.metadata.capabilities).toEqual([
-      "reasoning",
-      "code_generation",
-    ]);
+    expect(body.metadata.capabilities).toEqual(["reasoning", "code_generation"]);
   });
 });
 
@@ -140,16 +137,7 @@ describe("run() — task command via CLI entry", () => {
   it("haol task with --tier and --cap flags", async () => {
     mockTaskResponse({ task_id: "t", status: "COMPLETED" });
 
-    await run([
-      "node",
-      "haol",
-      "task",
-      "test",
-      "--tier",
-      "3",
-      "--cap",
-      "reasoning",
-    ]);
+    await run(["node", "haol", "task", "test", "--tier", "3", "--cap", "reasoning"]);
 
     const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const body = JSON.parse(call[1].body);

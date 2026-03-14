@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import {
-  createPool,
-  getPool,
-  query,
-  destroy,
-} from "../../src/db/connection.js";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { loadConfig } from "../../src/config.js";
 
@@ -70,9 +65,7 @@ describe("migrations", () => {
 
   it("capability_taxonomy has 9 seed rows", async ({ skip }) => {
     if (!doltAvailable) skip();
-    const rows = await query<any>(
-      "SELECT COUNT(*) AS cnt FROM capability_taxonomy",
-    );
+    const rows = await query<any>("SELECT COUNT(*) AS cnt FROM capability_taxonomy");
     expect(rows[0].cnt).toBe(9);
   });
 

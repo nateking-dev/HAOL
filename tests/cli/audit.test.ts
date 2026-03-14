@@ -1,8 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import {
-  auditAgentsCommand,
-  auditCommitsCommand,
-} from "../../src/cli/commands/audit.js";
+import { auditAgentsCommand, auditCommitsCommand } from "../../src/cli/commands/audit.js";
 import { run } from "../../src/cli/index.js";
 
 const originalFetch = globalThis.fetch;

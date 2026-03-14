@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  CreateAgentInput,
-  UpdateAgentInput,
-  AgentRegistration,
-} from "../../src/types/agent.js";
+import { CreateAgentInput, UpdateAgentInput, AgentRegistration } from "../../src/types/agent.js";
 
 describe("CreateAgentInput schema", () => {
   const validInput = {

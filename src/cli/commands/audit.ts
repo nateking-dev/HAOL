@@ -12,9 +12,7 @@ export interface AuditCommitsOptions {
   baseUrl: string;
 }
 
-export async function auditAgentsCommand(
-  opts: AuditAgentsOptions,
-): Promise<string> {
+export async function auditAgentsCommand(opts: AuditAgentsOptions): Promise<string> {
   const since = opts.since ?? "7d";
   const res = await fetch(`${opts.baseUrl}/audit/agents?since=${since}`);
   const data = await res.json();
@@ -35,9 +33,7 @@ export async function auditAgentsCommand(
   return formatOutput(data, opts.format, COLUMNS);
 }
 
-export async function auditCommitsCommand(
-  opts: AuditCommitsOptions,
-): Promise<string> {
+export async function auditCommitsCommand(opts: AuditCommitsOptions): Promise<string> {
   const limit = opts.last ?? 20;
   const res = await fetch(`${opts.baseUrl}/audit/commits?limit=${limit}`);
   const data = await res.json();

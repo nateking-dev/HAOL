@@ -41,10 +41,7 @@ export async function collectStructuralSignals(
   });
 
   // Check for fallback activation
-  if (
-    taskRecord?.selection_rationale &&
-    "fallback_from" in taskRecord.selection_rationale
-  ) {
+  if (taskRecord?.selection_rationale && "fallback_from" in taskRecord.selection_rationale) {
     signals.push(
       makeSignal("fallback_activated", 0, {
         fallback_from: taskRecord.selection_rationale.fallback_from,
@@ -66,9 +63,7 @@ export async function collectStructuralSignals(
 
   // Check token budget overrun
   if (constraints?.max_tokens) {
-    const overrun = execRecords.some(
-      (r) => r.output_tokens >= constraints.max_tokens!,
-    );
+    const overrun = execRecords.some((r) => r.output_tokens >= constraints.max_tokens!);
     if (overrun) {
       signals.push(makeSignal("token_budget_overrun", 0));
     }
@@ -93,15 +88,12 @@ export async function collectStructuralSignals(
     if (successRecords.length > 0) {
       const agentId = successRecords[0].agent_id;
       try {
-        const rows = await query<
-          (RowDataPacket & { avg_latency_ms: number })[]
-        >("SELECT avg_latency_ms FROM agent_registry WHERE agent_id = ?", [
-          agentId,
-        ]);
+        const rows = await query<(RowDataPacket & { avg_latency_ms: number })[]>(
+          "SELECT avg_latency_ms FROM agent_registry WHERE agent_id = ?",
+          [agentId],
+        );
         if (rows.length > 0 && rows[0].avg_latency_ms > 0) {
-          const anomaly = successRecords.some(
-            (r) => r.latency_ms > 3 * rows[0].avg_latency_ms,
-          );
+          const anomaly = successRecords.some((r) => r.latency_ms > 3 * rows[0].avg_latency_ms);
           if (anomaly) {
             signals.push(
               makeSignal("latency_anomaly", 0, {
@@ -162,14 +154,8 @@ export async function runFormatVerification(
       signals.push(makeSignal("json_valid", 1));
 
       // Required fields check
-      if (
-        formatSpec.required_fields &&
-        typeof parsed === "object" &&
-        parsed !== null
-      ) {
-        const missing = formatSpec.required_fields.filter(
-          (f) => !(f in parsed),
-        );
+      if (formatSpec.required_fields && typeof parsed === "object" && parsed !== null) {
+        const missing = formatSpec.required_fields.filter((f) => !(f in parsed));
         if (missing.length === 0) {
           signals.push(makeSignal("required_fields_present", 1));
         } else {
@@ -184,10 +170,8 @@ export async function runFormatVerification(
   // Length bounds check
   if (formatSpec.max_length != null || formatSpec.min_length != null) {
     const len = responseContent.length;
-    const withinMax =
-      formatSpec.max_length == null || len <= formatSpec.max_length;
-    const withinMin =
-      formatSpec.min_length == null || len >= formatSpec.min_length;
+    const withinMax = formatSpec.max_length == null || len <= formatSpec.max_length;
+    const withinMin = formatSpec.min_length == null || len >= formatSpec.min_length;
     signals.push(
       makeSignal("length_within_bounds", withinMax && withinMin ? 1 : 0, {
         length: len,
@@ -311,8 +295,7 @@ function buildEvaluationPrompt(
 
   const tierLabel =
     task.complexity_tier != null
-      ? (tierDescriptions[task.complexity_tier] ??
-        `T${task.complexity_tier} (unknown)`)
+      ? (tierDescriptions[task.complexity_tier] ?? `T${task.complexity_tier} (unknown)`)
       : "unknown";
 
   const parts: string[] = [
@@ -326,9 +309,7 @@ function buildEvaluationPrompt(
   ];
 
   if (task.selection_rationale) {
-    parts.push(
-      `- Selection Rationale: ${JSON.stringify(task.selection_rationale)}`,
-    );
+    parts.push(`- Selection Rationale: ${JSON.stringify(task.selection_rationale)}`);
   }
 
   if (task.cost_ceiling_usd != null) {
@@ -339,13 +320,9 @@ function buildEvaluationPrompt(
   if (execRecords.length > 0) {
     parts.push(`\n## Execution Results`);
     const totalAttempts = execRecords.length;
-    const successCount = execRecords.filter(
-      (r) => r.outcome === "SUCCESS",
-    ).length;
+    const successCount = execRecords.filter((r) => r.outcome === "SUCCESS").length;
     const errorCount = execRecords.filter((r) => r.outcome === "ERROR").length;
-    const timeoutCount = execRecords.filter(
-      (r) => r.outcome === "TIMEOUT",
-    ).length;
+    const timeoutCount = execRecords.filter((r) => r.outcome === "TIMEOUT").length;
     parts.push(`- Total attempts: ${totalAttempts}`);
     parts.push(
       `- Outcomes: ${successCount} success, ${errorCount} errors, ${timeoutCount} timeouts`,
@@ -354,9 +331,7 @@ function buildEvaluationPrompt(
     if (successRecord) {
       parts.push(`- Latency: ${successRecord.latency_ms}ms`);
       parts.push(`- Cost: $${successRecord.cost_usd}`);
-      parts.push(
-        `- Tokens: ${successRecord.input_tokens} in / ${successRecord.output_tokens} out`,
-      );
+      parts.push(`- Tokens: ${successRecord.input_tokens} in / ${successRecord.output_tokens} out`);
     }
   }
 
@@ -372,10 +347,7 @@ function buildEvaluationPrompt(
 function parseEvaluationResponse(responseText: string): 0 | 1 {
   try {
     const parsed = JSON.parse(responseText) as { verdict?: string };
-    if (
-      parsed.verdict &&
-      parsed.verdict.toUpperCase().startsWith("YES")
-    ) {
+    if (parsed.verdict && parsed.verdict.toUpperCase().startsWith("YES")) {
       return 1;
     }
     return 0;

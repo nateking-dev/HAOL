@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import {
-  createPool,
-  getPool,
-  query,
-  destroy,
-} from "../../src/db/connection.js";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { createApp } from "../../src/api/app.js";
@@ -41,9 +36,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
-    await pool.query(
-      "DELETE FROM task_outcome WHERE task_id LIKE 'test-oapi-%'",
-    );
+    await pool.query("DELETE FROM task_outcome WHERE task_id LIKE 'test-oapi-%'");
     await pool.query("DELETE FROM task_log WHERE task_id LIKE 'test-oapi-%'");
   }
   await destroy();
@@ -121,9 +114,7 @@ describe("GET /tasks/:id/outcomes", () => {
   it("returns empty array for task with no outcomes", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request(
-      "/tasks/nonexistent-task-no-outcomes/outcomes",
-    );
+    const res = await app.request("/tasks/nonexistent-task-no-outcomes/outcomes");
     expect(res.status).toBe(200);
 
     const body = await res.json();

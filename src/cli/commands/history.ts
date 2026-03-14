@@ -7,9 +7,7 @@ export interface HistoryCommandOptions {
   baseUrl: string;
 }
 
-export async function historyCommand(
-  opts: HistoryCommandOptions,
-): Promise<string> {
+export async function historyCommand(opts: HistoryCommandOptions): Promise<string> {
   // Fetch recent tasks — the API doesn't have a dedicated history endpoint yet,
   // so we use the agents endpoint to at least show task-related info.
   // For MVP, query dolt_log for recent commits that contain task info.

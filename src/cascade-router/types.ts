@@ -3,11 +3,7 @@ import type { ComplexityTier } from "../types/task.js";
 // Re-export for convenience
 export type TierId = ComplexityTier;
 
-export type RoutingLayer =
-  | "deterministic"
-  | "semantic"
-  | "escalation"
-  | "fallback";
+export type RoutingLayer = "deterministic" | "semantic" | "escalation" | "fallback";
 export type RuleType = "regex" | "prefix" | "contains" | "metadata";
 
 export interface TierDefinition {

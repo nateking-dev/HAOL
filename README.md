@@ -291,14 +291,13 @@ If execution fails with the selected agent, the fallback strategy kicks in:
 | `TIER_UP`   | Relax tier constraints and re-select     |
 | `ABORT`     | Mark the task as failed                  |
 
-
 ## Outcome Capture: Routing Feedback Loop
 
 HAOL captures structured feedback about every routing decision through a 4-tier outcome taxonomy. These signals range from free structural data (automatically extracted from the pipeline) to delayed ground-truth signals from downstream systems. All outcomes are stored in the `task_outcome` table and version-controlled via Dolt commits.
 
 ### Why Outcomes?
 
-The execution_log tells you _if_ a call succeeded, but not _whether the routing decision was good_. A task might complete successfully but:
+The `execution_log` tells you _if_ a call succeeded, but not _whether the routing decision was good_. A task might complete successfully but:
 
 - Be routed to an overqualified (expensive) agent
 - Return malformed output that the consumer can't parse

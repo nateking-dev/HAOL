@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import {
-  createPool,
-  getPool,
-  query,
-  destroy,
-} from "../../src/db/connection.js";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import * as outcomeRepo from "../../src/repositories/task-outcome.js";
@@ -30,12 +25,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (doltAvailable) {
-    await getPool().query(
-      "DELETE FROM task_outcome WHERE task_id LIKE 'test-oc-%'",
-    );
-    await getPool().query(
-      "DELETE FROM task_log WHERE task_id LIKE 'test-oc-%'",
-    );
+    await getPool().query("DELETE FROM task_outcome WHERE task_id LIKE 'test-oc-%'");
+    await getPool().query("DELETE FROM task_log WHERE task_id LIKE 'test-oc-%'");
   }
   await destroy();
 });
@@ -160,9 +151,7 @@ describe("task-outcome repository", () => {
     expect(tier1[0].signal_type).toBe("execution_success");
   });
 
-  it("findByTaskId returns deterministic order for same-second inserts", async ({
-    skip,
-  }) => {
+  it("findByTaskId returns deterministic order for same-second inserts", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const taskId = `test-oc-order-${ts}`;
@@ -188,9 +177,7 @@ describe("task-outcome repository", () => {
     const results1 = await outcomeRepo.findByTaskId(taskId);
     const results2 = await outcomeRepo.findByTaskId(taskId);
 
-    expect(results1.map((r) => r.outcome_id)).toEqual(
-      results2.map((r) => r.outcome_id),
-    );
+    expect(results1.map((r) => r.outcome_id)).toEqual(results2.map((r) => r.outcome_id));
     // outcome_id tiebreaker should produce sorted IDs within the same created_at
     expect(results1.map((r) => r.outcome_id)).toEqual(sortedIds);
   });
@@ -221,24 +208,18 @@ describe("task-outcome repository", () => {
     const results1 = await outcomeRepo.findByTaskIdAndTier(taskId, 0);
     const results2 = await outcomeRepo.findByTaskIdAndTier(taskId, 0);
 
-    expect(results1.map((r) => r.outcome_id)).toEqual(
-      results2.map((r) => r.outcome_id),
-    );
+    expect(results1.map((r) => r.outcome_id)).toEqual(results2.map((r) => r.outcome_id));
     expect(results1.map((r) => r.outcome_id)).toEqual(sortedIds);
   });
 
-  it("findByTaskId returns empty array for nonexistent task", async ({
-    skip,
-  }) => {
+  it("findByTaskId returns empty array for nonexistent task", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const results = await outcomeRepo.findByTaskId("test-oc-nonexistent-999");
     expect(results).toEqual([]);
   });
 
-  it("findTasksWithoutTier2Eval returns tasks below threshold", async ({
-    skip,
-  }) => {
+  it("findTasksWithoutTier2Eval returns tasks below threshold", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const taskId = `test-oc-lowconf-${ts}`;

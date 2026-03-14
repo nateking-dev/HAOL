@@ -1,10 +1,6 @@
 import { parseArgs } from "node:util";
 import { taskCommand } from "./commands/task.js";
-import {
-  agentsListCommand,
-  agentsUpdateCommand,
-  agentsRemoveCommand,
-} from "./commands/agents.js";
+import { agentsListCommand, agentsUpdateCommand, agentsRemoveCommand } from "./commands/agents.js";
 import { statusCommand } from "./commands/status.js";
 import { historyCommand } from "./commands/history.js";
 import { statsCommand } from "./commands/stats.js";
@@ -85,9 +81,7 @@ export async function run(argv: string[]): Promise<string> {
       if (!prompt) {
         return 'Error: prompt is required.\n\nUsage: haol task "your prompt here" [--tier N] [--cap a,b]';
       }
-      const tier = values.tier
-        ? parseInt(values.tier as string, 10)
-        : undefined;
+      const tier = values.tier ? parseInt(values.tier as string, 10) : undefined;
       const capabilities = values.cap
         ? (values.cap as string).split(",").map((s) => s.trim())
         : undefined;
@@ -136,9 +130,7 @@ export async function run(argv: string[]): Promise<string> {
     }
 
     case "history": {
-      const last = values.last
-        ? parseInt(values.last as string, 10)
-        : undefined;
+      const last = values.last ? parseInt(values.last as string, 10) : undefined;
       return historyCommand({
         last,
         agent: values.agent as string | undefined,
@@ -148,9 +140,7 @@ export async function run(argv: string[]): Promise<string> {
     }
 
     case "stats": {
-      const hours = values.hours
-        ? parseInt(values.hours as string, 10)
-        : undefined;
+      const hours = values.hours ? parseInt(values.hours as string, 10) : undefined;
       return statsCommand({ hours, format, baseUrl });
     }
 
@@ -167,9 +157,7 @@ export async function run(argv: string[]): Promise<string> {
             baseUrl,
           });
         case "commits": {
-          const last = values.last
-            ? parseInt(values.last as string, 10)
-            : undefined;
+          const last = values.last ? parseInt(values.last as string, 10) : undefined;
           return auditCommitsCommand({ last, format, baseUrl });
         }
         default:

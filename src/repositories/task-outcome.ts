@@ -34,11 +34,7 @@ function parseRow(row: TaskOutcomeRow): TaskOutcomeRecord {
     outcome_id: row.outcome_id,
     task_id: row.task_id,
     tier: row.tier as 0 | 1 | 2 | 3,
-    source: row.source as
-      | "pipeline"
-      | "format_check"
-      | "routing_eval"
-      | "downstream",
+    source: row.source as "pipeline" | "format_check" | "routing_eval" | "downstream",
     signal_type: row.signal_type,
     signal_value: row.signal_value != null ? (row.signal_value as 0 | 1) : null,
     confidence: row.confidence,
@@ -81,9 +77,7 @@ export async function insertBatch(records: TaskOutcomeRecord[]): Promise<void> {
     r.detail ? JSON.stringify(r.detail) : null,
     r.reported_by,
   ]);
-  const placeholders = records
-    .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .join(", ");
+  const placeholders = records.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
   await pool.query(
     `INSERT INTO task_outcome (outcome_id, task_id, tier, source, signal_type, signal_value, confidence, detail, reported_by)
      VALUES ${placeholders}`,
@@ -91,9 +85,7 @@ export async function insertBatch(records: TaskOutcomeRecord[]): Promise<void> {
   );
 }
 
-export async function findByTaskId(
-  taskId: string,
-): Promise<TaskOutcomeRecord[]> {
+export async function findByTaskId(taskId: string): Promise<TaskOutcomeRecord[]> {
   const rows = await query<TaskOutcomeRow[]>(
     "SELECT * FROM task_outcome WHERE task_id = ? ORDER BY created_at, outcome_id",
     [taskId],
@@ -121,9 +113,7 @@ export async function findTasksWithoutTier2Eval(
   hours: number,
   limit: number,
 ): Promise<Array<{ task_id: string; routing_confidence: number }>> {
-  const rows = await query<
-    (RowDataPacket & { task_id: string; routing_confidence: number })[]
-  >(
+  const rows = await query<(RowDataPacket & { task_id: string; routing_confidence: number })[]>(
     `SELECT t.task_id, t.routing_confidence
      FROM task_log t
      LEFT JOIN task_outcome o ON o.task_id = t.task_id AND o.tier = 2
@@ -151,9 +141,7 @@ export interface AgentOutcomeScore {
  * Returns positive/total outcome signal counts per agent for scoring.
  * Includes tiers 1, 2, 3 with non-null signal_value only.
  */
-export async function getAgentOutcomeScores(
-  hours: number,
-): Promise<AgentOutcomeScore[]> {
+export async function getAgentOutcomeScores(hours: number): Promise<AgentOutcomeScore[]> {
   const rows = await query<
     (RowDataPacket & { agent_id: string; positive: number; total: number })[]
   >(
@@ -171,9 +159,7 @@ export async function getAgentOutcomeScores(
   );
   return rows.map((r) => ({
     agent_id: r.agent_id,
-    positive:
-      typeof r.positive === "string" ? parseInt(r.positive, 10) : Number(r.positive),
-    total:
-      typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total),
+    positive: typeof r.positive === "string" ? parseInt(r.positive, 10) : Number(r.positive),
+    total: typeof r.total === "string" ? parseInt(r.total, 10) : Number(r.total),
   }));
 }

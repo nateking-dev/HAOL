@@ -111,11 +111,7 @@ export class CascadeRouter {
       } else if (utterances.length > 0 && this.embeddingProvider) {
         // Layer 1: Semantic similarity
         const queryEmbedding = await this.embeddingProvider.embed(prompt);
-        const matches = rankBySimilarity(
-          queryEmbedding,
-          utterances,
-          config.top_k,
-        );
+        const matches = rankBySimilarity(queryEmbedding, utterances, config.top_k);
         const vote = weightedTierVote(matches);
         similarityScore = matches.length > 0 ? matches[0].score : null;
 
@@ -130,10 +126,7 @@ export class CascadeRouter {
           tiers.length > 0
         ) {
           // Layer 2: LLM escalation
-          const escalation = await this.escalationProvider.classify(
-            prompt,
-            tiers,
-          );
+          const escalation = await this.escalationProvider.classify(prompt, tiers);
           tier = escalation.tier;
           layer = "escalation";
           confidence = escalation.confidence;
@@ -142,10 +135,7 @@ export class CascadeRouter {
           }
         } else if (config.enable_escalation && this.escalationProvider && tiers.length > 0) {
           // Low confidence — also escalate
-          const escalation = await this.escalationProvider.classify(
-            prompt,
-            tiers,
-          );
+          const escalation = await this.escalationProvider.classify(prompt, tiers);
           tier = escalation.tier;
           layer = "escalation";
           confidence = escalation.confidence;
@@ -160,10 +150,7 @@ export class CascadeRouter {
         }
       } else if (config.enable_escalation && this.escalationProvider && tiers.length > 0) {
         // No utterances but escalation available
-        const escalation = await this.escalationProvider.classify(
-          prompt,
-          tiers,
-        );
+        const escalation = await this.escalationProvider.classify(prompt, tiers);
         tier = escalation.tier;
         layer = "escalation";
         confidence = escalation.confidence;
@@ -217,16 +204,12 @@ export class CascadeRouter {
                 `Unsafe regex pattern rejected (ReDoS risk): rule=${rule.rule_id} pattern=${rule.pattern}`,
               );
               // Log rejection so it surfaces in observability
-              store.logDecision(
-                uuidv7(),
-                prompt,
-                rule.tier_id,
-                "deterministic",
-                null,
-                0,
-                0,
-                { rejected_rule: rule.rule_id, reason: "unsafe_regex" },
-              ).catch(() => {});
+              store
+                .logDecision(uuidv7(), prompt, rule.tier_id, "deterministic", null, 0, 0, {
+                  rejected_rule: rule.rule_id,
+                  reason: "unsafe_regex",
+                })
+                .catch(() => {});
               break;
             }
             matched = new RegExp(rule.pattern, "i").test(prompt);

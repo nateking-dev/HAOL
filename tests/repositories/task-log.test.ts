@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import {
-  createPool,
-  getPool,
-  query,
-  destroy,
-} from "../../src/db/connection.js";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import * as taskLog from "../../src/repositories/task-log.js";
@@ -29,9 +24,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (doltAvailable) {
-    await getPool().query(
-      "DELETE FROM task_log WHERE task_id LIKE 'test-tl-%'",
-    );
+    await getPool().query("DELETE FROM task_log WHERE task_id LIKE 'test-tl-%'");
   }
   await destroy();
 });
@@ -55,20 +48,12 @@ describe("task-log repository", () => {
   it("updates classification fields", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    await taskLog.updateClassification(
-      testId,
-      2,
-      ["code_generation", "reasoning"],
-      0.05,
-    );
+    await taskLog.updateClassification(testId, 2, ["code_generation", "reasoning"], 0.05);
     const row = await taskLog.findById(testId);
 
     expect(row!.status).toBe("CLASSIFIED");
     expect(row!.complexity_tier).toBe(2);
-    expect(row!.required_capabilities).toEqual([
-      "code_generation",
-      "reasoning",
-    ]);
+    expect(row!.required_capabilities).toEqual(["code_generation", "reasoning"]);
     expect(row!.cost_ceiling_usd).toBeCloseTo(0.05);
   });
 

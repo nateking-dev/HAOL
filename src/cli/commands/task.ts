@@ -14,8 +14,7 @@ export async function taskCommand(opts: TaskCommandOptions): Promise<string> {
     body.metadata = {};
     if (opts.tier) (body.metadata as Record<string, unknown>).tier = opts.tier;
     if (opts.capabilities)
-      (body.metadata as Record<string, unknown>).capabilities =
-        opts.capabilities;
+      (body.metadata as Record<string, unknown>).capabilities = opts.capabilities;
   }
 
   const res = await fetch(`${opts.baseUrl}/tasks`, {

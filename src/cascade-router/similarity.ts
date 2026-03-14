@@ -44,10 +44,7 @@ export function weightedTierVote(matches: SimilarityMatch[]): {
 
   for (const match of matches) {
     const weight = match.score;
-    tierWeights.set(
-      match.tier_id,
-      (tierWeights.get(match.tier_id) ?? 0) + weight,
-    );
+    tierWeights.set(match.tier_id, (tierWeights.get(match.tier_id) ?? 0) + weight);
     totalWeight += weight;
   }
 

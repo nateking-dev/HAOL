@@ -16,10 +16,7 @@ export class AnthropicProvider implements AgentProvider {
 
   async invoke(request: AgentRequest): Promise<AgentResponse> {
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      request.constraints.timeout_ms,
-    );
+    const timeout = setTimeout(() => controller.abort(), request.constraints.timeout_ms);
     const start = Date.now();
 
     try {
