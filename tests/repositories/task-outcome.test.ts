@@ -160,6 +160,73 @@ describe("task-outcome repository", () => {
     expect(tier1[0].signal_type).toBe("execution_success");
   });
 
+  it("findByTaskId returns deterministic order for same-second inserts", async ({
+    skip,
+  }) => {
+    if (!doltAvailable) skip();
+
+    const taskId = `test-oc-order-${ts}`;
+    // Insert multiple tier-0 records in a single batch so they share the same created_at
+    const ids = [uuidv7(), uuidv7(), uuidv7()];
+    const sortedIds = [...ids].sort();
+
+    await outcomeRepo.insertBatch(
+      ids.map((id) => ({
+        outcome_id: id,
+        task_id: taskId,
+        tier: 0 as const,
+        source: "format_check" as const,
+        signal_type: "format_valid",
+        signal_value: 1 as const,
+        confidence: 1.0,
+        detail: null,
+        reported_by: null,
+      })),
+    );
+
+    // Query multiple times to verify ordering is stable
+    const results1 = await outcomeRepo.findByTaskId(taskId);
+    const results2 = await outcomeRepo.findByTaskId(taskId);
+
+    expect(results1.map((r) => r.outcome_id)).toEqual(
+      results2.map((r) => r.outcome_id),
+    );
+    // outcome_id tiebreaker should produce sorted IDs within the same created_at
+    expect(results1.map((r) => r.outcome_id)).toEqual(sortedIds);
+  });
+
+  it("findByTaskIdAndTier returns deterministic order for same-second inserts", async ({
+    skip,
+  }) => {
+    if (!doltAvailable) skip();
+
+    const taskId = `test-oc-tierord-${ts}`;
+    const ids = [uuidv7(), uuidv7(), uuidv7()];
+    const sortedIds = [...ids].sort();
+
+    await outcomeRepo.insertBatch(
+      ids.map((id) => ({
+        outcome_id: id,
+        task_id: taskId,
+        tier: 0 as const,
+        source: "format_check" as const,
+        signal_type: "format_valid",
+        signal_value: 1 as const,
+        confidence: 1.0,
+        detail: null,
+        reported_by: null,
+      })),
+    );
+
+    const results1 = await outcomeRepo.findByTaskIdAndTier(taskId, 0);
+    const results2 = await outcomeRepo.findByTaskIdAndTier(taskId, 0);
+
+    expect(results1.map((r) => r.outcome_id)).toEqual(
+      results2.map((r) => r.outcome_id),
+    );
+    expect(results1.map((r) => r.outcome_id)).toEqual(sortedIds);
+  });
+
   it("findByTaskId returns empty array for nonexistent task", async ({
     skip,
   }) => {
