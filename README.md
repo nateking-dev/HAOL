@@ -426,6 +426,8 @@ score = capability × w_cap + cost × w_cost + latency × w_lat + outcome × w_o
 
 The outcome score for each agent is computed as the average `signal_value` across Tier 1-3 outcomes from the last 72 hours. Agents with consistently positive outcomes score higher; agents that produce rejected or malformed output score lower.
 
+> **Note:** Agents with no outcome history default to an outcome score of **0.5** (neutral). This means a newly registered agent competes equally with an agent that has a 50/50 positive/negative track record. This is intentional — it avoids penalizing new agents that simply haven't accumulated outcome data yet. Once an agent builds history, its actual outcome ratio replaces the default.
+
 **This is opt-in.** The default `weight_outcome` is `0.00` — outcome data is collected from day one, but routing decisions aren't influenced until an operator enables the weight:
 
 ```sql
