@@ -357,6 +357,8 @@ describe("agent-selection service", () => {
   });
 
   describe("tool_use and vision capability routing", () => {
+    // Prefixed with "aaa-" to win alphabetical tiebreak against claude-sonnet-4-5,
+    // which has identical cost/latency and would otherwise be selected.
     const CAP_AGENT_ID = "aaa-test-caps";
 
     beforeAll(async () => {
