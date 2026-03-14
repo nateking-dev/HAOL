@@ -1,23 +1,13 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  afterAll,
-  afterEach,
-  vi,
-} from "vitest";
-import {
-  createPool,
-  getPool,
-  query,
-  destroy,
-} from "../../src/db/connection.js";
+import { describe, it, expect, beforeAll, afterAll, afterEach, onTestFinished, vi } from "vitest";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { routeTask } from "../../src/router/router.js";
 import * as taskLog from "../../src/repositories/task-log.js";
 import * as execLog from "../../src/repositories/execution-log.js";
+import * as executionService from "../../src/services/execution.js";
+import * as outcomeCollector from "../../src/services/outcome-collector.js";
+import type { ExecutionRecord } from "../../src/types/execution.js";
 
 let doltAvailable = false;
 const originalFetch = globalThis.fetch;
@@ -125,9 +115,7 @@ afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'rtr-%'");
-    await pool.query(
-      "DELETE FROM task_log WHERE selected_agent_id LIKE 'rtr-%'",
-    );
+    await pool.query("DELETE FROM task_log WHERE selected_agent_id LIKE 'rtr-%'");
     // Re-enable seed agents
     await pool.query(
       `UPDATE agent_registry SET status = 'active'
@@ -218,5 +206,66 @@ describe("router pipeline", () => {
 
     expect(result.status).toBe("FAILED");
     expect(result.error).toBeTruthy();
+  });
+
+  it("records synthetic error record when fallback execute throws", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    // Track what collectStructuralSignals receives
+    let capturedRecords: ExecutionRecord[] = [];
+    const signalsSpy = vi
+      .spyOn(outcomeCollector, "collectStructuralSignals")
+      .mockImplementation(async (_taskId, execRecords) => {
+        capturedRecords = execRecords;
+      });
+
+    // First call to execute returns a failed record (triggers fallback);
+    // second call throws (simulating a thrown fallback execution).
+    let callCount = 0;
+    const executeSpy = vi
+      .spyOn(executionService, "execute")
+      .mockImplementation(async (agentId, request) => {
+        callCount++;
+        if (callCount === 1) {
+          // Primary execution fails with ERROR outcome
+          return {
+            execution_id: "primary-exec",
+            task_id: request.task_id,
+            agent_id: agentId,
+            attempt_number: 1,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost_usd: 0,
+            latency_ms: 100,
+            ttft_ms: 0,
+            outcome: "ERROR",
+            error_detail: "Primary provider down",
+            response_content: null,
+          } satisfies ExecutionRecord;
+        }
+        // Fallback execution throws
+        throw new Error("Fallback connection refused");
+      });
+
+    onTestFinished(() => {
+      executeSpy.mockRestore();
+      signalsSpy.mockRestore();
+    });
+
+    const result = await routeTask({
+      prompt: "Summarize this article about fallback testing",
+    });
+
+    expect(result.status).toBe("FAILED");
+
+    // The synthetic record from the thrown fallback should be in the captured records
+    expect(capturedRecords.length).toBe(2);
+    expect(capturedRecords[0].outcome).toBe("ERROR");
+    expect(capturedRecords[0].execution_id).toBe("primary-exec");
+    expect(capturedRecords[1].outcome).toBe("ERROR");
+    expect(capturedRecords[1].error_detail).toBe("Fallback connection refused");
+    expect(capturedRecords[1].execution_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
   });
 });

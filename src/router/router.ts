@@ -7,7 +7,9 @@ import { getActivePolicy } from "../repositories/routing-policy.js";
 import { doltCommit } from "../db/dolt.js";
 import type { AgentRequest, ExecutionRecord } from "../types/execution.js";
 import type { TaskClassification } from "../types/task.js";
+import { uuidv7 } from "../types/task.js";
 import type { RoutingPolicy } from "../types/selection.js";
+import * as execRepo from "../repositories/execution-log.js";
 import type { RouterTaskInput, TaskResult } from "../types/router.js";
 import { RouterTaskInput as RouterTaskInputSchema } from "../types/router.js";
 import {
@@ -80,11 +82,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     const policy = await getActivePolicy();
     const selection = await select(classification, policy ?? undefined);
 
-    await taskLog.updateSelection(
-      taskId,
-      selection.selected_agent_id,
-      selection.rationale,
-    );
+    await taskLog.updateSelection(taskId, selection.selected_agent_id, selection.rationale);
     status = "DISPATCHED";
 
     // 5. Execute
@@ -106,10 +104,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     allExecRecords.push(execResult);
 
     // 6. Handle fallback on execution failure
-    if (
-      execResult.outcome !== "SUCCESS" &&
-      policy?.fallback_strategy !== "ABORT"
-    ) {
+    if (execResult.outcome !== "SUCCESS" && policy?.fallback_strategy !== "ABORT") {
       // Try next-best agent if available
       const fallbackSelection = await tryFallbackAgent(
         classification,
@@ -130,8 +125,26 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
             0, // no retries on fallback
           );
           allExecRecords.push(execResult);
-        } catch {
-          // Fallback execution failed — proceed with the original failed result
+        } catch (fallbackErr) {
+          // Fallback execution threw — insert a synthetic error record
+          // so collectStructuralSignals can see the failed attempt.
+          const syntheticRecord: ExecutionRecord = {
+            execution_id: uuidv7(),
+            task_id: taskId,
+            agent_id: fallbackSelection.agent_id,
+            attempt_number: allExecRecords.length + 1,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost_usd: 0,
+            latency_ms: 0,
+            ttft_ms: 0,
+            outcome: "ERROR",
+            error_detail: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+            response_content: null,
+          };
+          await execRepo.insertExecution(syntheticRecord);
+          allExecRecords.push(syntheticRecord);
+          // execResult stays as the original failure — proceed with it
         }
       }
     }
@@ -148,19 +161,10 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     // 7b. Best-effort outcome collection
     try {
       const taskRecord = await taskLog.findById(taskId);
-      await collectStructuralSignals(
-        taskId,
-        allExecRecords,
-        taskRecord,
-        agentRequest.constraints,
-      );
+      await collectStructuralSignals(taskId, allExecRecords, taskRecord, agentRequest.constraints);
 
       if (parsed.expected_format && execResult.response_content) {
-        await runFormatVerification(
-          taskId,
-          execResult.response_content,
-          parsed.expected_format,
-        );
+        await runFormatVerification(taskId, execResult.response_content, parsed.expected_format);
       }
 
       if (
@@ -174,8 +178,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     }
 
     // 8. Commit
-    const costStr =
-      execResult.cost_usd > 0 ? `$${execResult.cost_usd.toFixed(4)}` : "$0";
+    const costStr = execResult.cost_usd > 0 ? `$${execResult.cost_usd.toFixed(4)}` : "$0";
     await commitSafely(
       `task:${taskId} | tier:T${classification.complexity_tier} | agent:${execResult.agent_id} | cost:${costStr} | ${execResult.latency_ms}ms`,
     );
@@ -199,9 +202,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
         // best-effort status update
       }
       try {
-        await commitSafely(
-          `task:${taskId} | FAILED | ${(err as Error).message}`,
-        );
+        await commitSafely(`task:${taskId} | FAILED | ${(err as Error).message}`);
       } catch {
         // best-effort commit
       }
