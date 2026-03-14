@@ -11,6 +11,11 @@ import {
   routingAccuracyByAgent,
 } from "../../observability/queries.js";
 import { getDashboard } from "../../observability/dashboard.js";
+import {
+  cleanupOrphanedPendingRecords,
+  countOrphanedPendingRecords,
+} from "../../repositories/task-outcome.js";
+import { doltCommit } from "../../db/dolt.js";
 
 const observability = new Hono();
 
@@ -67,6 +72,30 @@ observability.get("/stats/routing-accuracy", async (c) => {
   const hours = parseIntParam(c.req.query("hours"), 24, 1, 8760);
   const data = await routingAccuracyByAgent(hours);
   return c.json(data, 200);
+});
+
+observability.get("/stats/orphaned-pending", async (c) => {
+  const staleHours = parseIntParam(c.req.query("stale_hours"), 1, 1, 8760);
+  const count = await countOrphanedPendingRecords(staleHours);
+  return c.json({ orphaned_pending: count, stale_threshold_hours: staleHours }, 200);
+});
+
+// --- Maintenance routes ---
+
+observability.post("/maintenance/cleanup-pending", async (c) => {
+  const maxAgeHours = parseIntParam(c.req.query("max_age_hours"), 24, 1, 8760);
+  const deleted = await cleanupOrphanedPendingRecords(maxAgeHours);
+  if (deleted > 0) {
+    try {
+      await doltCommit({
+        message: `maintenance:cleanup | deleted ${deleted} orphaned evaluation_pending records older than ${maxAgeHours}h`,
+        author: "haol-maintenance <haol@system>",
+      });
+    } catch {
+      // best-effort commit
+    }
+  }
+  return c.json({ deleted, max_age_hours: maxAgeHours }, 200);
 });
 
 // --- Audit routes ---

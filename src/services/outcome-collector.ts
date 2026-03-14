@@ -267,8 +267,26 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
     };
 
     await outcomeRepo.insert(evalRecord);
-  } catch {
-    // Best-effort — LLM evaluation failures must never break the pipeline
+  } catch (err) {
+    // Record the failure so the pending record doesn't become orphaned
+    const failedRecord: TaskOutcomeRecord = {
+      outcome_id: uuidv7(),
+      task_id: taskId,
+      tier: 2,
+      source: "routing_eval",
+      signal_type: "evaluation_failed",
+      signal_value: 0,
+      confidence: task.routing_confidence,
+      detail: {
+        error: err instanceof Error ? err.message : "unknown",
+      },
+      reported_by: null,
+    };
+    try {
+      await outcomeRepo.insert(failedRecord);
+    } catch {
+      // truly best-effort — if DB insert also fails, nothing to do
+    }
   }
 
   try {

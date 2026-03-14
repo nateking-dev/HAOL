@@ -131,6 +131,50 @@ export async function findTasksWithoutTier2Eval(
   }));
 }
 
+/**
+ * Deletes evaluation_pending records older than maxAgeHours that have
+ * no matching evaluation_complete or evaluation_failed record.
+ * Returns the number of rows deleted.
+ */
+export async function cleanupOrphanedPendingRecords(maxAgeHours: number): Promise<number> {
+  const pool = getPool();
+  const [result] = await pool.query(
+    `DELETE FROM task_outcome
+     WHERE signal_type = 'evaluation_pending'
+       AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
+       AND task_id NOT IN (
+         SELECT task_id FROM (
+           SELECT DISTINCT task_id FROM task_outcome
+           WHERE signal_type IN ('evaluation_complete', 'evaluation_failed')
+         ) AS completed
+       )`,
+    [maxAgeHours],
+  );
+  return (result as any).affectedRows ?? 0;
+}
+
+/**
+ * Counts evaluation_pending records older than staleThresholdHours
+ * with no matching completion/failure record.
+ */
+export async function countOrphanedPendingRecords(staleThresholdHours: number): Promise<number> {
+  const rows = await query<(RowDataPacket & { count: string | number })[]>(
+    `SELECT COUNT(*) AS count
+     FROM task_outcome p
+     WHERE p.signal_type = 'evaluation_pending'
+       AND p.created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
+       AND p.task_id NOT IN (
+         SELECT task_id FROM (
+           SELECT DISTINCT task_id FROM task_outcome
+           WHERE signal_type IN ('evaluation_complete', 'evaluation_failed')
+         ) AS completed
+       )`,
+    [staleThresholdHours],
+  );
+  const raw = rows[0]?.count ?? 0;
+  return typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
+}
+
 export interface AgentOutcomeScore {
   agent_id: string;
   positive: number;
