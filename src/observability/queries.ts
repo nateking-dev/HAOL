@@ -291,6 +291,7 @@ export async function outcomeSignalRates(
             SUM(CASE WHEN signal_value = 1 THEN 1 ELSE 0 END) AS positive
      FROM task_outcome
      WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+       AND signal_value IS NOT NULL
      GROUP BY signal_type
      ORDER BY total DESC`,
     [hours],
