@@ -5,6 +5,7 @@ import * as execRepo from "../repositories/execution-log.js";
 import { query } from "../db/connection.js";
 import { doltCommit } from "../db/dolt.js";
 import { AnthropicProvider } from "../providers/anthropic.js";
+import { CONFIG_DEFAULTS } from "../cascade-router/reference-store.js";
 import type { TaskOutcomeRecord } from "../types/outcome.js";
 import type { ExecutionRecord } from "../types/execution.js";
 import type { TaskLogRecord } from "../repositories/task-log.js";
@@ -188,10 +189,11 @@ export async function runFormatVerification(
 
 // --- Tier 2: Routing evaluation sampling ---
 
-const CONFIDENCE_THRESHOLD = 0.6;
-
-export function shouldSampleForEvaluation(confidence: number): boolean {
-  return confidence < CONFIDENCE_THRESHOLD;
+export function shouldSampleForEvaluation(
+  confidence: number,
+  threshold: number = CONFIG_DEFAULTS.confidence_threshold,
+): boolean {
+  return confidence < threshold;
 }
 
 export async function evaluateRoutingDecision(taskId: string): Promise<void> {

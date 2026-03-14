@@ -40,6 +40,7 @@ export interface RouterConfig {
   default_tier: TierId;
   top_k: number;
   enable_escalation: boolean;
+  confidence_threshold: number;
 }
 
 export interface RoutingRequest {

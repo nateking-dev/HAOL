@@ -18,6 +18,7 @@ import {
   shouldSampleForEvaluation,
   evaluateRoutingDecision,
 } from "../services/outcome-collector.js";
+import { loadConfig } from "../cascade-router/reference-store.js";
 
 export const DEFAULT_TIMEOUT_MS: Record<ComplexityTier, number> = {
   1: 15_000,
@@ -175,14 +176,19 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
         await runFormatVerification(taskId, execResult.response_content, parsed.expected_format);
       }
 
+      const routerConfig = await loadConfig();
       if (
         classification.routing_confidence != null &&
-        shouldSampleForEvaluation(classification.routing_confidence)
+        shouldSampleForEvaluation(
+          classification.routing_confidence,
+          routerConfig.confidence_threshold,
+        )
       ) {
         evaluateRoutingDecision(taskId).catch(() => {});
       }
-    } catch {
+    } catch (outcomeErr) {
       // best-effort — never fail the task due to outcome collection
+      console.warn("Outcome collection failed:", (outcomeErr as Error).message);
     }
 
     // 8. Commit
