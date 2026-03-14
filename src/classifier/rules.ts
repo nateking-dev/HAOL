@@ -26,7 +26,7 @@ export const rules: Rule[] = [
   },
   {
     name: "reasoning",
-    patterns: [/\banalyz/i, /\bcompar/i, /\breason/i, /\bevaluat/i],
+    patterns: [/\banalyz/i, /\banalys/i, /\bcompar/i, /\breason/i, /\bevaluat/i],
     capabilities: ["reasoning"],
     tierEffect: 1,
   },
@@ -59,6 +59,42 @@ export const rules: Rule[] = [
     patterns: [/\btranslat/i, /\bmultilingual/i],
     capabilities: ["multilingual"],
     tierEffect: 0,
+  },
+  {
+    name: "multi_step",
+    patterns: [
+      /\bstep.by.step\b/i,
+      /\bmulti.step\b/i,
+      /\bphase[sd]?\b/i,
+      /\bpipeline\b/i,
+      /\bworkflow\b/i,
+    ],
+    capabilities: ["reasoning"],
+    tierEffect: 1,
+  },
+  {
+    name: "diagnostic",
+    patterns: [
+      /\broot.cause\b/i,
+      /\bdiagnos/i,
+      /\btroubleshoot/i,
+      /\bintermittent\b/i,
+      /\binvestigat/i,
+    ],
+    capabilities: ["reasoning"],
+    tierEffect: 1,
+  },
+  {
+    name: "system_design",
+    patterns: [
+      /\barchitect/i,
+      /\bsystem.design\b/i,
+      /\bmicroservice/i,
+      /\bscalab/i,
+      /\bdistributed\b/i,
+    ],
+    capabilities: ["reasoning"],
+    tierEffect: 1,
   },
 ];
 
