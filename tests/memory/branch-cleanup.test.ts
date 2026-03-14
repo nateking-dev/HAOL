@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import {
-  createPool,
-  getPool,
-  query,
-  destroy,
-} from "../../src/db/connection.js";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { doltActiveBranch, doltBranch } from "../../src/db/dolt.js";
@@ -53,9 +48,7 @@ afterAll(async () => {
 });
 
 describe("branch cleanup", () => {
-  it("pruneSessionBranches(0) deletes old session branches", async ({
-    skip,
-  }) => {
+  it("pruneSessionBranches(0) deletes old session branches", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     // Create a session branch

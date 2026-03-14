@@ -32,18 +32,14 @@ export async function statsCommand(opts: StatsCommandOptions): Promise<string> {
   if (data.cost.length > 0) {
     lines.push("", "Cost by Agent:");
     for (const r of data.cost) {
-      lines.push(
-        `  ${r.agent_id.padEnd(30)} $${r.total_cost.toFixed(4)} (${r.invocations} calls)`,
-      );
+      lines.push(`  ${r.agent_id.padEnd(30)} $${r.total_cost.toFixed(4)} (${r.invocations} calls)`);
     }
   }
 
   if (data.latency.length > 0) {
     lines.push("", "Avg Latency by Agent:");
     for (const r of data.latency) {
-      lines.push(
-        `  ${r.agent_id.padEnd(30)} ${Math.round(r.avg_latency_ms)}ms`,
-      );
+      lines.push(`  ${r.agent_id.padEnd(30)} ${Math.round(r.avg_latency_ms)}ms`);
     }
   }
 

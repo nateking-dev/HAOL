@@ -23,9 +23,7 @@ const AGENT_COLUMNS = [
   "avg_latency_ms",
 ];
 
-export async function agentsListCommand(
-  opts: AgentsListOptions,
-): Promise<string> {
+export async function agentsListCommand(opts: AgentsListOptions): Promise<string> {
   const params = new URLSearchParams();
   if (opts.status) params.set("status", opts.status);
   const qs = params.toString();
@@ -50,9 +48,7 @@ export async function agentsListCommand(
   return formatOutput(data, opts.format, AGENT_COLUMNS);
 }
 
-export async function agentsUpdateCommand(
-  opts: AgentsUpdateOptions,
-): Promise<string> {
+export async function agentsUpdateCommand(opts: AgentsUpdateOptions): Promise<string> {
   const body: Record<string, unknown> = {};
   if (opts.status) body.status = opts.status;
 

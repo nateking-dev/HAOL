@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import {
-  createPool,
-  getPool,
-  query,
-  destroy,
-} from "../../src/db/connection.js";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { doltActiveBranch } from "../../src/db/dolt.js";
@@ -63,9 +58,7 @@ afterAll(async () => {
     }
 
     // Clean up context and handoff rows
-    await pool.query(
-      "DELETE FROM session_context WHERE session_id LIKE 'mem-%'",
-    );
+    await pool.query("DELETE FROM session_context WHERE session_id LIKE 'mem-%'");
     await pool.query("DELETE FROM handoff_summary WHERE task_id LIKE 'mem-%'");
   }
   await destroy();
@@ -87,9 +80,7 @@ describe("session manager", () => {
     expect(rows.length).toBe(1);
   });
 
-  it("writeContext writes data readable from the session branch", async ({
-    skip,
-  }) => {
+  it("writeContext writes data readable from the session branch", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const session = { taskId: testTaskId, branch: `session/${testTaskId}` };
@@ -104,9 +95,7 @@ describe("session manager", () => {
     expect(value).toEqual({ result: "hello world" });
   });
 
-  it("readContext without key returns all context entries", async ({
-    skip,
-  }) => {
+  it("readContext without key returns all context entries", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const session = { taskId: testTaskId, branch: `session/${testTaskId}` };
@@ -119,9 +108,7 @@ describe("session manager", () => {
     });
   });
 
-  it("commitSession merges data to main and deletes branch", async ({
-    skip,
-  }) => {
+  it("commitSession merges data to main and deletes branch", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const session = { taskId: testTaskId, branch: `session/${testTaskId}` };
@@ -143,9 +130,7 @@ describe("session manager", () => {
     expect(rows.length).toBe(2);
   });
 
-  it("discardSession preserves branch but data is not on main", async ({
-    skip,
-  }) => {
+  it("discardSession preserves branch but data is not on main", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const session = await createSession(testTaskId3);
@@ -191,17 +176,11 @@ describe("session manager", () => {
 });
 
 describe("handoff summary", () => {
-  it("write and read handoff summary round-trips correctly", async ({
-    skip,
-  }) => {
+  it("write and read handoff summary round-trips correctly", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const taskId = `mem-handoff-${Date.now()}`;
-    await writeHandoffSummary(
-      taskId,
-      "agent-a",
-      "Task partially completed, needs code review",
-    );
+    await writeHandoffSummary(taskId, "agent-a", "Task partially completed, needs code review");
 
     const result = await readHandoffSummary(taskId);
     expect(result).not.toBeNull();

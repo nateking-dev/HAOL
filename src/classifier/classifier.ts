@@ -1,9 +1,4 @@
-import {
-  TaskInput,
-  type TaskClassification,
-  uuidv7,
-  sha256,
-} from "../types/task.js";
+import { TaskInput, type TaskClassification, uuidv7, sha256 } from "../types/task.js";
 import { matchRules } from "./rules.js";
 import { computeTier, costCeilingForTier } from "./scoring.js";
 

@@ -1,8 +1,4 @@
-import mysql, {
-  type Pool,
-  type PoolOptions,
-  type RowDataPacket,
-} from "mysql2/promise";
+import mysql, { type Pool, type PoolOptions, type RowDataPacket } from "mysql2/promise";
 import { type DoltConfig } from "../config.js";
 
 let pool: Pool | null = null;

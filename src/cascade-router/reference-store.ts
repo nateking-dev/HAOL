@@ -69,8 +69,7 @@ export async function loadUtterances(): Promise<ReferenceUtterance[]> {
     utterance_id: r.utterance_id,
     tier_id: r.tier_id as TierId,
     utterance_text: r.utterance_text,
-    embedding:
-      typeof r.embedding === "string" ? JSON.parse(r.embedding) : r.embedding,
+    embedding: typeof r.embedding === "string" ? JSON.parse(r.embedding) : r.embedding,
   }));
 }
 
@@ -90,23 +89,18 @@ export async function loadConfig(): Promise<RouterConfig> {
   const map = new Map(rows.map((r) => [r.config_key, r.config_value]));
 
   return {
-    embedding_model:
-      map.get("embedding_model") ?? CONFIG_DEFAULTS.embedding_model,
+    embedding_model: map.get("embedding_model") ?? CONFIG_DEFAULTS.embedding_model,
     embedding_dimensions: parseInt(
-      map.get("embedding_dimensions") ??
-        String(CONFIG_DEFAULTS.embedding_dimensions),
+      map.get("embedding_dimensions") ?? String(CONFIG_DEFAULTS.embedding_dimensions),
       10,
     ),
     similarity_threshold: parseFloat(
-      map.get("similarity_threshold") ??
-        String(CONFIG_DEFAULTS.similarity_threshold),
+      map.get("similarity_threshold") ?? String(CONFIG_DEFAULTS.similarity_threshold),
     ),
     escalation_threshold: parseFloat(
-      map.get("escalation_threshold") ??
-        String(CONFIG_DEFAULTS.escalation_threshold),
+      map.get("escalation_threshold") ?? String(CONFIG_DEFAULTS.escalation_threshold),
     ),
-    escalation_model:
-      map.get("escalation_model") ?? CONFIG_DEFAULTS.escalation_model,
+    escalation_model: map.get("escalation_model") ?? CONFIG_DEFAULTS.escalation_model,
     default_tier: parseInt(
       map.get("default_tier") ?? String(CONFIG_DEFAULTS.default_tier),
       10,

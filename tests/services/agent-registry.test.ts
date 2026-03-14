@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import {
-  createPool,
-  getPool,
-  query,
-  destroy,
-} from "../../src/db/connection.js";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import * as svc from "../../src/services/agent-registry.js";
@@ -13,10 +8,7 @@ import type { CreateAgentInput } from "../../src/types/agent.js";
 let doltAvailable = false;
 const testPrefix = `test-svc-${Date.now()}`;
 
-function makeAgent(
-  suffix: string,
-  overrides?: Partial<CreateAgentInput>,
-): CreateAgentInput {
+function makeAgent(suffix: string, overrides?: Partial<CreateAgentInput>): CreateAgentInput {
   return {
     agent_id: `${testPrefix}-${suffix}`,
     provider: "test-provider",
@@ -74,9 +66,7 @@ describe("agent-registry service", () => {
       capabilities: ["summarization", "totally_fake_capability"],
     });
 
-    await expect(svc.createAgent(input)).rejects.toThrow(
-      "Unknown capabilities",
-    );
+    await expect(svc.createAgent(input)).rejects.toThrow("Unknown capabilities");
   });
 
   it("getAgent returns the created agent", async ({ skip }) => {
@@ -123,9 +113,7 @@ describe("agent-registry service", () => {
     expect(updated!.avg_latency_ms).toBe(555);
   });
 
-  it("findAgentsByCapabilities returns matching active agents", async ({
-    skip,
-  }) => {
+  it("findAgentsByCapabilities returns matching active agents", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const input = makeAgent("caps-search", {
@@ -133,10 +121,7 @@ describe("agent-registry service", () => {
     });
     await svc.createAgent(input);
 
-    const found = await svc.findAgentsByCapabilities([
-      "summarization",
-      "classification",
-    ]);
+    const found = await svc.findAgentsByCapabilities(["summarization", "classification"]);
     expect(found.some((a) => a.agent_id === input.agent_id)).toBe(true);
   });
 });

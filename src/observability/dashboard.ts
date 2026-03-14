@@ -23,9 +23,7 @@ export interface DashboardStats {
   };
 }
 
-export async function getDashboard(
-  hours: number = 24,
-): Promise<DashboardStats> {
+export async function getDashboard(hours: number = 24): Promise<DashboardStats> {
   const [cost, latency, failures, tiers] = await Promise.all([
     costByAgent(hours),
     avgLatencyByAgent(hours),

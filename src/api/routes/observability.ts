@@ -14,12 +14,7 @@ import { getDashboard } from "../../observability/dashboard.js";
 
 const observability = new Hono();
 
-function parseIntParam(
-  val: string | undefined,
-  def: number,
-  min: number,
-  max: number,
-): number {
+function parseIntParam(val: string | undefined, def: number, min: number, max: number): number {
   const n = parseInt(val ?? String(def), 10);
   if (isNaN(n)) return def;
   return Math.max(min, Math.min(max, n));

@@ -3,11 +3,7 @@ import * as execRepo from "../repositories/execution-log.js";
 import { AnthropicProvider } from "../providers/anthropic.js";
 import { OpenAIProvider } from "../providers/openai.js";
 import { LocalProvider } from "../providers/local.js";
-import type {
-  AgentProvider,
-  AgentRequest,
-  ExecutionRecord,
-} from "../types/execution.js";
+import type { AgentProvider, AgentRequest, ExecutionRecord } from "../types/execution.js";
 import { uuidv7 } from "../types/task.js";
 
 function getProvider(provider: string, modelId: string): AgentProvider {
@@ -88,9 +84,7 @@ export async function execute(
       if (isLastAttempt) return record;
 
       // Exponential backoff: 1s, 2s, 4s...
-      await new Promise((resolve) =>
-        setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)),
-      );
+      await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
     }
   }
 

@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import {
-  createPool,
-  getPool,
-  query,
-  destroy,
-} from "../../src/db/connection.js";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import {
@@ -39,13 +34,9 @@ beforeAll(async () => {
 afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
-    await pool.query(
-      "DELETE FROM task_outcome WHERE task_id LIKE 'test-oco-%'",
-    );
+    await pool.query("DELETE FROM task_outcome WHERE task_id LIKE 'test-oco-%'");
     await pool.query("DELETE FROM task_log WHERE task_id LIKE 'test-oco-%'");
-    await pool.query(
-      "DELETE FROM agent_registry WHERE agent_id LIKE 'test-oco-%'",
-    );
+    await pool.query("DELETE FROM agent_registry WHERE agent_id LIKE 'test-oco-%'");
   }
   await destroy();
 });
@@ -115,14 +106,10 @@ describe("runFormatVerification", () => {
       required_fields: ["name", "age"],
     });
     const signals = await outcomeRepo.findByTaskIdAndTier(rfId, 1);
-    const rfSignal = signals.find(
-      (s) => s.signal_type === "required_fields_present",
-    );
+    const rfSignal = signals.find((s) => s.signal_type === "required_fields_present");
     expect(rfSignal).toBeDefined();
     expect(rfSignal!.signal_value).toBe(0);
-    expect((rfSignal!.detail as Record<string, unknown>).missing).toEqual([
-      "age",
-    ]);
+    expect((rfSignal!.detail as Record<string, unknown>).missing).toEqual(["age"]);
   });
 
   it("checks length bounds", async ({ skip }) => {
@@ -135,9 +122,7 @@ describe("runFormatVerification", () => {
     );
     await runFormatVerification(lbId, "short", { min_length: 100 });
     const signals = await outcomeRepo.findByTaskIdAndTier(lbId, 1);
-    const lbSignal = signals.find(
-      (s) => s.signal_type === "length_within_bounds",
-    );
+    const lbSignal = signals.find((s) => s.signal_type === "length_within_bounds");
     expect(lbSignal).toBeDefined();
     expect(lbSignal!.signal_value).toBe(0);
   });
@@ -195,9 +180,7 @@ describe("collectStructuralSignals", () => {
     };
     await collectStructuralSignals(testId, [execRecord], taskRecord);
     const signals = await outcomeRepo.findByTaskIdAndTier(testId, 0);
-    const cleanSignal = signals.find(
-      (s) => s.signal_type === "clean_execution",
-    );
+    const cleanSignal = signals.find((s) => s.signal_type === "clean_execution");
     expect(cleanSignal).toBeDefined();
     expect(cleanSignal!.signal_value).toBe(1);
   });
@@ -326,9 +309,7 @@ describe("collectStructuralSignals", () => {
     };
     await collectStructuralSignals(ccId, [execRecord], taskRecord);
     const signals = await outcomeRepo.findByTaskIdAndTier(ccId, 0);
-    const ccSignal = signals.find(
-      (s) => s.signal_type === "cost_ceiling_breach",
-    );
+    const ccSignal = signals.find((s) => s.signal_type === "cost_ceiling_breach");
     expect(ccSignal).toBeDefined();
     expect(ccSignal!.signal_value).toBe(0);
   });

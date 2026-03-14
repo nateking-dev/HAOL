@@ -9,17 +9,9 @@ async function main() {
 
   const healthy = await healthCheck();
   if (healthy) {
-    console.log(
-      "HAOL connected to Dolt at %s:%d",
-      config.dolt.host,
-      config.dolt.port,
-    );
+    console.log("HAOL connected to Dolt at %s:%d", config.dolt.host, config.dolt.port);
   } else {
-    console.error(
-      "Failed to connect to Dolt at %s:%d",
-      config.dolt.host,
-      config.dolt.port,
-    );
+    console.error("Failed to connect to Dolt at %s:%d", config.dolt.host, config.dolt.port);
     process.exit(1);
   }
 

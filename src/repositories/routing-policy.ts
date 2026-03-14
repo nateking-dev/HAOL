@@ -30,11 +30,8 @@ export async function getActivePolicy(): Promise<RoutingPolicy | null> {
     weight_cost:
       typeof row.weight_cost === "string" ? parseFloat(row.weight_cost) : row.weight_cost,
     weight_latency:
-      typeof row.weight_latency === "string"
-        ? parseFloat(row.weight_latency)
-        : row.weight_latency,
-    fallback_strategy:
-      row.fallback_strategy as RoutingPolicy["fallback_strategy"],
+      typeof row.weight_latency === "string" ? parseFloat(row.weight_latency) : row.weight_latency,
+    fallback_strategy: row.fallback_strategy as RoutingPolicy["fallback_strategy"],
     max_retries: row.max_retries,
     active: row.active === 1 || row.active === true,
     weight_outcome: row.weight_outcome
