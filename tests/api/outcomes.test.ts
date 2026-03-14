@@ -111,15 +111,14 @@ describe("GET /tasks/:id/outcomes", () => {
     }
   });
 
-  it("returns empty array for task with no outcomes", async ({ skip }) => {
+  it("returns 404 for non-existent task", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const res = await app.request("/tasks/nonexistent-task-no-outcomes/outcomes");
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(404);
 
     const body = await res.json();
-    expect(Array.isArray(body)).toBe(true);
-    expect(body.length).toBe(0);
+    expect(body.error).toContain("Task not found");
   });
 });
 
@@ -136,5 +135,15 @@ describe("GET /tasks/:id/outcomes/summary", () => {
     expect(typeof body.negative_signals).toBe("number");
     expect(body.by_tier).toBeTruthy();
     expect(typeof body.by_tier).toBe("object");
+  });
+
+  it("returns 404 for non-existent task", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const res = await app.request("/tasks/nonexistent-task-no-summary/outcomes/summary");
+    expect(res.status).toBe(404);
+
+    const body = await res.json();
+    expect(body.error).toContain("Task not found");
   });
 });

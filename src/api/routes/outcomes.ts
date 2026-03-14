@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { DownstreamOutcomeInput } from "../../types/outcome.js";
 import { recordDownstreamOutcome } from "../../services/outcome-collector.js";
 import * as outcomeRepo from "../../repositories/task-outcome.js";
+import * as taskLog from "../../repositories/task-log.js";
 import type { OutcomeSummary } from "../../types/outcome.js";
 
 const outcomes = new Hono();
@@ -30,6 +31,10 @@ outcomes.post("/tasks/:id/outcome", async (c) => {
 // GET /tasks/:id/outcomes — All outcome signals for a task
 outcomes.get("/tasks/:id/outcomes", async (c) => {
   const taskId = c.req.param("id");
+
+  const task = await taskLog.findById(taskId);
+  if (!task) return c.json({ error: `Task not found: ${taskId}` }, 404);
+
   const tierParam = c.req.query("tier");
 
   let records;
@@ -49,6 +54,10 @@ outcomes.get("/tasks/:id/outcomes", async (c) => {
 // GET /tasks/:id/outcomes/summary — Aggregated outcome summary
 outcomes.get("/tasks/:id/outcomes/summary", async (c) => {
   const taskId = c.req.param("id");
+
+  const task = await taskLog.findById(taskId);
+  if (!task) return c.json({ error: `Task not found: ${taskId}` }, 404);
+
   const records = await outcomeRepo.findByTaskId(taskId);
 
   const byTier: Record<
