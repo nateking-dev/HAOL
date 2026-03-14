@@ -21,7 +21,7 @@ import {
 
 async function commitSafely(message: string): Promise<void> {
   try {
-    await doltCommit({ message, author: "haol-router <haol@system>" });
+    await doltCommit({ message, author: "haol-router <haol@system>", allowEmpty: true });
   } catch (err) {
     if (!(err as Error).message?.includes("nothing to commit")) {
       throw err;

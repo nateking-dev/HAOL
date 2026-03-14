@@ -1,4 +1,4 @@
-import { getPool } from "../db/connection.js";
+import { getPool, withConnection, type Queryable } from "../db/connection.js";
 import {
   doltBranch,
   doltCheckout,
@@ -30,17 +30,19 @@ function branchName(taskId: string): string {
   return `session/${taskId}`;
 }
 
-async function ensureOnMain(): Promise<void> {
-  const current = await doltActiveBranch();
+async function ensureOnMain(conn?: Queryable): Promise<void> {
+  const current = await doltActiveBranch(conn);
   if (current !== "main") {
-    await doltCheckout("main");
+    await doltCheckout("main", conn);
   }
 }
 
 export async function createSession(taskId: string): Promise<SessionHandle> {
-  await ensureOnMain();
   const branch = branchName(taskId);
-  await doltBranch({ name: branch });
+  await withConnection(async (conn) => {
+    await ensureOnMain(conn);
+    await doltBranch({ name: branch }, conn);
+  });
   return { taskId, branch };
 }
 
@@ -49,16 +51,25 @@ export async function writeContext(
   key: string,
   value: unknown,
 ): Promise<void> {
-  await doltCheckout(session.branch);
-  try {
-    await sessionRepo.upsert(session.taskId, key, value);
-    await doltCommit({
-      message: `session:${session.taskId} | write context key=${key}`,
-      author: "haol-memory <haol@system>",
-    });
-  } finally {
-    await ensureOnMain();
-  }
+  await withConnection(async (conn) => {
+    await doltCheckout(session.branch, conn);
+    try {
+      // Disable autocommit so the upsert stays in the working set
+      // until our explicit DOLT_COMMIT captures it with a message.
+      await conn.query("SET @@autocommit = 0");
+      await sessionRepo.upsert(session.taskId, key, value, conn);
+      await doltCommit(
+        {
+          message: `session:${session.taskId} | write context key=${key}`,
+          author: "haol-memory <haol@system>",
+        },
+        conn,
+      );
+    } finally {
+      await conn.query("SET @@autocommit = 1");
+      await ensureOnMain(conn);
+    }
+  });
 }
 
 export async function readContext(session: SessionHandle, key?: string): Promise<unknown> {
@@ -87,22 +98,29 @@ export async function readContext(session: SessionHandle, key?: string): Promise
 }
 
 export async function commitSession(session: SessionHandle): Promise<void> {
-  await ensureOnMain();
-  const mergeResult = await doltMerge(session.branch);
-  if (mergeResult.conflicts > 0) {
-    // Resolve with --ours strategy by committing as-is
-    await doltCommit({
-      message: `session:${session.taskId} | merge (conflicts resolved with --ours)`,
-      author: "haol-memory <haol@system>",
-      allowEmpty: true,
-    });
-  }
-  // Clean up the branch
-  await doltDeleteBranch(session.branch);
+  await withConnection(async (conn) => {
+    await ensureOnMain(conn);
+    const mergeResult = await doltMerge(session.branch, conn);
+    if (mergeResult.conflicts > 0) {
+      // Resolve with --ours strategy by committing as-is
+      await doltCommit(
+        {
+          message: `session:${session.taskId} | merge (conflicts resolved with --ours)`,
+          author: "haol-memory <haol@system>",
+          allowEmpty: true,
+        },
+        conn,
+      );
+    }
+    // Clean up the branch
+    await doltDeleteBranch(session.branch, conn);
+  });
 }
 
 export async function discardSession(session: SessionHandle): Promise<void> {
-  await ensureOnMain();
+  await withConnection(async (conn) => {
+    await ensureOnMain(conn);
+  });
   // Branch is preserved for debugging, not deleted
   // Data stays on the session branch but is not merged to main
 }

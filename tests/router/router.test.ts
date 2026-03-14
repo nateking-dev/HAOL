@@ -74,6 +74,10 @@ beforeAll(async () => {
 
     const pool = getPool();
 
+    // Clear cascade router tables so classifyCascade falls back to old classifier
+    await pool.query("DELETE FROM routing_rules");
+    await pool.query("DELETE FROM routing_utterances");
+
     // Seed routing policy
     await pool.query(
       `INSERT IGNORE INTO routing_policy
