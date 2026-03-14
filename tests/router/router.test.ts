@@ -1,18 +1,5 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  afterAll,
-  afterEach,
-  vi,
-} from "vitest";
-import {
-  createPool,
-  getPool,
-  query,
-  destroy,
-} from "../../src/db/connection.js";
+import { describe, it, expect, beforeAll, afterAll, afterEach, onTestFinished, vi } from "vitest";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { routeTask } from "../../src/router/router.js";
@@ -128,9 +115,7 @@ afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'rtr-%'");
-    await pool.query(
-      "DELETE FROM task_log WHERE selected_agent_id LIKE 'rtr-%'",
-    );
+    await pool.query("DELETE FROM task_log WHERE selected_agent_id LIKE 'rtr-%'");
     // Re-enable seed agents
     await pool.query(
       `UPDATE agent_registry SET status = 'active'
@@ -234,6 +219,11 @@ describe("router pipeline", () => {
         capturedRecords = execRecords;
       });
 
+    onTestFinished(() => {
+      executeSpy.mockRestore();
+      signalsSpy.mockRestore();
+    });
+
     // First call to execute returns a failed record (triggers fallback);
     // second call throws (simulating a thrown fallback execution).
     let callCount = 0;
@@ -273,12 +263,9 @@ describe("router pipeline", () => {
     expect(capturedRecords[0].outcome).toBe("ERROR");
     expect(capturedRecords[0].execution_id).toBe("primary-exec");
     expect(capturedRecords[1].outcome).toBe("ERROR");
-    expect(capturedRecords[1].error_detail).toBe(
-      "Fallback connection refused",
+    expect(capturedRecords[1].error_detail).toBe("Fallback connection refused");
+    expect(capturedRecords[1].execution_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
-    expect(capturedRecords[1].execution_id).toMatch(/^fallback-err-/);
-
-    executeSpy.mockRestore();
-    signalsSpy.mockRestore();
   });
 });
