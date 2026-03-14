@@ -188,11 +188,10 @@ export async function runFormatVerification(
 
 // --- Tier 2: Routing evaluation sampling ---
 
-const DEFAULT_CONFIDENCE_THRESHOLD = 0.6;
-
 export function shouldSampleForEvaluation(
   confidence: number,
-  threshold: number = DEFAULT_CONFIDENCE_THRESHOLD,
+  // Default matches CONFIG_DEFAULTS.confidence_threshold in reference-store.ts
+  threshold: number = 0.6,
 ): boolean {
   return confidence < threshold;
 }

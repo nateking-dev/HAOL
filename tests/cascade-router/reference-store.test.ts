@@ -35,9 +35,13 @@ describe("reference-store", () => {
 
     expect(config).toHaveProperty("similarity_threshold");
     expect(config).toHaveProperty("escalation_threshold");
+    expect(config).toHaveProperty("confidence_threshold");
     expect(config).toHaveProperty("default_tier");
     expect(config).toHaveProperty("top_k");
     expect(typeof config.similarity_threshold).toBe("number");
+    expect(typeof config.confidence_threshold).toBe("number");
+    expect(config.confidence_threshold).toBeGreaterThanOrEqual(0);
+    expect(config.confidence_threshold).toBeLessThanOrEqual(1);
   });
 
   it.skipIf(!doltAvailable)("loadRules returns an array", async () => {

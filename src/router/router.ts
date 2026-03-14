@@ -186,8 +186,9 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       ) {
         evaluateRoutingDecision(taskId).catch(() => {});
       }
-    } catch {
+    } catch (outcomeErr) {
       // best-effort — never fail the task due to outcome collection
+      console.warn("Outcome collection failed:", (outcomeErr as Error).message);
     }
 
     // 8. Commit

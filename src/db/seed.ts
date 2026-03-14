@@ -32,7 +32,8 @@ INSERT IGNORE INTO router_config (config_key, config_value, description) VALUES
   ('escalation_model', 'claude-haiku-4-5-20251001', 'Model for Layer 2 escalation'),
   ('default_tier', '3', 'Fallback tier when routing is uncertain'),
   ('top_k', '5', 'Number of nearest utterances to consider'),
-  ('enable_escalation', 'true', 'Whether Layer 2 LLM escalation is active')
+  ('enable_escalation', 'true', 'Whether Layer 2 LLM escalation is active'),
+  ('confidence_threshold', '0.6', 'Confidence below which routing decisions are sampled for LLM evaluation')
 `;
 
 const SEED_ROUTING_UTTERANCES = `

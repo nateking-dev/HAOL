@@ -73,7 +73,14 @@ export async function loadUtterances(): Promise<ReferenceUtterance[]> {
   }));
 }
 
-const CONFIG_DEFAULTS: RouterConfig = {
+/** Safe parseFloat that falls back to the default on NaN and clamps thresholds to [0, 1]. */
+function safeParseThreshold(raw: string | undefined, fallback: number): number {
+  const parsed = parseFloat(raw ?? String(fallback));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(1, parsed));
+}
+
+export const CONFIG_DEFAULTS: RouterConfig = {
   embedding_model: "text-embedding-3-small",
   embedding_dimensions: 512,
   similarity_threshold: 0.72,
@@ -85,21 +92,30 @@ const CONFIG_DEFAULTS: RouterConfig = {
   confidence_threshold: 0.6,
 };
 
+let cachedConfig: { value: RouterConfig; expiry: number } | null = null;
+const CONFIG_TTL_MS = 60_000;
+
 export async function loadConfig(): Promise<RouterConfig> {
+  if (cachedConfig && Date.now() < cachedConfig.expiry) {
+    return cachedConfig.value;
+  }
+
   const rows = await query<ConfigRow[]>(`SELECT config_key, config_value FROM router_config`);
   const map = new Map(rows.map((r) => [r.config_key, r.config_value]));
 
-  return {
+  const config: RouterConfig = {
     embedding_model: map.get("embedding_model") ?? CONFIG_DEFAULTS.embedding_model,
     embedding_dimensions: parseInt(
       map.get("embedding_dimensions") ?? String(CONFIG_DEFAULTS.embedding_dimensions),
       10,
     ),
-    similarity_threshold: parseFloat(
-      map.get("similarity_threshold") ?? String(CONFIG_DEFAULTS.similarity_threshold),
+    similarity_threshold: safeParseThreshold(
+      map.get("similarity_threshold"),
+      CONFIG_DEFAULTS.similarity_threshold,
     ),
-    escalation_threshold: parseFloat(
-      map.get("escalation_threshold") ?? String(CONFIG_DEFAULTS.escalation_threshold),
+    escalation_threshold: safeParseThreshold(
+      map.get("escalation_threshold"),
+      CONFIG_DEFAULTS.escalation_threshold,
     ),
     escalation_model: map.get("escalation_model") ?? CONFIG_DEFAULTS.escalation_model,
     default_tier: parseInt(
@@ -108,10 +124,19 @@ export async function loadConfig(): Promise<RouterConfig> {
     ) as TierId,
     top_k: parseInt(map.get("top_k") ?? String(CONFIG_DEFAULTS.top_k), 10),
     enable_escalation: (map.get("enable_escalation") ?? "true") === "true",
-    confidence_threshold: parseFloat(
-      map.get("confidence_threshold") ?? String(CONFIG_DEFAULTS.confidence_threshold),
+    confidence_threshold: safeParseThreshold(
+      map.get("confidence_threshold"),
+      CONFIG_DEFAULTS.confidence_threshold,
     ),
   };
+
+  cachedConfig = { value: config, expiry: Date.now() + CONFIG_TTL_MS };
+  return config;
+}
+
+/** Clear the config cache (for testing). */
+export function clearConfigCache(): void {
+  cachedConfig = null;
 }
 
 export async function logDecision(

@@ -53,6 +53,17 @@ describe("shouldSampleForEvaluation", () => {
     expect(shouldSampleForEvaluation(0.6)).toBe(false);
     expect(shouldSampleForEvaluation(0.9)).toBe(false);
   });
+
+  it("respects a custom threshold argument", () => {
+    expect(shouldSampleForEvaluation(0.5, 0.8)).toBe(true);
+    expect(shouldSampleForEvaluation(0.9, 0.8)).toBe(false);
+    expect(shouldSampleForEvaluation(0.8, 0.8)).toBe(false);
+  });
+
+  it("handles boundary at exactly the threshold", () => {
+    expect(shouldSampleForEvaluation(0.4, 0.4)).toBe(false);
+    expect(shouldSampleForEvaluation(0.39, 0.4)).toBe(true);
+  });
 });
 
 // --- Integration tests (require Dolt) ---
