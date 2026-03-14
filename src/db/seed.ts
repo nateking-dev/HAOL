@@ -13,13 +13,13 @@ INSERT IGNORE INTO routing_tiers (tier_id, tier_name, description, default_agent
 const SEED_ROUTING_RULES = `
 INSERT IGNORE INTO routing_rules (rule_id, tier_id, rule_type, pattern, capabilities, priority, description) VALUES
   ('rule-summarize', 1, 'regex', '\\\\bsummariz', '["summarization"]', 10, 'Summarization tasks'),
-  ('rule-classify', 1, 'regex', '\\\\b(classif|categoriz|label)\\\\b', '["classification"]', 10, 'Classification tasks'),
-  ('rule-code', 3, 'regex', '\\\\b(code|implement|function|debug|refactor)', '["code_generation"]', 20, 'Code generation tasks'),
-  ('rule-reasoning', 3, 'regex', '\\\\b(analyz|compar|reason|evaluat)', '["reasoning"]', 20, 'Reasoning tasks'),
-  ('rule-vision', 3, 'regex', '\\\\b(image|screenshot|diagram|photo)\\\\b', '["vision"]', 20, 'Vision tasks'),
-  ('rule-structured', 2, 'regex', '\\\\b(json|schema|structured|table)\\\\b', '["structured_output"]', 15, 'Structured output tasks'),
+  ('rule-classify', 1, 'regex', '\\\\b(classif|categoriz|label\\\\b)', '["classification"]', 10, 'Classification tasks'),
+  ('rule-code', 3, 'regex', '\\\\b(code\\\\b|implement|function\\\\b|debug\\\\b|refactor)', '["code_generation"]', 20, 'Code generation tasks'),
+  ('rule-reasoning', 3, 'regex', '\\\\b(analyz|analys|compar|reason|evaluat)', '["reasoning"]', 20, 'Reasoning tasks'),
+  ('rule-vision', 3, 'regex', '\\\\b(image\\\\b|screenshot\\\\b|diagram\\\\b|photo\\\\b)', '["vision"]', 20, 'Vision tasks'),
+  ('rule-structured', 2, 'regex', '\\\\b(json\\\\b|schema\\\\b|structured\\\\b|table\\\\b)', '["structured_output"]', 15, 'Structured output tasks'),
   ('rule-longctx', 3, 'regex', '\\\\bentire\\\\b.*\\\\bdocument\\\\b', '["long_context"]', 20, 'Long context tasks'),
-  ('rule-tooluse', 3, 'regex', '\\\\b(tool|api\\\\b.*\\\\bcall|function.call)', '["tool_use"]', 20, 'Tool use tasks'),
+  ('rule-tooluse', 3, 'regex', '\\\\b(tool\\\\b|api\\\\b.*\\\\bcall\\\\b|function.call)', '["tool_use"]', 20, 'Tool use tasks'),
   ('rule-multilingual', 2, 'regex', '\\\\b(translat|multilingual)', '["multilingual"]', 15, 'Multilingual tasks')
 `;
 

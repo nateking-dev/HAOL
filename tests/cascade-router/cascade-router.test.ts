@@ -223,6 +223,168 @@ describe("CascadeRouter", () => {
     });
   });
 
+  describe("Layer 0 — seed rule patterns match inflected forms", () => {
+    // These tests use the actual patterns from SEED_ROUTING_RULES to verify
+    // they correctly match common inflected forms (the original patterns had
+    // trailing \b word boundaries that broke partial stem matching).
+    const seedRules = [
+      {
+        rule_id: "rule-classify",
+        tier_id: 1 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(classif|categoriz|label\\b)",
+        capabilities: ["classification"],
+        priority: 10,
+        enabled: true,
+        description: null,
+      },
+      {
+        rule_id: "rule-code",
+        tier_id: 3 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(code\\b|implement|function\\b|debug\\b|refactor)",
+        capabilities: ["code_generation"],
+        priority: 20,
+        enabled: true,
+        description: null,
+      },
+      {
+        rule_id: "rule-reasoning",
+        tier_id: 3 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(analyz|analys|compar|reason|evaluat)",
+        capabilities: ["reasoning"],
+        priority: 20,
+        enabled: true,
+        description: null,
+      },
+      {
+        rule_id: "rule-vision",
+        tier_id: 3 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(image\\b|screenshot\\b|diagram\\b|photo\\b)",
+        capabilities: ["vision"],
+        priority: 20,
+        enabled: true,
+        description: null,
+      },
+      {
+        rule_id: "rule-structured",
+        tier_id: 2 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(json\\b|schema\\b|structured\\b|table\\b)",
+        capabilities: ["structured_output"],
+        priority: 15,
+        enabled: true,
+        description: null,
+      },
+      {
+        rule_id: "rule-longctx",
+        tier_id: 3 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\bentire\\b.*\\bdocument\\b",
+        capabilities: ["long_context"],
+        priority: 20,
+        enabled: true,
+        description: null,
+      },
+      {
+        rule_id: "rule-tooluse",
+        tier_id: 3 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(tool\\b|api\\b.*\\bcall\\b|function.call)",
+        capabilities: ["tool_use"],
+        priority: 20,
+        enabled: true,
+        description: null,
+      },
+    ];
+
+    let router: InstanceType<typeof CascadeRouter>;
+
+    beforeEach(async () => {
+      mockLoadRules.mockResolvedValue(seedRules);
+      mockLoadUtterances.mockResolvedValue([]);
+      router = await CascadeRouter.create();
+    });
+
+    it("rule-classify matches 'Classify', 'Categorize', 'Classification'", async () => {
+      for (const prompt of [
+        "Classify this email as spam",
+        "Categorize the sentiment",
+        "Classification of support tickets",
+      ]) {
+        const result = await router.classify({ prompt });
+        expect(result.complexity_tier).toBe(1);
+        expect(result.required_capabilities).toContain("classification");
+      }
+    });
+
+    it("rule-code matches 'Implement', 'Refactoring', 'Debug'", async () => {
+      for (const prompt of ["Implement a cache", "Refactoring the module", "Debug this issue"]) {
+        const result = await router.classify({ prompt });
+        expect(result.complexity_tier).toBe(3);
+        expect(result.required_capabilities).toContain("code_generation");
+      }
+    });
+
+    it("rule-reasoning matches 'Analyze', 'Analysis', 'Comparison', 'Evaluate'", async () => {
+      for (const prompt of [
+        "Analyze the data",
+        "Data analysis report",
+        "Comparison of options",
+        "Evaluate the approach",
+      ]) {
+        const result = await router.classify({ prompt });
+        expect(result.complexity_tier).toBe(3);
+        expect(result.required_capabilities).toContain("reasoning");
+      }
+    });
+
+    it("rule-vision matches 'image', 'screenshot', 'diagram', 'photo'", async () => {
+      for (const prompt of [
+        "Describe this image",
+        "Read the screenshot",
+        "Interpret the diagram",
+        "Identify objects in the photo",
+      ]) {
+        const result = await router.classify({ prompt });
+        expect(result.complexity_tier).toBe(3);
+        expect(result.required_capabilities).toContain("vision");
+      }
+    });
+
+    it("rule-structured matches 'json', 'schema', 'structured', 'table'", async () => {
+      for (const prompt of [
+        "Return JSON output",
+        "Define a schema",
+        "Give me structured data",
+        "Format as a table",
+      ]) {
+        const result = await router.classify({ prompt });
+        expect(result.required_capabilities).toContain("structured_output");
+      }
+    });
+
+    it("rule-longctx matches 'entire document'", async () => {
+      const result = await router.classify({ prompt: "Read the entire document" });
+      expect(result.complexity_tier).toBe(3);
+      expect(result.required_capabilities).toContain("long_context");
+    });
+
+    it("rule-tooluse matches 'tool', 'API call', 'function call'", async () => {
+      for (const prompt of [
+        "Use a tool to search",
+        "Make an API call",
+        "Use function_call to invoke",
+      ]) {
+        const result = await router.classify({ prompt });
+        expect(result.complexity_tier).toBe(3);
+        expect(result.required_capabilities).toContain("tool_use");
+      }
+    });
+  });
+
   describe("Layer 1 — semantic similarity", () => {
     it("uses embedding when no rules match and confidence is high", async () => {
       mockLoadRules.mockResolvedValue([]);
