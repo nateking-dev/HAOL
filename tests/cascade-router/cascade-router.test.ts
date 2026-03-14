@@ -172,6 +172,33 @@ describe("CascadeRouter", () => {
       expect(result.complexity_tier).toBe(1);
     });
 
+    it("rejects unsafe regex without logging the pattern", async () => {
+      const unsafePattern = "(a+)+$";
+      mockLoadRules.mockResolvedValue([
+        {
+          rule_id: "r-unsafe",
+          tier_id: 1 as TierId,
+          rule_type: "regex",
+          pattern: unsafePattern,
+          capabilities: ["summarization"],
+          priority: 10,
+          enabled: true,
+          description: null,
+        },
+      ]);
+      mockLoadUtterances.mockResolvedValue([]);
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const router = await CascadeRouter.create();
+      await router.classify({ prompt: "aaaaaa" });
+
+      expect(warnSpy).toHaveBeenCalledOnce();
+      const message = warnSpy.mock.calls[0][0] as string;
+      expect(message).toContain("r-unsafe");
+      expect(message).not.toContain(unsafePattern);
+      warnSpy.mockRestore();
+    });
+
     it("matches contains rules", async () => {
       mockLoadRules.mockResolvedValue([
         {
