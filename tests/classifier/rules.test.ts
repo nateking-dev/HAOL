@@ -74,14 +74,13 @@ describe("rules", () => {
       expect(rule.patterns.some((p) => p.test("Complex data analysis"))).toBe(true);
     });
 
-    it("multi_step matches step-by-step and complexity keywords", () => {
+    it("multi_step matches step-by-step and workflow keywords", () => {
       const rule = rules.find((r) => r.name === "multi_step")!;
       expect(rule.patterns.some((p) => p.test("Do this step by step"))).toBe(true);
       expect(rule.patterns.some((p) => p.test("Multi-step reasoning chain"))).toBe(true);
       expect(rule.patterns.some((p) => p.test("Build a pipeline"))).toBe(true);
       expect(rule.patterns.some((p) => p.test("Design the workflow"))).toBe(true);
       expect(rule.patterns.some((p) => p.test("Phased rollout plan"))).toBe(true);
-      expect(rule.patterns.some((p) => p.test("Complex data analysis"))).toBe(true);
     });
 
     it("diagnostic matches troubleshooting keywords", () => {
@@ -168,9 +167,9 @@ describe("rules", () => {
       );
     });
 
-    it("produces higher tierBump for complex analytical prompts", () => {
-      // "Complex data analysis" should match reasoning (via "analysis") and multi_step (via "complex")
-      const result = matchRules("Complex data analysis");
+    it("produces higher tierBump for multi-step analytical prompts", () => {
+      // Should match reasoning (via "analyze") and multi_step (via "step by step")
+      const result = matchRules("Analyze this data step by step");
       expect(result.tierBump).toBeGreaterThanOrEqual(2);
       expect(result.capabilities).toContain("reasoning");
     });
@@ -184,7 +183,7 @@ describe("rules", () => {
 
     it("deduplicates reasoning capability from multiple rules", () => {
       // Both reasoning and multi_step add "reasoning", should appear only once
-      const result = matchRules("Complex data analysis");
+      const result = matchRules("Analyze this step by step");
       const reasoningCount = result.capabilities.filter((c) => c === "reasoning").length;
       expect(reasoningCount).toBe(1);
     });
