@@ -10,10 +10,9 @@ export interface TuneCommandOptions {
 export async function tuneCommand(opts: TuneCommandOptions): Promise<string> {
   const hours = opts.hours ?? 72;
   const dryRun = opts.dryRun ? "&dry_run=true" : "";
-  const res = await fetch(
-    `${opts.baseUrl}/observability/tune?hours=${hours}${dryRun}`,
-    { method: "POST" },
-  );
+  const res = await fetch(`${opts.baseUrl}/observability/tune?hours=${hours}${dryRun}`, {
+    method: "POST",
+  });
   const data = await res.json();
 
   if (!res.ok) {
@@ -49,18 +48,15 @@ export async function tuneCommand(opts: TuneCommandOptions): Promise<string> {
   if (data.rules_created.length > 0) {
     lines.push("", "Crystallized Rules:");
     for (const r of data.rules_created) {
-      lines.push(
-        `  T${r.tier_id} contains "${r.pattern}" (from ${r.source_task_count} tasks)`,
-      );
+      lines.push(`  T${r.tier_id} contains "${r.pattern}" (from ${r.source_task_count} tasks)`);
     }
   }
 
   if (data.utterances_added.length > 0) {
     lines.push("", "Promoted Utterances:");
     for (const u of data.utterances_added) {
-      const text = u.utterance_text.length > 60
-        ? u.utterance_text.slice(0, 57) + "..."
-        : u.utterance_text;
+      const text =
+        u.utterance_text.length > 60 ? u.utterance_text.slice(0, 57) + "..." : u.utterance_text;
       lines.push(`  T${u.tier_id} "${text}"`);
     }
   }

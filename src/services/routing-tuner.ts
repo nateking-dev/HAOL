@@ -89,9 +89,7 @@ interface AgentTierOutcomeRow extends RowDataPacket {
  * Aggregates outcome signals per agent per complexity tier.
  * Only considers tiers 0-3 signals with non-null signal_value.
  */
-export async function aggregateOutcomesByAgentTier(
-  hours: number,
-): Promise<AgentTierOutcome[]> {
+export async function aggregateOutcomesByAgentTier(hours: number): Promise<AgentTierOutcome[]> {
   const rows = await query<AgentTierOutcomeRow[]>(
     `SELECT
        t.selected_agent_id AS agent_id,
@@ -210,24 +208,124 @@ export async function findSuccessfulFallbacks(hours: number): Promise<FallbackSu
  * "contains" routing rule. Strips stop words and picks the longest
  * remaining word that appears in at least `minFrequency` prompts.
  */
-export function extractKeyPhrases(
-  prompts: string[],
-  minFrequency: number,
-): Map<string, number> {
+export function extractKeyPhrases(prompts: string[], minFrequency: number): Map<string, number> {
   const STOP_WORDS = new Set([
-    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "shall", "can", "need", "dare", "ought",
-    "used", "to", "of", "in", "for", "on", "with", "at", "by", "from",
-    "as", "into", "through", "during", "before", "after", "above", "below",
-    "between", "out", "off", "over", "under", "again", "further", "then",
-    "once", "here", "there", "when", "where", "why", "how", "all", "both",
-    "each", "few", "more", "most", "other", "some", "such", "no", "nor",
-    "not", "only", "own", "same", "so", "than", "too", "very", "just",
-    "because", "but", "and", "or", "if", "while", "about", "this", "that",
-    "these", "those", "it", "its", "i", "me", "my", "we", "our", "you",
-    "your", "he", "she", "they", "them", "what", "which", "who", "whom",
-    "please", "help", "want", "like", "make", "get", "give", "tell",
+    "a",
+    "an",
+    "the",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "shall",
+    "can",
+    "need",
+    "dare",
+    "ought",
+    "used",
+    "to",
+    "of",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "by",
+    "from",
+    "as",
+    "into",
+    "through",
+    "during",
+    "before",
+    "after",
+    "above",
+    "below",
+    "between",
+    "out",
+    "off",
+    "over",
+    "under",
+    "again",
+    "further",
+    "then",
+    "once",
+    "here",
+    "there",
+    "when",
+    "where",
+    "why",
+    "how",
+    "all",
+    "both",
+    "each",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "no",
+    "nor",
+    "not",
+    "only",
+    "own",
+    "same",
+    "so",
+    "than",
+    "too",
+    "very",
+    "just",
+    "because",
+    "but",
+    "and",
+    "or",
+    "if",
+    "while",
+    "about",
+    "this",
+    "that",
+    "these",
+    "those",
+    "it",
+    "its",
+    "i",
+    "me",
+    "my",
+    "we",
+    "our",
+    "you",
+    "your",
+    "he",
+    "she",
+    "they",
+    "them",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "please",
+    "help",
+    "want",
+    "like",
+    "make",
+    "get",
+    "give",
+    "tell",
   ]);
 
   const wordCounts = new Map<string, number>();
@@ -323,9 +421,10 @@ async function crystallizeRules(
       for (const row of capRows) {
         if (row.required_capabilities) {
           try {
-            const parsed: string[] = typeof row.required_capabilities === "string"
-              ? JSON.parse(row.required_capabilities)
-              : row.required_capabilities;
+            const parsed: string[] =
+              typeof row.required_capabilities === "string"
+                ? JSON.parse(row.required_capabilities)
+                : row.required_capabilities;
             for (const cap of parsed) {
               capabilities.add(cap);
             }
@@ -384,7 +483,9 @@ async function promoteUtterances(
   // Batch check for existing utterances to avoid N+1 queries
   const candidateTexts = truncated.map((fb) => fb.text);
   const placeholders = candidateTexts.map(() => "?").join(", ");
-  interface UtteranceTextRow extends RowDataPacket { utterance_text: string }
+  interface UtteranceTextRow extends RowDataPacket {
+    utterance_text: string;
+  }
   const existingRows = await query<UtteranceTextRow[]>(
     `SELECT utterance_text FROM routing_utterances WHERE utterance_text IN (${placeholders})`,
     candidateTexts,
@@ -427,7 +528,9 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
 
   // Guard against concurrent tuning runs
   if (!options.dryRun) {
-    interface RunningRow extends RowDataPacket { run_id: string }
+    interface RunningRow extends RowDataPacket {
+      run_id: string;
+    }
     const running = await query<RunningRow[]>(
       `SELECT run_id FROM tuning_run WHERE status = 'running' LIMIT 1`,
     );
@@ -446,7 +549,9 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
     const agentTierOutcomes = await aggregateOutcomesByAgentTier(options.hours);
     const totalSignals = agentTierOutcomes.reduce((sum, o) => sum + o.total, 0);
 
-    interface TaskCountRow extends RowDataPacket { cnt: number | string }
+    interface TaskCountRow extends RowDataPacket {
+      cnt: number | string;
+    }
     const taskCountRows = await query<TaskCountRow[]>(
       `SELECT COUNT(DISTINCT t.task_id) AS cnt
        FROM task_outcome o
@@ -455,9 +560,10 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
          AND o.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)`,
       [options.hours],
     );
-    const tasksAnalyzed = typeof taskCountRows[0]?.cnt === "string"
-      ? parseInt(taskCountRows[0].cnt, 10)
-      : Number(taskCountRows[0]?.cnt ?? 0);
+    const tasksAnalyzed =
+      typeof taskCountRows[0]?.cnt === "string"
+        ? parseInt(taskCountRows[0].cnt, 10)
+        : Number(taskCountRows[0]?.cnt ?? 0);
 
     // ----- Step 2: Crystallize LLM escalation patterns into rules -----
     const escalations = await findSuccessfulEscalations(
@@ -471,9 +577,7 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
     const promotedUtterances = await promoteUtterances(fallbacks, options.dryRun);
 
     // ----- Step 4: Count actionable outcome scores -----
-    const actionableScores = agentTierOutcomes.filter(
-      (o) => o.total >= options.minSampleSize,
-    );
+    const actionableScores = agentTierOutcomes.filter((o) => o.total >= options.minSampleSize);
 
     // ----- Finalize -----
     const status: "completed" | "dry_run" = options.dryRun ? "dry_run" : "completed";
@@ -597,7 +701,9 @@ export async function recentTuningRuns(limit: number = 10): Promise<TuningRunSum
     run_id: r.run_id,
     started_at: r.started_at instanceof Date ? r.started_at.toISOString() : String(r.started_at),
     completed_at: r.completed_at
-      ? r.completed_at instanceof Date ? r.completed_at.toISOString() : String(r.completed_at)
+      ? r.completed_at instanceof Date
+        ? r.completed_at.toISOString()
+        : String(r.completed_at)
       : null,
     status: r.status,
     hours_window: r.hours_window,

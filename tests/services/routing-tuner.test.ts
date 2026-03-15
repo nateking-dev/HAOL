@@ -70,11 +70,7 @@ describe("extractKeyPhrases", () => {
   });
 
   it("filters out short words (< 4 chars)", () => {
-    const prompts = [
-      "the api has a bug",
-      "fix api bug now",
-      "api bug report",
-    ];
+    const prompts = ["the api has a bug", "fix api bug now", "api bug report"];
     const result = extractKeyPhrases(prompts, 3);
     expect(result.has("api")).toBe(false);
     expect(result.has("bug")).toBe(false);
@@ -91,10 +87,7 @@ describe("extractKeyPhrases", () => {
   });
 
   it("counts document frequency not term frequency", () => {
-    const prompts = [
-      "kubernetes kubernetes kubernetes",
-      "something else entirely",
-    ];
+    const prompts = ["kubernetes kubernetes kubernetes", "something else entirely"];
     const result = extractKeyPhrases(prompts, 2);
     expect(result.has("kubernetes")).toBe(false);
   });
@@ -152,10 +145,7 @@ describe("tune (dry run)", () => {
     expect(Array.isArray(result.utterances_added)).toBe(true);
 
     // Verify no tuning_run record was created
-    const rows = await query<any[]>(
-      `SELECT * FROM tuning_run WHERE run_id = ?`,
-      [result.run_id],
-    );
+    const rows = await query<any[]>(`SELECT * FROM tuning_run WHERE run_id = ?`, [result.run_id]);
     expect(rows.length).toBe(0);
   });
 });
@@ -197,9 +187,7 @@ describe("aggregateOutcomesByAgentTier", () => {
     );
 
     const results = await aggregateOutcomesByAgentTier(24);
-    const match = results.find(
-      (r) => r.agent_id === agentId && r.complexity_tier === 3,
-    );
+    const match = results.find((r) => r.agent_id === agentId && r.complexity_tier === 3);
     expect(match).toBeDefined();
     expect(match!.positive).toBeGreaterThanOrEqual(2);
     expect(match!.success_rate).toBeGreaterThan(0);
@@ -219,10 +207,7 @@ describe("tune (live run)", () => {
 
     expect(result.status).toBe("completed");
 
-    const rows = await query<any[]>(
-      `SELECT * FROM tuning_run WHERE run_id = ?`,
-      [result.run_id],
-    );
+    const rows = await query<any[]>(`SELECT * FROM tuning_run WHERE run_id = ?`, [result.run_id]);
     expect(rows.length).toBe(1);
     expect(rows[0].status).toBe("completed");
     expect(rows[0].completed_at).not.toBeNull();
