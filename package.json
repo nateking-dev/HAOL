@@ -1,6 +1,6 @@
 {
   "name": "haol",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Heterogeneous Agent Orchestration Layer",
   "type": "module",
   "main": "dist/index.js",
