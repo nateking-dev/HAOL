@@ -16,6 +16,7 @@ import {
   countOrphanedPendingRecords,
 } from "../../repositories/task-outcome.js";
 import { doltCommit } from "../../db/dolt.js";
+import { tune, recentTuningRuns } from "../../services/routing-tuner.js";
 
 const observability = new Hono();
 
@@ -101,6 +102,31 @@ observability.post("/maintenance/cleanup-pending", async (c) => {
     }
   }
   return c.json({ deleted, max_age_hours: maxAgeHours, committed }, 200);
+});
+
+// --- Tuning routes ---
+
+observability.post("/tune", async (c) => {
+  const hours = parseIntParam(c.req.query("hours"), 72, 1, MAX_HOURS);
+  const dryRun = c.req.query("dry_run") === "true";
+  try {
+    const result = await tune({ hours, dryRun });
+    return c.json(result, 200);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Tuning failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+observability.get("/tune/history", async (c) => {
+  const limit = parseIntParam(c.req.query("limit"), 10, 1, 100);
+  try {
+    const runs = await recentTuningRuns(limit);
+    return c.json(runs, 200);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to fetch tuning history";
+    return c.json({ error: message }, 500);
+  }
 });
 
 // --- Audit routes ---
