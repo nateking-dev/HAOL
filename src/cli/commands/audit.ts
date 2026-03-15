@@ -14,7 +14,7 @@ export interface AuditCommitsOptions {
 
 export async function auditAgentsCommand(opts: AuditAgentsOptions): Promise<string> {
   const since = opts.since ?? "7d";
-  const res = await fetch(`${opts.baseUrl}/audit/agents?since=${since}`);
+  const res = await fetch(`${opts.baseUrl}/observability/audit/agents?since=${since}`);
   const data = await res.json();
 
   if (!res.ok) {
@@ -35,7 +35,7 @@ export async function auditAgentsCommand(opts: AuditAgentsOptions): Promise<stri
 
 export async function auditCommitsCommand(opts: AuditCommitsOptions): Promise<string> {
   const limit = opts.last ?? 20;
-  const res = await fetch(`${opts.baseUrl}/audit/commits?limit=${limit}`);
+  const res = await fetch(`${opts.baseUrl}/observability/audit/commits?limit=${limit}`);
   const data = await res.json();
 
   if (!res.ok) {
