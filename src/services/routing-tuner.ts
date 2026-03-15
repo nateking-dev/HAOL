@@ -375,8 +375,14 @@ async function promoteUtterances(
 
   if (candidates.length === 0) return promotedUtterances;
 
+  // Truncate before dedup so we check the same text we'll insert
+  const truncated = candidates.map((fb) => ({
+    ...fb,
+    text: fb.input_text.length > 512 ? fb.input_text.slice(0, 512) : fb.input_text,
+  }));
+
   // Batch check for existing utterances to avoid N+1 queries
-  const candidateTexts = candidates.map((fb) => fb.input_text);
+  const candidateTexts = truncated.map((fb) => fb.text);
   const placeholders = candidateTexts.map(() => "?").join(", ");
   interface UtteranceTextRow extends RowDataPacket { utterance_text: string }
   const existingRows = await query<UtteranceTextRow[]>(
@@ -385,13 +391,10 @@ async function promoteUtterances(
   );
   const existingTexts = new Set(existingRows.map((r) => r.utterance_text));
 
-  for (const fb of candidates) {
-    if (existingTexts.has(fb.input_text)) continue;
+  for (const fb of truncated) {
+    if (existingTexts.has(fb.text)) continue;
 
-    // Truncate very long prompts — embeddings work best on concise text
-    const text = fb.input_text.length > 512
-      ? fb.input_text.slice(0, 512)
-      : fb.input_text;
+    const text = fb.text;
 
     promotedUtterances.push({
       tier_id: fb.routed_tier as TierId,
