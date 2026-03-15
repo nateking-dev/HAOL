@@ -467,7 +467,7 @@ The outcome capture system collects rich feedback about every routing decision �
 
 The tuner performs three concrete actions on each run:
 
-1. **Aggregates agent performance by tier** — Computes success rates per agent per complexity tier from all outcome signal tiers (0-3). This answers: "How does Claude Sonnet perform on T3 code tasks vs T2 summarization tasks?" The aggregated data feeds directly into agent selection via `weight_outcome`.
+1. **Aggregates agent performance by tier** — Computes success rates per agent per complexity tier from all outcome signal tiers (0-3). This answers: "How does Claude Sonnet perform on T3 code tasks vs T2 summarization tasks?" Agent selection already queries outcome scores live via `getAgentOutcomeScores()` when `weight_outcome > 0` — the tuner surfaces this data for operator visibility and records it in the tuning run summary.
 
 2. **Crystallizes LLM escalation patterns into deterministic rules** — When the expensive Layer 2 LLM classifier repeatedly makes the same high-confidence classification for prompts containing a common keyword, the tuner extracts that keyword and creates a cheap Layer 0 `contains` rule. Future prompts with that keyword are classified in microseconds instead of ~800ms, saving both time and money.
 

@@ -487,6 +487,8 @@ async function promoteUtterances(
       text: fb.input_text.length > 512 ? fb.input_text.slice(0, 512) : fb.input_text,
     }));
 
+  if (truncated.length === 0) return promotedUtterances;
+
   // Batch check for existing utterances to avoid N+1 queries
   const candidateTexts = truncated.map((fb) => fb.text);
   const placeholders = candidateTexts.map(() => "?").join(", ");
@@ -534,15 +536,20 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
   const runId = uuidv7();
 
   // Atomic guard against concurrent tuning runs: INSERT only if no
-  // other run has status='running'. This avoids the TOCTOU race of a
-  // separate SELECT then INSERT.
+  // other run has status='running' within the last hour. Runs older
+  // than 1 hour are treated as stale (crashed process) so they don't
+  // permanently block the tuner.
   if (!options.dryRun) {
     const pool = getPool();
     const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO tuning_run (run_id, status, hours_window)
        SELECT ?, 'running', ?
        FROM DUAL
-       WHERE NOT EXISTS (SELECT 1 FROM tuning_run WHERE status = 'running')`,
+       WHERE NOT EXISTS (
+         SELECT 1 FROM tuning_run
+         WHERE status = 'running'
+           AND started_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+       )`,
       [runId, options.hours],
     );
     if (result.affectedRows === 0) {
