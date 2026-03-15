@@ -89,24 +89,33 @@ interface AgentTierOutcomeRow extends RowDataPacket {
 
 /**
  * Aggregates outcome signals per agent per complexity tier.
- * Only considers tiers 0-3 signals with non-null signal_value.
+ * Uses per-task aggregation first (MIN signal_value — worst signal wins)
+ * to avoid skewing metrics when a single task has multiple signals that
+ * disagree (e.g. clean_execution=1 but json_valid=0).
  */
 export async function aggregateOutcomesByAgentTier(hours: number): Promise<AgentTierOutcome[]> {
   const rows = await query<AgentTierOutcomeRow[]>(
     `SELECT
-       t.selected_agent_id AS agent_id,
-       t.complexity_tier,
-       SUM(CASE WHEN o.signal_value = 1 THEN 1 ELSE 0 END) AS positive,
-       SUM(CASE WHEN o.signal_value = 0 THEN 1 ELSE 0 END) AS negative,
+       agent_id,
+       complexity_tier,
+       SUM(CASE WHEN task_signal = 1 THEN 1 ELSE 0 END) AS positive,
+       SUM(CASE WHEN task_signal = 0 THEN 1 ELSE 0 END) AS negative,
        COUNT(*) AS total
-     FROM task_outcome o
-     JOIN task_log t ON t.task_id = o.task_id
-     WHERE o.signal_value IS NOT NULL
-       AND o.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
-       AND t.selected_agent_id IS NOT NULL
-       AND t.complexity_tier IS NOT NULL
-     GROUP BY t.selected_agent_id, t.complexity_tier
-     ORDER BY t.selected_agent_id, t.complexity_tier`,
+     FROM (
+       SELECT
+         t.selected_agent_id AS agent_id,
+         t.complexity_tier,
+         MIN(o.signal_value) AS task_signal
+       FROM task_outcome o
+       JOIN task_log t ON t.task_id = o.task_id
+       WHERE o.signal_value IS NOT NULL
+         AND o.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+         AND t.selected_agent_id IS NOT NULL
+         AND t.complexity_tier IS NOT NULL
+       GROUP BY t.selected_agent_id, t.complexity_tier, o.task_id
+     ) per_task
+     GROUP BY agent_id, complexity_tier
+     ORDER BY agent_id, complexity_tier`,
     [hours],
   );
 
@@ -383,6 +392,8 @@ async function crystallizeRules(
 ): Promise<CrystallizedRule[]> {
   const crystallizedRules: CrystallizedRule[] = [];
 
+  // Need at least minPatternFrequency total escalations before it's
+  // worth looking for repeated patterns within them.
   if (escalations.length < options.minPatternFrequency) {
     return crystallizedRules;
   }
@@ -501,8 +512,10 @@ async function promoteUtterances(
   );
   const existingTexts = new Set(existingRows.map((r) => r.utterance_text));
 
+  const seen = new Set<string>();
   for (const fb of truncated) {
-    if (existingTexts.has(fb.text)) continue;
+    if (existingTexts.has(fb.text) || seen.has(fb.text)) continue;
+    seen.add(fb.text);
 
     const text = fb.text;
 
@@ -540,6 +553,8 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
   // than 1 hour are treated as stale (crashed process) so they don't
   // permanently block the tuner.
   if (!options.dryRun) {
+    // Uses pool.query directly (not the query() helper) because we need
+    // ResultSetHeader.affectedRows to check whether the INSERT succeeded.
     const pool = getPool();
     const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO tuning_run (run_id, status, hours_window)
@@ -579,6 +594,12 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
         : Number(taskCountRows[0]?.cnt ?? 0);
 
     // ----- Step 2: Crystallize LLM escalation patterns into rules -----
+    // Note: Steps 2-3 are not wrapped in a transaction. If step 3 fails
+    // after step 2 writes rules, those rules persist (orphaned from the
+    // tuning run record). This is an intentional trade-off — Dolt's
+    // diff/revert capabilities make partial writes recoverable, and
+    // wrapping the entire pipeline in a transaction would hold locks
+    // across multiple slow queries.
     const escalations = await findSuccessfulEscalations(
       options.hours,
       options.crystallizeConfidenceThreshold,

@@ -189,7 +189,10 @@ describe("aggregateOutcomesByAgentTier", () => {
     const results = await aggregateOutcomesByAgentTier(24);
     const match = results.find((r) => r.agent_id === agentId && r.complexity_tier === 3);
     expect(match).toBeDefined();
-    expect(match!.positive).toBeGreaterThanOrEqual(2);
+    // Per-task aggregation: 2 signals for the same task collapse to 1
+    // positive task (MIN of signal_values, both are 1 → task_signal=1)
+    expect(match!.positive).toBeGreaterThanOrEqual(1);
+    expect(match!.total).toBeGreaterThanOrEqual(1);
     expect(match!.success_rate).toBeGreaterThan(0);
 
     // Cleanup
