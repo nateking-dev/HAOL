@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS tuning_run (
     run_id          VARCHAR(36)   PRIMARY KEY,
     started_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at    TIMESTAMP     NULL,
-    status          ENUM('running', 'completed', 'failed', 'dry_run') NOT NULL DEFAULT 'running',
+    status          ENUM('running', 'completed', 'failed') NOT NULL DEFAULT 'running',
     hours_window    INT           NOT NULL,
     tasks_analyzed  INT           NOT NULL DEFAULT 0,
     signals_used    INT           NOT NULL DEFAULT 0,

@@ -38,6 +38,7 @@ afterAll(async () => {
     await pool.query("DELETE FROM task_outcome WHERE task_id LIKE 'test-tune-%'");
     await pool.query("DELETE FROM routing_log WHERE request_id LIKE 'test-tune-%'");
     await pool.query("DELETE FROM task_log WHERE task_id LIKE 'test-tune-%'");
+    await pool.query("DELETE FROM agent_registry WHERE agent_id LIKE 'test-tune-%'");
   }
   await destroy();
 });
@@ -221,43 +222,36 @@ describe("tune (live run)", () => {
 });
 
 describe("tune (concurrent run guard)", () => {
-  it("rejects a second live run while one is in progress", async ({ skip }) => {
+  it("rejects a second live run while the lock is held", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const pool = getPool();
-    const fakeRunId = "test-tune-concurrent-guard";
-
-    // Simulate an in-progress run
-    await pool.query(
-      `INSERT INTO tuning_run (run_id, status, hours_window) VALUES (?, 'running', 1)`,
-      [fakeRunId],
-    );
-
+    // Acquire the advisory lock on a dedicated connection to simulate
+    // another tuning run in progress
+    const conn = await pool.getConnection();
     try {
+      await conn.query(`SELECT GET_LOCK('haol_tuner', 10)`);
       await expect(tune({ dryRun: false, hours: 1 })).rejects.toThrow(
         /Another tuning run is already in progress/,
       );
     } finally {
-      await pool.query("DELETE FROM tuning_run WHERE run_id = ?", [fakeRunId]);
+      await conn.query(`SELECT RELEASE_LOCK('haol_tuner')`);
+      conn.release();
     }
   });
 
-  it("allows dry run even when a live run is in progress", async ({ skip }) => {
+  it("allows dry run even when the lock is held", async ({ skip }) => {
     if (!doltAvailable) skip();
 
     const pool = getPool();
-    const fakeRunId = "test-tune-concurrent-dryrun";
-
-    await pool.query(
-      `INSERT INTO tuning_run (run_id, status, hours_window) VALUES (?, 'running', 1)`,
-      [fakeRunId],
-    );
-
+    const conn = await pool.getConnection();
     try {
+      await conn.query(`SELECT GET_LOCK('haol_tuner', 10)`);
       const result = await tune({ dryRun: true, hours: 1 });
       expect(result.status).toBe("dry_run");
     } finally {
-      await pool.query("DELETE FROM tuning_run WHERE run_id = ?", [fakeRunId]);
+      await conn.query(`SELECT RELEASE_LOCK('haol_tuner')`);
+      conn.release();
     }
   });
 });

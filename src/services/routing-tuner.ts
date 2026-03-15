@@ -1,4 +1,4 @@
-import { query, execute, getPool, withConnection } from "../db/connection.js";
+import { query, execute, getPool } from "../db/connection.js";
 import { doltCommit } from "../db/dolt.js";
 import { uuidv7 } from "../types/task.js";
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
@@ -166,7 +166,6 @@ export async function findSuccessfulEscalations(
          SELECT 1 FROM task_outcome o
          WHERE o.task_id = t.task_id
            AND o.signal_value = 1
-           AND o.tier IN (0, 1, 2, 3)
        )
      ORDER BY rl.created_at DESC
      LIMIT 500`,
@@ -548,28 +547,41 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
   const options: TuneOptions = { ...DEFAULT_TUNE_OPTIONS, ...opts };
   const runId = uuidv7();
 
-  // Atomic guard against concurrent tuning runs: INSERT only if no
-  // other run has status='running' within the last hour. Runs older
-  // than 1 hour are treated as stale (crashed process) so they don't
-  // permanently block the tuner.
+  // Acquire an advisory lock to prevent concurrent tuning runs.
+  // GET_LOCK is truly atomic — the DB serializes callers. Runs older
+  // than 1 hour with status='running' are treated as stale (crashed).
   if (!options.dryRun) {
-    // Uses pool.query directly (not the query() helper) because we need
-    // ResultSetHeader.affectedRows to check whether the INSERT succeeded.
     const pool = getPool();
-    const [result] = await pool.query<ResultSetHeader>(
-      `INSERT INTO tuning_run (run_id, status, hours_window)
-       SELECT ?, 'running', ?
-       FROM DUAL
-       WHERE NOT EXISTS (
-         SELECT 1 FROM tuning_run
-         WHERE status = 'running'
-           AND started_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
-       )`,
-      [runId, options.hours],
+
+    // GET_LOCK returns 1 if acquired, 0 if timed out. Timeout of 0
+    // means fail immediately if another session holds the lock.
+    const [lockRows] = await pool.query<RowDataPacket[]>(
+      `SELECT GET_LOCK('haol_tuner', 0) AS acquired`,
     );
-    if (result.affectedRows === 0) {
+    const acquired = (lockRows as Record<string, unknown>[])[0]?.acquired;
+    if (acquired !== 1) {
       throw new Error("Another tuning run is already in progress");
     }
+
+    // Also check for stale 'running' records from crashed processes
+    const [staleRows] = await pool.query<RowDataPacket[]>(
+      `SELECT run_id FROM tuning_run
+       WHERE status = 'running'
+         AND started_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
+    );
+    for (const row of staleRows as Record<string, unknown>[]) {
+      await pool.query(
+        `UPDATE tuning_run SET status = 'failed', completed_at = NOW(),
+                error_message = 'Marked stale by subsequent run'
+         WHERE run_id = ?`,
+        [row.run_id],
+      );
+    }
+
+    await execute(
+      `INSERT INTO tuning_run (run_id, status, hours_window) VALUES (?, 'running', ?)`,
+      [runId, options.hours],
+    );
   }
 
   try {
@@ -688,6 +700,14 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
       }
     }
     throw err;
+  } finally {
+    if (!options.dryRun) {
+      try {
+        await execute(`SELECT RELEASE_LOCK('haol_tuner')`);
+      } catch {
+        // Lock release is best-effort — it auto-releases on disconnect
+      }
+    }
   }
 }
 

@@ -7,56 +7,71 @@ export interface TuneCommandOptions {
   baseUrl: string;
 }
 
+async function safeJson(res: Response): Promise<Record<string, unknown>> {
+  try {
+    return await res.json();
+  } catch {
+    return { error: `Non-JSON response (${res.status})` };
+  }
+}
+
 export async function tuneCommand(opts: TuneCommandOptions): Promise<string> {
   const hours = opts.hours ?? 72;
   const dryRun = opts.dryRun ? "&dry_run=true" : "";
   const res = await fetch(`${opts.baseUrl}/observability/tune?hours=${hours}${dryRun}`, {
     method: "POST",
   });
-  const data = await res.json();
+  const data = await safeJson(res);
 
   if (!res.ok) {
-    return `Error (${res.status}): ${data.error ?? "Unknown error"}`;
+    return `Error (${res.status}): ${(data as { error?: string }).error ?? "Unknown error"}`;
   }
 
   if (opts.format === "json") {
     return formatOutput(data, "json");
   }
 
+  const d = data as Record<string, unknown>;
+  const agentTierOutcomes = (d.agent_tier_outcomes ?? []) as Record<string, unknown>[];
+  const rulesCreated = (d.rules_created ?? []) as Record<string, unknown>[];
+  const utterancesAdded = (d.utterances_added ?? []) as Record<string, unknown>[];
+
   const lines: string[] = [
-    `=== Tuning ${data.status === "dry_run" ? "(dry run) " : ""}Complete ===`,
+    `=== Tuning ${d.status === "dry_run" ? "(dry run) " : ""}Complete ===`,
     "",
-    `Run ID:              ${data.run_id}`,
-    `Window:              ${data.hours_window}h`,
-    `Tasks analyzed:      ${data.tasks_analyzed}`,
-    `Signals used:        ${data.signals_used}`,
-    `Rules crystallized:  ${data.rules_created.length}`,
-    `Utterances promoted: ${data.utterances_added.length}`,
-    `Actionable combos:   ${data.actionable_agent_tier_combos} agent+tier pairs with sufficient data`,
+    `Run ID:              ${d.run_id}`,
+    `Window:              ${d.hours_window}h`,
+    `Tasks analyzed:      ${d.tasks_analyzed}`,
+    `Signals used:        ${d.signals_used}`,
+    `Rules crystallized:  ${rulesCreated.length}`,
+    `Utterances promoted: ${utterancesAdded.length}`,
+    `Actionable combos:   ${d.actionable_agent_tier_combos} agent+tier pairs with sufficient data`,
   ];
 
-  if (data.agent_tier_outcomes.length > 0) {
+  if (agentTierOutcomes.length > 0) {
     lines.push("", "Agent Performance by Tier:");
-    for (const o of data.agent_tier_outcomes) {
-      const rate = (o.success_rate * 100).toFixed(1);
+    for (const o of agentTierOutcomes) {
+      const rate = (Number(o.success_rate) * 100).toFixed(1);
       lines.push(
-        `  ${o.agent_id.padEnd(28)} T${o.complexity_tier}  ${rate}% success  (${o.positive}/${o.total})`,
+        `  ${String(o.agent_id).padEnd(28)} T${o.complexity_tier}  ${rate}% success  (${o.positive}/${o.total})`,
       );
     }
   }
 
-  if (data.rules_created.length > 0) {
+  if (rulesCreated.length > 0) {
     lines.push("", "Crystallized Rules:");
-    for (const r of data.rules_created) {
+    for (const r of rulesCreated) {
       lines.push(`  T${r.tier_id} contains "${r.pattern}" (from ${r.source_task_count} tasks)`);
     }
   }
 
-  if (data.utterances_added.length > 0) {
+  if (utterancesAdded.length > 0) {
     lines.push("", "Promoted Utterances:");
-    for (const u of data.utterances_added) {
+    for (const u of utterancesAdded) {
       const text =
-        u.utterance_text.length > 60 ? u.utterance_text.slice(0, 57) + "..." : u.utterance_text;
+        String(u.utterance_text).length > 60
+          ? String(u.utterance_text).slice(0, 57) + "..."
+          : String(u.utterance_text);
       lines.push(`  T${u.tier_id} "${text}"`);
     }
   }
@@ -73,10 +88,10 @@ export interface TuneHistoryCommandOptions {
 export async function tuneHistoryCommand(opts: TuneHistoryCommandOptions): Promise<string> {
   const limit = opts.last ?? 10;
   const res = await fetch(`${opts.baseUrl}/observability/tune/history?limit=${limit}`);
-  const data = await res.json();
+  const data = await safeJson(res);
 
   if (!res.ok) {
-    return `Error (${res.status}): ${data.error ?? "Unknown error"}`;
+    return `Error (${res.status}): ${(data as { error?: string }).error ?? "Unknown error"}`;
   }
 
   if (opts.format === "json") {
