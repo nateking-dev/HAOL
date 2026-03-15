@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS tuning_run (
     signals_used    INT           NOT NULL DEFAULT 0,
     rules_created   INT           NOT NULL DEFAULT 0,
     utterances_added INT          NOT NULL DEFAULT 0,
-    outcome_scores_updated INT    NOT NULL DEFAULT 0,
+    actionable_agent_tier_combos INT    NOT NULL DEFAULT 0,
     summary         JSON          DEFAULT NULL,
     error_message   TEXT          DEFAULT NULL,
     KEY idx_tuning_status (status),

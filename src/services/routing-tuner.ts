@@ -1,8 +1,10 @@
-import { query, execute } from "../db/connection.js";
+import { query, execute, getPool, withConnection } from "../db/connection.js";
 import { doltCommit } from "../db/dolt.js";
 import { uuidv7 } from "../types/task.js";
-import type { RowDataPacket } from "mysql2/promise";
+import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import type { TierId } from "../cascade-router/types.js";
+
+const MIN_UTTERANCE_LENGTH = 20;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,7 +63,7 @@ export interface TuneResult {
   agent_tier_outcomes: AgentTierOutcome[];
   rules_created: CrystallizedRule[];
   utterances_added: PromotedUtterance[];
-  outcome_scores_updated: number;
+  actionable_agent_tier_combos: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -359,14 +361,16 @@ export function extractKeyPhrases(prompts: string[], minFrequency: number): Map<
 // ---------------------------------------------------------------------------
 
 interface ExistingRuleRow extends RowDataPacket {
+  tier_id: number;
   pattern: string;
 }
 
 async function existingContainsPatterns(): Promise<Set<string>> {
   const rows = await query<ExistingRuleRow[]>(
-    `SELECT pattern FROM routing_rules WHERE rule_type = 'contains' AND enabled = TRUE`,
+    `SELECT tier_id, pattern FROM routing_rules WHERE rule_type = 'contains' AND enabled = TRUE`,
   );
-  return new Set(rows.map((r) => r.pattern.toLowerCase()));
+  // Key by tier:pattern so the same phrase can exist at different tiers
+  return new Set(rows.map((r) => `${r.tier_id}:${r.pattern.toLowerCase()}`));
 }
 
 // ---------------------------------------------------------------------------
@@ -402,7 +406,7 @@ async function crystallizeRules(
     const sorted = [...phrases.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
 
     for (const [phrase, count] of sorted) {
-      if (existingPatterns.has(phrase)) continue;
+      if (existingPatterns.has(`${tier}:${phrase}`)) continue;
 
       // Look up capabilities from the tasks that matched
       const capRows = await query<(RowDataPacket & { required_capabilities: string | null })[]>(
@@ -474,11 +478,14 @@ async function promoteUtterances(
 
   if (candidates.length === 0) return promotedUtterances;
 
-  // Truncate before dedup so we check the same text we'll insert
-  const truncated = candidates.map((fb) => ({
-    ...fb,
-    text: fb.input_text.length > 512 ? fb.input_text.slice(0, 512) : fb.input_text,
-  }));
+  // Truncate and filter: skip very short prompts that would pollute the
+  // semantic layer, and cap at 512 chars for embedding quality.
+  const truncated = candidates
+    .filter((fb) => fb.input_text.trim().length >= MIN_UTTERANCE_LENGTH)
+    .map((fb) => ({
+      ...fb,
+      text: fb.input_text.length > 512 ? fb.input_text.slice(0, 512) : fb.input_text,
+    }));
 
   // Batch check for existing utterances to avoid N+1 queries
   const candidateTexts = truncated.map((fb) => fb.text);
@@ -526,22 +533,21 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
   const options: TuneOptions = { ...DEFAULT_TUNE_OPTIONS, ...opts };
   const runId = uuidv7();
 
-  // Guard against concurrent tuning runs
+  // Atomic guard against concurrent tuning runs: INSERT only if no
+  // other run has status='running'. This avoids the TOCTOU race of a
+  // separate SELECT then INSERT.
   if (!options.dryRun) {
-    interface RunningRow extends RowDataPacket {
-      run_id: string;
-    }
-    const running = await query<RunningRow[]>(
-      `SELECT run_id FROM tuning_run WHERE status = 'running' LIMIT 1`,
-    );
-    if (running.length > 0) {
-      throw new Error(`Another tuning run is already in progress: ${running[0].run_id}`);
-    }
-
-    await execute(
-      `INSERT INTO tuning_run (run_id, status, hours_window) VALUES (?, 'running', ?)`,
+    const pool = getPool();
+    const [result] = await pool.query<ResultSetHeader>(
+      `INSERT INTO tuning_run (run_id, status, hours_window)
+       SELECT ?, 'running', ?
+       FROM DUAL
+       WHERE NOT EXISTS (SELECT 1 FROM tuning_run WHERE status = 'running')`,
       [runId, options.hours],
     );
+    if (result.affectedRows === 0) {
+      throw new Error("Another tuning run is already in progress");
+    }
   }
 
   try {
@@ -591,7 +597,7 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
       agent_tier_outcomes: agentTierOutcomes,
       rules_created: crystallizedRules,
       utterances_added: promotedUtterances,
-      outcome_scores_updated: actionableScores.length,
+      actionable_agent_tier_combos: actionableScores.length,
     };
 
     if (!options.dryRun) {
@@ -600,7 +606,7 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
          SET status = ?, completed_at = NOW(),
              tasks_analyzed = ?, signals_used = ?,
              rules_created = ?, utterances_added = ?,
-             outcome_scores_updated = ?,
+             actionable_agent_tier_combos = ?,
              summary = ?
          WHERE run_id = ?`,
         [
@@ -636,8 +642,8 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
           message: parts.join(" | "),
           author: "haol-tuner <haol@system>",
         });
-      } catch {
-        // best-effort commit
+      } catch (commitErr) {
+        console.error("doltCommit failed after tuning run:", commitErr);
       }
     }
 
@@ -649,8 +655,8 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
           `UPDATE tuning_run SET status = 'failed', completed_at = NOW(), error_message = ? WHERE run_id = ?`,
           [err instanceof Error ? err.message : "unknown", runId],
         );
-      } catch {
-        // best-effort
+      } catch (updateErr) {
+        console.error("Failed to mark tuning_run as failed:", updateErr);
       }
     }
     throw err;
@@ -671,7 +677,7 @@ export interface TuningRunSummary {
   signals_used: number;
   rules_created: number;
   utterances_added: number;
-  outcome_scores_updated: number;
+  actionable_agent_tier_combos: number;
 }
 
 interface TuningRunRow extends RowDataPacket {
@@ -684,14 +690,14 @@ interface TuningRunRow extends RowDataPacket {
   signals_used: number;
   rules_created: number;
   utterances_added: number;
-  outcome_scores_updated: number;
+  actionable_agent_tier_combos: number;
 }
 
 export async function recentTuningRuns(limit: number = 10): Promise<TuningRunSummary[]> {
   const rows = await query<TuningRunRow[]>(
     `SELECT run_id, started_at, completed_at, status, hours_window,
             tasks_analyzed, signals_used, rules_created, utterances_added,
-            outcome_scores_updated
+            actionable_agent_tier_combos
      FROM tuning_run
      ORDER BY started_at DESC
      LIMIT ?`,
@@ -711,6 +717,6 @@ export async function recentTuningRuns(limit: number = 10): Promise<TuningRunSum
     signals_used: r.signals_used,
     rules_created: r.rules_created,
     utterances_added: r.utterances_added,
-    outcome_scores_updated: r.outcome_scores_updated,
+    actionable_agent_tier_combos: r.actionable_agent_tier_combos,
   }));
 }

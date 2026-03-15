@@ -555,7 +555,7 @@ Tasks analyzed:      847
 Signals used:        2341
 Rules crystallized:  2
 Utterances promoted: 4
-Outcome scores:      6 agent+tier combos with sufficient data
+Actionable combos:   6 agent+tier pairs with sufficient data
 
 Agent Performance by Tier:
   claude-sonnet-4-5              T3  94.2% success  (49/52)

@@ -32,7 +32,7 @@ export async function tuneCommand(opts: TuneCommandOptions): Promise<string> {
     `Signals used:        ${data.signals_used}`,
     `Rules crystallized:  ${data.rules_created.length}`,
     `Utterances promoted: ${data.utterances_added.length}`,
-    `Outcome scores:      ${data.outcome_scores_updated} agent+tier combos with sufficient data`,
+    `Actionable combos:   ${data.actionable_agent_tier_combos} agent+tier pairs with sufficient data`,
   ];
 
   if (data.agent_tier_outcomes.length > 0) {

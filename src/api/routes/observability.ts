@@ -120,8 +120,13 @@ observability.post("/tune", async (c) => {
 
 observability.get("/tune/history", async (c) => {
   const limit = parseIntParam(c.req.query("limit"), 10, 1, 100);
-  const runs = await recentTuningRuns(limit);
-  return c.json(runs, 200);
+  try {
+    const runs = await recentTuningRuns(limit);
+    return c.json(runs, 200);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to fetch tuning history";
+    return c.json({ error: message }, 500);
+  }
 });
 
 // --- Audit routes ---
