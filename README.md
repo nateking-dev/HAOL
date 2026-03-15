@@ -42,6 +42,15 @@ All routing decisions are stored in [Dolt](https://www.dolthub.com/), a Git-like
            ┌───────────┐
            │  Commit   │  Atomic Dolt commit with full telemetry
            └───────────┘
+
+      ┌──────────────────────┐
+      │   Routing Tuner      │  Periodic: learns from outcomes to improve routing
+      │                      │  Crystallizes rules, promotes utterances,
+      │                      │  tracks agent performance by tier
+      └──────────────────────┘
+            ▲           │
+            │ outcomes   │ new rules + utterances
+            └───────────┘
 ```
 
 ### Complexity Tiers
@@ -450,6 +459,131 @@ curl http://localhost:3000/stats/routing-accuracy?hours=24
 
 ---
 
+## Routing Tuner: Closing the Learning Loop
+
+The outcome capture system collects rich feedback about every routing decision — but without the routing tuner, that data just sits in a table. The tuner closes the loop: it analyzes accumulated outcome signals and uses them to improve future routing decisions automatically.
+
+### What It Does
+
+The tuner performs three concrete actions on each run:
+
+1. **Aggregates agent performance by tier** — Computes success rates per agent per complexity tier from all outcome signal tiers (0-3). This answers: "How does Claude Sonnet perform on T3 code tasks vs T2 summarization tasks?" The aggregated data feeds directly into agent selection via `weight_outcome`.
+
+2. **Crystallizes LLM escalation patterns into deterministic rules** — When the expensive Layer 2 LLM classifier repeatedly makes the same high-confidence classification for prompts containing a common keyword, the tuner extracts that keyword and creates a cheap Layer 0 `contains` rule. Future prompts with that keyword are classified in microseconds instead of ~800ms, saving both time and money.
+
+3. **Promotes successful fallback prompts into reference utterances** — Tasks that fell through all cascade layers to the fallback (confidence: 0) but still completed successfully are added as new Layer 1 reference utterances. Their embeddings are computed on the next `seed:embeddings` run. Over time, this fills gaps in the semantic similarity layer so fewer prompts need expensive LLM escalation.
+
+### How It Works
+
+```
+  Outcome signals (task_outcome table)
+        │
+        ▼
+  ┌──────────────────────────────────────┐
+  │  1. Aggregate by agent + tier        │  "claude-sonnet on T3: 94% success"
+  │  2. Find repeated LLM escalations    │  "kubernetes" classified as T3 five times
+  │  3. Extract common keywords          │  → new Layer 0 rule: contains "kubernetes" → T3
+  │  4. Find successful fallback prompts │  → new Layer 1 utterance (pending embedding)
+  └──────────────────┬───────────────────┘
+                     │
+                     ▼
+  ┌──────────────────────────────────────┐
+  │  Write to routing_rules,            │
+  │  routing_utterances, tuning_run     │
+  │  → Dolt commit                      │
+  └──────────────────────────────────────┘
+```
+
+### Safety
+
+- **Dry run mode** — `--dry-run` computes all adjustments without writing anything. Review what _would_ change before committing.
+- **Minimum sample sizes** — Rules are only crystallized from patterns seen in at least 3 successful tasks. Agent outcome scores require at least 5 tasks per agent+tier combo.
+- **Confidence thresholds** — Only high-confidence LLM escalations (≥ 0.8) are candidates for crystallization. Low-confidence classifications are too unreliable to codify.
+- **Duplicate detection** — The tuner checks for existing `contains` rules and utterance text before inserting, preventing duplicate entries across runs.
+- **Dolt audit trail** — Every tuning run is a Dolt commit. You can `dolt diff` the before/after state of `routing_rules` and `routing_utterances`, or `dolt revert` a bad tuning run entirely.
+- **Run tracking** — Each tuning cycle is recorded in the `tuning_run` table with status, metrics, and a JSON summary of what changed.
+
+### Usage
+
+```bash
+# Preview what the tuner would do (no writes)
+haol tune --dry-run
+
+# Run the tuner (default: 72-hour analysis window)
+haol tune
+
+# Analyze a longer window
+haol tune --hours 168
+
+# View past tuning runs
+haol tune history --last 5
+```
+
+Via API:
+
+```bash
+# Dry run
+curl -X POST "http://localhost:3000/observability/tune?hours=72&dry_run=true"
+
+# Live run
+curl -X POST "http://localhost:3000/observability/tune?hours=72"
+
+# Tuning history
+curl "http://localhost:3000/observability/tune/history?limit=10"
+```
+
+### Configuration
+
+The tuner accepts these parameters (defaults shown):
+
+| Parameter                          | Default | What It Controls                                                      |
+| ---------------------------------- | ------- | --------------------------------------------------------------------- |
+| `hours`                            | `72`    | How far back to analyze outcome signals                               |
+| `minSampleSize`                    | `5`     | Minimum tasks per agent+tier before including in aggregation          |
+| `minPatternFrequency`              | `3`     | Minimum times a keyword must appear in LLM escalations to crystallize |
+| `crystallizeConfidenceThreshold`   | `0.8`   | Only crystallize from escalations with confidence ≥ this value        |
+| `dryRun`                           | `false` | If true, compute adjustments without writing                          |
+
+### Example Output
+
+```
+=== Tuning Complete ===
+
+Run ID:              019d1a2b-3c4d-7e5f-...
+Window:              72h
+Tasks analyzed:      847
+Signals used:        2341
+Rules crystallized:  2
+Utterances promoted: 4
+Outcome scores:      6 agent+tier combos with sufficient data
+
+Agent Performance by Tier:
+  claude-sonnet-4-5              T3  94.2% success  (49/52)
+  claude-haiku-4-5               T1  97.8% success  (89/91)
+  gpt-4o-mini                    T2  88.5% success  (46/52)
+
+Crystallized Rules:
+  T3 contains "kubernetes" (from 7 tasks)
+  T4 contains "architecture" (from 5 tasks)
+
+Promoted Utterances:
+  T2 "Compare these two pricing models and recommend..."
+  T3 "Help me debug the memory leak in this Node.js..."
+```
+
+### Compounding Effect
+
+The tuner is designed to compound over time:
+
+- **First runs** have modest impact — the rules and utterances start sparse
+- **Each run** adds new rules and utterances, making the cascade router more accurate
+- **More accurate routing** means fewer fallbacks and escalations, which means faster and cheaper classification
+- **Better-routed tasks** produce more positive outcomes, which further improves agent selection scores
+
+This is the only subsystem where HAOL's value grows with usage. Everything else is static configuration; the tuner makes the system learn.
+
+---
+
 ## Core Subsystems
 
 | Subsystem             | Location                            | Purpose                                                                |
@@ -459,6 +593,7 @@ curl http://localhost:3000/stats/routing-accuracy?hours=24
 | **Agent Selection**   | `src/services/agent-selection.ts`   | Filters candidates, scores them, picks the best match                  |
 | **Execution Engine**  | `src/services/execution.ts`         | Invokes agents via provider adapters with retry and fallback           |
 | **Outcome Collector** | `src/services/outcome-collector.ts` | 4-tier feedback capture (structural, format, routing eval, downstream) |
+| **Routing Tuner**     | `src/services/routing-tuner.ts`     | Learns from outcomes to crystallize rules, promote utterances          |
 | **Router**            | `src/router/router.ts`              | Orchestrates the full pipeline from intake to commit                   |
 | **Memory Manager**    | `src/memory/`                       | Session branches in Dolt for per-task context persistence              |
 
@@ -525,7 +660,7 @@ cp .env.example .env
 Run migrations, seed data, and compute embeddings:
 
 ```bash
-npm run migrate          # Apply schema (13 migrations, 13 tables)
+npm run migrate          # Apply schema (16 migrations, 14 tables)
 npm run seed             # Insert agents, routing policy, tiers, rules, config, and reference utterances
 npm run seed:embeddings  # Compute embeddings for the 32 reference utterances via OpenAI (requires OPENAI_API_KEY)
 ```
@@ -625,6 +760,11 @@ curl http://localhost:3000/stats/breaches
 curl http://localhost:3000/stats/outcomes?hours=24
 curl http://localhost:3000/stats/routing-accuracy?hours=24
 
+# Routing tuner
+curl -X POST "http://localhost:3000/observability/tune?hours=72"
+curl -X POST "http://localhost:3000/observability/tune?dry_run=true"
+curl http://localhost:3000/observability/tune/history?limit=10
+
 # Audit trail
 curl http://localhost:3000/audit/commits?limit=50
 curl http://localhost:3000/audit/agents?since=7d
@@ -664,13 +804,19 @@ haol stats --hours 24
 # Audit trail
 haol audit commits --last 10
 haol audit agents
+
+# Routing tuner
+haol tune                  # Run the learning loop
+haol tune --dry-run        # Preview without writing
+haol tune --hours 168      # Analyze a wider window
+haol tune history          # View past tuning runs
 ```
 
 Output formats: `--format table` (default), `--format json`, `--format minimal`
 
 ## Database Schema
 
-HAOL uses 13 tables in Dolt:
+HAOL uses 14 tables in Dolt:
 
 | Table                 | Purpose                                                                          |
 | --------------------- | -------------------------------------------------------------------------------- |
@@ -687,6 +833,7 @@ HAOL uses 13 tables in Dolt:
 | `router_config`       | Key-value configuration for cascade router thresholds                            |
 | `routing_log`         | Audit trail of every routing decision — layer, confidence, latency               |
 | `task_outcome`        | 4-tier outcome signals — structural, format, routing eval, downstream            |
+| `tuning_run`          | Routing tuner run history — status, metrics, summary of changes                  |
 
 Because the backing store is Dolt, every change is a commit. You can:
 
@@ -715,16 +862,16 @@ src/
 ├── classifier/          # Legacy regex-only classifier (fallback)
 ├── cli/                 # CLI commands and output formatting
 ├── db/                  # Dolt connection, migrations, seeds
-│   └── migrations/      # SQL migration files (001–013)
+│   └── migrations/      # SQL migration files (001–016)
 ├── memory/              # Session branch management + cleanup
 ├── observability/       # Dashboard metrics + analytics queries
 ├── providers/           # LLM provider adapters (Anthropic, OpenAI, local)
 ├── repositories/        # Data access layer for each table
 ├── router/              # Main orchestration pipeline
-├── services/            # Business logic (selection, execution, outcome collection)
+├── services/            # Business logic (selection, execution, outcome collection, tuning)
 ├── types/               # TypeScript interfaces + Zod schemas
 └── index.ts             # Server entry point
-tests/                   # Mirrors src/ structure (240+ tests)
+tests/                   # Mirrors src/ structure (300+ tests)
 ```
 
 ## How Routing Works (End to End)

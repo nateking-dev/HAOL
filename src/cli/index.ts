@@ -5,6 +5,7 @@ import { statusCommand } from "./commands/status.js";
 import { historyCommand } from "./commands/history.js";
 import { statsCommand } from "./commands/stats.js";
 import { auditAgentsCommand, auditCommitsCommand } from "./commands/audit.js";
+import { tuneCommand, tuneHistoryCommand } from "./commands/tune.js";
 import type { OutputFormat } from "./output.js";
 
 const USAGE = `Usage: haol <command> [options]
@@ -19,6 +20,8 @@ Commands:
   stats                      Dashboard summary (cost, latency, failures)
   audit agents               Agent registry changes
   audit commits              Recent Dolt commits
+  tune                       Run routing tuner (learn from outcomes)
+  tune history               Show recent tuning runs
 
 Options:
   --tier <n>                 Override complexity tier (1-4)
@@ -28,6 +31,7 @@ Options:
   --agent <id>               Filter history by agent
   --hours <n>                Stats time window (default: 24)
   --since <duration>         Audit time window, e.g. 7d, 24h (default: 7d)
+  --dry-run                  Tune: compute without writing changes
   --format <table|json|min>  Output format (default: table)
   --base-url <url>           API base URL (default: http://localhost:3000)
   --help                     Show this help message
@@ -57,6 +61,7 @@ export async function run(argv: string[]): Promise<string> {
       since: { type: "string" },
       format: { type: "string", short: "f" },
       "base-url": { type: "string" },
+      "dry-run": { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: true,
@@ -163,6 +168,21 @@ export async function run(argv: string[]): Promise<string> {
         default:
           return `Unknown audit subcommand: ${subcommand}\n\nUsage: haol audit agents|commits`;
       }
+    }
+
+    case "tune": {
+      const subcommand = positionals[0];
+      if (subcommand === "history") {
+        const last = values.last ? parseInt(values.last as string, 10) : undefined;
+        return tuneHistoryCommand({ last, format, baseUrl });
+      }
+      const hours = values.hours ? parseInt(values.hours as string, 10) : undefined;
+      return tuneCommand({
+        hours,
+        dryRun: Boolean(values["dry-run"]),
+        format,
+        baseUrl,
+      });
     }
 
     default:
