@@ -16,7 +16,6 @@ import {
   countOrphanedPendingRecords,
 } from "../../repositories/task-outcome.js";
 import { doltCommit } from "../../db/dolt.js";
-import { apiKeyAuth } from "../middleware/api-key-auth.js";
 
 const observability = new Hono();
 
@@ -83,9 +82,7 @@ observability.get("/stats/orphaned-pending", async (c) => {
   return c.json({ orphaned_pending: count, max_age_hours: maxAgeHours }, 200);
 });
 
-// --- Maintenance routes (require auth even when HAOL_API_KEY is unset) ---
-
-observability.use("/maintenance/*", apiKeyAuth);
+// --- Maintenance routes ---
 
 observability.post("/maintenance/cleanup-pending", async (c) => {
   const maxAgeHours = parseIntParam(c.req.query("max_age_hours"), 24, 1, MAX_HOURS);

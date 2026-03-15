@@ -8,7 +8,7 @@ export interface StatsCommandOptions {
 
 export async function statsCommand(opts: StatsCommandOptions): Promise<string> {
   const hours = opts.hours ?? 24;
-  const res = await fetch(`${opts.baseUrl}/stats?hours=${hours}`);
+  const res = await fetch(`${opts.baseUrl}/observability/stats?hours=${hours}`);
   const data = await res.json();
 
   if (!res.ok) {

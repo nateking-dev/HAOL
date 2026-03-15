@@ -23,7 +23,7 @@ export function createApp(): Hono {
   app.use("/observability/*", apiKeyAuth);
   app.route("/", agents);
   app.route("/", tasks);
-  app.route("/", observability);
+  app.route("/observability", observability);
   app.route("/", outcomes);
 
   // Error handler

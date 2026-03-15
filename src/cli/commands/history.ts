@@ -16,7 +16,7 @@ export async function historyCommand(opts: HistoryCommandOptions): Promise<strin
   if (opts.agent) params.set("agent", opts.agent);
   const qs = params.toString();
 
-  const res = await fetch(`${opts.baseUrl}/audit/commits${qs ? "?" + qs : ""}`);
+  const res = await fetch(`${opts.baseUrl}/observability/audit/commits${qs ? "?" + qs : ""}`);
 
   if (!res.ok) {
     // Fallback: audit endpoint may not exist yet (Story 10)
