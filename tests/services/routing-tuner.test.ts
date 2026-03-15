@@ -5,6 +5,7 @@ import { runMigrations } from "../../src/db/migrate.js";
 import {
   tune,
   extractKeyPhrases,
+  escapeLike,
   aggregateOutcomesByAgentTier,
   recentTuningRuns,
   DEFAULT_TUNE_OPTIONS,
@@ -32,8 +33,8 @@ afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
     await pool.query("DELETE FROM tuning_run WHERE run_id LIKE 'test-tune-%'");
-    await pool.query("DELETE FROM routing_rules WHERE description LIKE '%Auto-crystallized%test-tune%'");
-    await pool.query("DELETE FROM routing_utterances WHERE source = 'tuner-test'");
+    await pool.query("DELETE FROM routing_rules WHERE description LIKE 'Auto-crystallized%'");
+    await pool.query("DELETE FROM routing_utterances WHERE source = 'tuner'");
     await pool.query("DELETE FROM task_outcome WHERE task_id LIKE 'test-tune-%'");
     await pool.query("DELETE FROM routing_log WHERE request_id LIKE 'test-tune-%'");
     await pool.query("DELETE FROM task_log WHERE task_id LIKE 'test-tune-%'");
@@ -65,7 +66,6 @@ describe("extractKeyPhrases", () => {
       "please help about this thing",
     ];
     const result = extractKeyPhrases(prompts, 3);
-    // "please", "help", "with", "this" are all stop words
     expect(result.size).toBe(0);
   });
 
@@ -76,7 +76,6 @@ describe("extractKeyPhrases", () => {
       "api bug report",
     ];
     const result = extractKeyPhrases(prompts, 3);
-    // "api" and "bug" are < 4 chars
     expect(result.has("api")).toBe(false);
     expect(result.has("bug")).toBe(false);
   });
@@ -96,9 +95,30 @@ describe("extractKeyPhrases", () => {
       "kubernetes kubernetes kubernetes",
       "something else entirely",
     ];
-    // "kubernetes" appears in only 1 document even though repeated 3 times
     const result = extractKeyPhrases(prompts, 2);
     expect(result.has("kubernetes")).toBe(false);
+  });
+});
+
+describe("escapeLike", () => {
+  it("escapes percent signs", () => {
+    expect(escapeLike("100%")).toBe("100\\%");
+  });
+
+  it("escapes underscores", () => {
+    expect(escapeLike("deploy_prod")).toBe("deploy\\_prod");
+  });
+
+  it("escapes backslashes", () => {
+    expect(escapeLike("path\\to")).toBe("path\\\\to");
+  });
+
+  it("passes through normal strings unchanged", () => {
+    expect(escapeLike("kubernetes")).toBe("kubernetes");
+  });
+
+  it("escapes multiple metacharacters in one string", () => {
+    expect(escapeLike("a%b_c\\d")).toBe("a\\%b\\_c\\\\d");
   });
 });
 
@@ -144,7 +164,6 @@ describe("aggregateOutcomesByAgentTier", () => {
   it("returns empty array when no outcomes exist in window", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    // Use a tiny window (0 hours) to get empty results
     const results = await aggregateOutcomesByAgentTier(0);
     expect(Array.isArray(results)).toBe(true);
   });
@@ -152,7 +171,6 @@ describe("aggregateOutcomesByAgentTier", () => {
   it("aggregates seeded outcome data correctly", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    // Insert test data
     const pool = getPool();
     const agentId = "test-tune-agent-agg";
     const taskId = "test-tune-task-agg";
@@ -214,18 +232,58 @@ describe("tune (live run)", () => {
   });
 });
 
+describe("tune (concurrent run guard)", () => {
+  it("rejects a second live run while one is in progress", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const pool = getPool();
+    const fakeRunId = "test-tune-concurrent-guard";
+
+    // Simulate an in-progress run
+    await pool.query(
+      `INSERT INTO tuning_run (run_id, status, hours_window) VALUES (?, 'running', 1)`,
+      [fakeRunId],
+    );
+
+    try {
+      await expect(tune({ dryRun: false, hours: 1 })).rejects.toThrow(
+        /Another tuning run is already in progress/,
+      );
+    } finally {
+      await pool.query("DELETE FROM tuning_run WHERE run_id = ?", [fakeRunId]);
+    }
+  });
+
+  it("allows dry run even when a live run is in progress", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const pool = getPool();
+    const fakeRunId = "test-tune-concurrent-dryrun";
+
+    await pool.query(
+      `INSERT INTO tuning_run (run_id, status, hours_window) VALUES (?, 'running', 1)`,
+      [fakeRunId],
+    );
+
+    try {
+      const result = await tune({ dryRun: true, hours: 1 });
+      expect(result.status).toBe("dry_run");
+    } finally {
+      await pool.query("DELETE FROM tuning_run WHERE run_id = ?", [fakeRunId]);
+    }
+  });
+});
+
 describe("recentTuningRuns", () => {
   it("returns recent runs in descending order", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    // Run two tuning cycles
     const r1 = await tune({ dryRun: false, hours: 1 });
     const r2 = await tune({ dryRun: false, hours: 1 });
 
     const runs = await recentTuningRuns(5);
     expect(runs.length).toBeGreaterThanOrEqual(2);
 
-    // Most recent first
     const idx1 = runs.findIndex((r) => r.run_id === r1.run_id);
     const idx2 = runs.findIndex((r) => r.run_id === r2.run_id);
     expect(idx2).toBeLessThan(idx1);

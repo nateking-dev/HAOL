@@ -109,8 +109,13 @@ observability.post("/maintenance/cleanup-pending", async (c) => {
 observability.post("/tune", async (c) => {
   const hours = parseIntParam(c.req.query("hours"), 72, 1, MAX_HOURS);
   const dryRun = c.req.query("dry_run") === "true";
-  const result = await tune({ hours, dryRun });
-  return c.json(result, 200);
+  try {
+    const result = await tune({ hours, dryRun });
+    return c.json(result, 200);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Tuning failed";
+    return c.json({ error: message }, 500);
+  }
 });
 
 observability.get("/tune/history", async (c) => {

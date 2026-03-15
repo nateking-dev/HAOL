@@ -65,6 +65,15 @@ export interface TuneResult {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Escape SQL LIKE metacharacters so they match literally. */
+export function escapeLike(s: string): string {
+  return s.replace(/[%_\\]/g, "\\$&");
+}
+
+// ---------------------------------------------------------------------------
 // Queries: aggregate outcome signals
 // ---------------------------------------------------------------------------
 
@@ -150,7 +159,8 @@ export async function findSuccessfulEscalations(
            AND o.signal_value = 1
            AND o.tier IN (0, 1, 2, 3)
        )
-     ORDER BY rl.created_at DESC`,
+     ORDER BY rl.created_at DESC
+     LIMIT 500`,
     [confidenceThreshold, hours],
   );
   return rows;
@@ -184,7 +194,8 @@ export async function findSuccessfulFallbacks(hours: number): Promise<FallbackSu
          WHERE o.task_id = t.task_id
            AND o.signal_value = 1
        )
-     ORDER BY rl.created_at DESC`,
+     ORDER BY rl.created_at DESC
+     LIMIT 100`,
     [hours],
   );
   return rows;
@@ -261,6 +272,149 @@ async function existingContainsPatterns(): Promise<Set<string>> {
 }
 
 // ---------------------------------------------------------------------------
+// Step helpers (extracted for readability and testability)
+// ---------------------------------------------------------------------------
+
+async function crystallizeRules(
+  escalations: EscalationPatternRow[],
+  options: TuneOptions,
+): Promise<CrystallizedRule[]> {
+  const crystallizedRules: CrystallizedRule[] = [];
+
+  if (escalations.length < options.minPatternFrequency) {
+    return crystallizedRules;
+  }
+
+  // Group by tier
+  const byTier = new Map<number, string[]>();
+  for (const e of escalations) {
+    const list = byTier.get(e.routed_tier) ?? [];
+    list.push(e.input_text);
+    byTier.set(e.routed_tier, list);
+  }
+
+  const existingPatterns = await existingContainsPatterns();
+
+  for (const [tier, prompts] of byTier) {
+    if (prompts.length < options.minPatternFrequency) continue;
+
+    const phrases = extractKeyPhrases(prompts, options.minPatternFrequency);
+
+    // Take top 3 most frequent phrases per tier
+    const sorted = [...phrases.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+
+    for (const [phrase, count] of sorted) {
+      if (existingPatterns.has(phrase)) continue;
+
+      // Look up capabilities from the tasks that matched
+      const capRows = await query<(RowDataPacket & { required_capabilities: string | null })[]>(
+        `SELECT DISTINCT t.required_capabilities
+         FROM task_log t
+         JOIN routing_log rl ON rl.request_id = t.task_id
+         WHERE rl.routing_layer = 'escalation'
+           AND rl.routed_tier = ?
+           AND LOWER(rl.input_text) LIKE ?
+           AND t.required_capabilities IS NOT NULL
+         LIMIT 5`,
+        [tier, `%${escapeLike(phrase)}%`],
+      );
+
+      const capabilities = new Set<string>();
+      for (const row of capRows) {
+        if (row.required_capabilities) {
+          try {
+            const parsed: string[] = typeof row.required_capabilities === "string"
+              ? JSON.parse(row.required_capabilities)
+              : row.required_capabilities;
+            for (const cap of parsed) {
+              capabilities.add(cap);
+            }
+          } catch {
+            // Malformed JSON in required_capabilities — skip this row
+          }
+        }
+      }
+
+      const rule: CrystallizedRule = {
+        tier_id: tier as TierId,
+        pattern: phrase,
+        rule_type: "contains",
+        capabilities: [...capabilities],
+        source_task_count: count,
+      };
+      crystallizedRules.push(rule);
+
+      if (!options.dryRun) {
+        // INSERT IGNORE prevents duplicates if concurrent runs race
+        await execute(
+          `INSERT IGNORE INTO routing_rules
+             (rule_id, tier_id, rule_type, pattern, capabilities, priority, enabled, description)
+           VALUES (?, ?, 'contains', ?, ?, 200, TRUE, ?)`,
+          [
+            uuidv7(),
+            tier,
+            phrase,
+            capabilities.size > 0 ? JSON.stringify([...capabilities]) : null,
+            `Auto-crystallized from ${count} successful LLM escalations`,
+          ],
+        );
+      }
+    }
+  }
+
+  return crystallizedRules;
+}
+
+async function promoteUtterances(
+  fallbacks: FallbackSuccessRow[],
+  dryRun: boolean,
+): Promise<PromotedUtterance[]> {
+  const promotedUtterances: PromotedUtterance[] = [];
+  const MAX_UTTERANCE_PROMOTIONS = 10;
+  const candidates = fallbacks.slice(0, MAX_UTTERANCE_PROMOTIONS);
+
+  if (candidates.length === 0) return promotedUtterances;
+
+  // Batch check for existing utterances to avoid N+1 queries
+  const candidateTexts = candidates.map((fb) => fb.input_text);
+  const placeholders = candidateTexts.map(() => "?").join(", ");
+  interface UtteranceTextRow extends RowDataPacket { utterance_text: string }
+  const existingRows = await query<UtteranceTextRow[]>(
+    `SELECT utterance_text FROM routing_utterances WHERE utterance_text IN (${placeholders})`,
+    candidateTexts,
+  );
+  const existingTexts = new Set(existingRows.map((r) => r.utterance_text));
+
+  for (const fb of candidates) {
+    if (existingTexts.has(fb.input_text)) continue;
+
+    // Truncate very long prompts — embeddings work best on concise text
+    const text = fb.input_text.length > 512
+      ? fb.input_text.slice(0, 512)
+      : fb.input_text;
+
+    promotedUtterances.push({
+      tier_id: fb.routed_tier as TierId,
+      utterance_text: text,
+      source_task_id: fb.task_id,
+    });
+
+    if (!dryRun) {
+      // Insert with 'pending' embedding — the embedding pipeline will
+      // fill this in on next load (existing pattern from reference-store)
+      await execute(
+        `INSERT INTO routing_utterances
+           (utterance_id, tier_id, utterance_text, embedding, embedding_model, embedding_dim, source)
+         VALUES (?, ?, ?, '[]', 'pending', 0, 'tuner')`,
+        [uuidv7(), fb.routed_tier, text],
+      );
+    }
+  }
+
+  return promotedUtterances;
+}
+
+// ---------------------------------------------------------------------------
 // Main tuning function
 // ---------------------------------------------------------------------------
 
@@ -268,8 +422,16 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
   const options: TuneOptions = { ...DEFAULT_TUNE_OPTIONS, ...opts };
   const runId = uuidv7();
 
-  // Record tuning run start
+  // Guard against concurrent tuning runs
   if (!options.dryRun) {
+    interface RunningRow extends RowDataPacket { run_id: string }
+    const running = await query<RunningRow[]>(
+      `SELECT run_id FROM tuning_run WHERE status = 'running' LIMIT 1`,
+    );
+    if (running.length > 0) {
+      throw new Error(`Another tuning run is already in progress: ${running[0].run_id}`);
+    }
+
     await execute(
       `INSERT INTO tuning_run (run_id, status, hours_window) VALUES (?, 'running', ?)`,
       [runId, options.hours],
@@ -279,11 +441,8 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
   try {
     // ----- Step 1: Aggregate outcome signals per agent+tier -----
     const agentTierOutcomes = await aggregateOutcomesByAgentTier(options.hours);
-
-    // Count total signals
     const totalSignals = agentTierOutcomes.reduce((sum, o) => sum + o.total, 0);
 
-    // Count unique tasks analyzed
     interface TaskCountRow extends RowDataPacket { cnt: number | string }
     const taskCountRows = await query<TaskCountRow[]>(
       `SELECT COUNT(DISTINCT t.task_id) AS cnt
@@ -302,129 +461,13 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
       options.hours,
       options.crystallizeConfidenceThreshold,
     );
-
-    const crystallizedRules: CrystallizedRule[] = [];
-
-    if (escalations.length >= options.minPatternFrequency) {
-      // Group by tier
-      const byTier = new Map<number, string[]>();
-      for (const e of escalations) {
-        const list = byTier.get(e.routed_tier) ?? [];
-        list.push(e.input_text);
-        byTier.set(e.routed_tier, list);
-      }
-
-      const existingPatterns = await existingContainsPatterns();
-
-      for (const [tier, prompts] of byTier) {
-        if (prompts.length < options.minPatternFrequency) continue;
-
-        const phrases = extractKeyPhrases(prompts, options.minPatternFrequency);
-
-        // Take top 3 most frequent phrases per tier
-        const sorted = [...phrases.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
-
-        for (const [phrase, count] of sorted) {
-          if (existingPatterns.has(phrase)) continue;
-
-          // Look up capabilities from the tasks that matched
-          const capRows = await query<(RowDataPacket & { required_capabilities: string | null })[]>(
-            `SELECT DISTINCT t.required_capabilities
-             FROM task_log t
-             JOIN routing_log rl ON rl.request_id = t.task_id
-             WHERE rl.routing_layer = 'escalation'
-               AND rl.routed_tier = ?
-               AND LOWER(rl.input_text) LIKE ?
-               AND t.required_capabilities IS NOT NULL
-             LIMIT 5`,
-            [tier, `%${phrase}%`],
-          );
-
-          const capabilities = new Set<string>();
-          for (const row of capRows) {
-            if (row.required_capabilities) {
-              const parsed: string[] = typeof row.required_capabilities === "string"
-                ? JSON.parse(row.required_capabilities)
-                : row.required_capabilities;
-              for (const cap of parsed) {
-                capabilities.add(cap);
-              }
-            }
-          }
-
-          const rule: CrystallizedRule = {
-            tier_id: tier as TierId,
-            pattern: phrase,
-            rule_type: "contains",
-            capabilities: [...capabilities],
-            source_task_count: count,
-          };
-          crystallizedRules.push(rule);
-
-          if (!options.dryRun) {
-            await execute(
-              `INSERT INTO routing_rules
-                 (rule_id, tier_id, rule_type, pattern, capabilities, priority, enabled, description)
-               VALUES (?, ?, 'contains', ?, ?, 200, TRUE, ?)`,
-              [
-                uuidv7(),
-                tier,
-                phrase,
-                capabilities.size > 0 ? JSON.stringify([...capabilities]) : null,
-                `Auto-crystallized from ${count} successful LLM escalations`,
-              ],
-            );
-          }
-        }
-      }
-    }
+    const crystallizedRules = await crystallizeRules(escalations, options);
 
     // ----- Step 3: Promote successful fallback prompts to utterances -----
     const fallbacks = await findSuccessfulFallbacks(options.hours);
-    const promotedUtterances: PromotedUtterance[] = [];
+    const promotedUtterances = await promoteUtterances(fallbacks, options.dryRun);
 
-    // Only promote if we have enough signal, and limit to avoid flooding
-    const MAX_UTTERANCE_PROMOTIONS = 10;
-    for (const fb of fallbacks.slice(0, MAX_UTTERANCE_PROMOTIONS)) {
-      // Check if similar utterance already exists (exact text match)
-      interface UtteranceCheckRow extends RowDataPacket { cnt: number | string }
-      const existing = await query<UtteranceCheckRow[]>(
-        `SELECT COUNT(*) AS cnt FROM routing_utterances WHERE utterance_text = ?`,
-        [fb.input_text],
-      );
-      const exists = (typeof existing[0]?.cnt === "string"
-        ? parseInt(existing[0].cnt, 10)
-        : Number(existing[0]?.cnt ?? 0)) > 0;
-
-      if (exists) continue;
-
-      // Truncate very long prompts — embeddings work best on concise text
-      const text = fb.input_text.length > 512
-        ? fb.input_text.slice(0, 512)
-        : fb.input_text;
-
-      promotedUtterances.push({
-        tier_id: fb.routed_tier as TierId,
-        utterance_text: text,
-        source_task_id: fb.task_id,
-      });
-
-      if (!options.dryRun) {
-        // Insert with 'pending' embedding — the embedding pipeline will
-        // fill this in on next load (existing pattern from reference-store)
-        await execute(
-          `INSERT INTO routing_utterances
-             (utterance_id, tier_id, utterance_text, embedding, embedding_model, embedding_dim, source)
-           VALUES (?, ?, ?, '[]', 'pending', 0, 'tuner')`,
-          [uuidv7(), fb.routed_tier, text],
-        );
-      }
-    }
-
-    // ----- Step 4: Compute updated outcome scores -----
-    // This data feeds into agent-selection.ts via getAgentOutcomeScores()
-    // We don't need to write anything — the scores are computed live.
-    // But we track how many agent+tier combos have actionable data.
+    // ----- Step 4: Count actionable outcome scores -----
     const actionableScores = agentTierOutcomes.filter(
       (o) => o.total >= options.minSampleSize,
     );

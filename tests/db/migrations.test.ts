@@ -13,6 +13,7 @@ const EXPECTED_TABLES = [
   "routing_policy",
   "session_context",
   "handoff_summary",
+  "tuning_run",
 ];
 
 beforeAll(async () => {
@@ -50,7 +51,7 @@ describe("migrations", () => {
     expect(applied.length).toBe(16);
   });
 
-  it("creates all 7 tables", async ({ skip }) => {
+  it("creates expected tables", async ({ skip }) => {
     if (!doltAvailable) skip();
     const rows = await query<any>(
       `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
