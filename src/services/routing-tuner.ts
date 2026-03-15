@@ -455,11 +455,11 @@ async function crystallizeRules(
         capabilities: [...capabilities],
         source_task_count: count,
       };
-      crystallizedRules.push(rule);
-
       if (!options.dryRun) {
-        // INSERT IGNORE prevents duplicates if concurrent runs race
-        await execute(
+        // INSERT IGNORE prevents duplicates if concurrent runs race.
+        // Only count the rule if it was actually inserted (affectedRows > 0).
+        const pool = getPool();
+        const [insertResult] = await pool.query<ResultSetHeader>(
           `INSERT IGNORE INTO routing_rules
              (rule_id, tier_id, rule_type, pattern, capabilities, priority, enabled, description)
            VALUES (?, ?, 'contains', ?, ?, 200, TRUE, ?)`,
@@ -471,6 +471,11 @@ async function crystallizeRules(
             `Auto-crystallized from ${count} successful LLM escalations`,
           ],
         );
+        if (insertResult.affectedRows > 0) {
+          crystallizedRules.push(rule);
+        }
+      } else {
+        crystallizedRules.push(rule);
       }
     }
   }
