@@ -39,16 +39,16 @@ describe("migrations", () => {
   it("applies all migration files without error", async ({ skip }) => {
     if (!doltAvailable) skip();
     const applied = await runMigrations();
-    expect(applied.length).toBe(16);
+    expect(applied.length).toBe(17);
     expect(applied[0]).toBe("001_create_agent_registry.sql");
-    expect(applied[15]).toBe("016_create_tuning_runs.sql");
+    expect(applied[16]).toBe("017_add_missing_indexes.sql");
   });
 
   it("is idempotent — running twice produces no errors", async ({ skip }) => {
     if (!doltAvailable) skip();
     // Second run should not throw
     const applied = await runMigrations();
-    expect(applied.length).toBe(16);
+    expect(applied.length).toBe(17);
   });
 
   it("creates expected tables", async ({ skip }) => {
@@ -123,5 +123,21 @@ describe("migrations", () => {
     const pkColumns = pkRows.map((r: any) => r.Field);
     expect(pkColumns).toContain("task_id");
     expect(pkColumns).toContain("from_agent_id");
+  });
+
+  it("migration 017 creates expected indexes", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const expectedIndexes = [
+      { table: "execution_log", name: "idx_execution_log_task_id" },
+      { table: "task_log", name: "idx_task_log_selected_agent_id" },
+      { table: "task_log", name: "idx_task_log_created_at" },
+      { table: "routing_log", name: "idx_routing_log_request_id" },
+      { table: "routing_utterances", name: "idx_utterances_embedding_model" },
+      { table: "execution_log", name: "idx_execution_log_created_at" },
+    ];
+    for (const { table, name } of expectedIndexes) {
+      const rows = await query<any>(`SHOW INDEX FROM ${table} WHERE Key_name = ?`, [name]);
+      expect(rows.length, `index ${name} on ${table}`).toBeGreaterThanOrEqual(1);
+    }
   });
 });
