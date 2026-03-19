@@ -1,5 +1,5 @@
 import { query } from "../db/connection.js";
-import { doltCommit } from "../db/dolt.js";
+import { commitSafely } from "../db/dolt.js";
 import * as repo from "../repositories/agent-registry.js";
 import type { CreateAgentInput, UpdateAgentInput, AgentRegistration } from "../types/agent.js";
 import type { RowDataPacket } from "mysql2/promise";
@@ -8,14 +8,8 @@ interface CapabilityRow extends RowDataPacket {
   capability_key: string;
 }
 
-async function commitSafely(message: string): Promise<void> {
-  try {
-    await doltCommit({ message, author: "haol-service <haol@system>" });
-  } catch (err) {
-    if (!(err as Error).message?.includes("nothing to commit")) {
-      throw err;
-    }
-  }
+async function serviceCommit(message: string): Promise<void> {
+  await commitSafely(message, "haol-service <haol@system>");
 }
 
 export async function createAgent(input: CreateAgentInput): Promise<AgentRegistration> {
@@ -35,7 +29,7 @@ export async function createAgent(input: CreateAgentInput): Promise<AgentRegistr
   }
 
   await repo.create(input);
-  await commitSafely(`agent: register ${input.agent_id}`);
+  await serviceCommit(`agent: register ${input.agent_id}`);
 
   const agent = await repo.findById(input.agent_id);
   return agent!;
@@ -46,13 +40,13 @@ export async function updateAgent(
   input: UpdateAgentInput,
 ): Promise<AgentRegistration | null> {
   await repo.update(agentId, input);
-  await commitSafely(`agent: update ${agentId}`);
+  await serviceCommit(`agent: update ${agentId}`);
   return repo.findById(agentId);
 }
 
 export async function deleteAgent(agentId: string): Promise<void> {
   await repo.remove(agentId);
-  await commitSafely(`agent: disable ${agentId}`);
+  await serviceCommit(`agent: disable ${agentId}`);
 }
 
 export async function getAgent(agentId: string): Promise<AgentRegistration | null> {

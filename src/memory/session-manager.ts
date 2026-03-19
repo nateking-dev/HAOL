@@ -1,4 +1,4 @@
-import { getPool, withConnection, type Queryable } from "../db/connection.js";
+import { getPool, withBranchConnection, DEFAULT_BRANCH, type Queryable } from "../db/connection.js";
 import {
   doltBranch,
   doltCheckout,
@@ -30,16 +30,16 @@ function branchName(taskId: string): string {
   return `session/${taskId}`;
 }
 
-async function ensureOnMain(conn?: Queryable): Promise<void> {
+async function ensureOnMain(conn: Queryable): Promise<void> {
   const current = await doltActiveBranch(conn);
-  if (current !== "main") {
-    await doltCheckout("main", conn);
+  if (current !== DEFAULT_BRANCH) {
+    await doltCheckout(DEFAULT_BRANCH, conn);
   }
 }
 
 export async function createSession(taskId: string): Promise<SessionHandle> {
   const branch = branchName(taskId);
-  await withConnection(async (conn) => {
+  await withBranchConnection(async (conn) => {
     await ensureOnMain(conn);
     await doltBranch({ name: branch }, conn);
   });
@@ -51,7 +51,7 @@ export async function writeContext(
   key: string,
   value: unknown,
 ): Promise<void> {
-  await withConnection(async (conn) => {
+  await withBranchConnection(async (conn) => {
     await doltCheckout(session.branch, conn);
     try {
       // Disable autocommit so the upsert stays in the working set
@@ -101,7 +101,7 @@ export async function readContext(session: SessionHandle, key?: string): Promise
 }
 
 export async function commitSession(session: SessionHandle): Promise<void> {
-  await withConnection(async (conn) => {
+  await withBranchConnection(async (conn) => {
     await ensureOnMain(conn);
     const mergeResult = await doltMerge(session.branch, conn);
     if (mergeResult.conflicts > 0) {

@@ -8,6 +8,8 @@ import { type DoltConfig } from "../config.js";
 
 export type Queryable = Pool | PoolConnection;
 
+export const DEFAULT_BRANCH = process.env.DOLT_DEFAULT_BRANCH ?? "main";
+
 let pool: Pool | null = null;
 
 export function createPool(config: DoltConfig): Pool {
@@ -54,12 +56,42 @@ export async function healthCheck(): Promise<boolean> {
   }
 }
 
+/**
+ * Acquire a dedicated connection, run `fn`, and release it.
+ * No branch reset — use this for callers that never switch branches
+ * (commits, read-only queries, etc.) to avoid an extra round-trip.
+ */
 export async function withConnection<T>(fn: (conn: PoolConnection) => Promise<T>): Promise<T> {
   const p = getPool();
   const conn = await p.getConnection();
   try {
     return await fn(conn);
   } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Acquire a dedicated connection with branch-safety guarantees.
+ * The finally block resets the connection to the default branch before
+ * returning it to the pool, preventing branch-corruption bugs when the
+ * callback uses doltCheckout/doltMerge. Use this instead of
+ * withConnection when the callback may switch branches.
+ */
+export async function withBranchConnection<T>(
+  fn: (conn: PoolConnection) => Promise<T>,
+): Promise<T> {
+  const p = getPool();
+  const conn = await p.getConnection();
+  try {
+    return await fn(conn);
+  } finally {
+    try {
+      await conn.query("CALL DOLT_CHECKOUT(?)", [DEFAULT_BRANCH]);
+    } catch {
+      // The connection may already be on the default branch, or broken.
+      // Either way we still release it.
+    }
     conn.release();
   }
 }
