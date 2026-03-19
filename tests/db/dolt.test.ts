@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPool, getPool, destroy } from "../../src/db/connection.js";
+import { createPool, getPool, destroy, withConnection } from "../../src/db/connection.js";
 import {
   doltCommit,
   doltCheckout,
@@ -30,13 +30,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (doltAvailable) {
-    try {
-      await doltCheckout("main");
-    } catch {
-      // ignore
-    }
-  }
   await destroy();
 });
 
@@ -62,26 +55,31 @@ describe("dolt helpers", () => {
     if (!doltAvailable) skip();
     const testBranch = `test/story0-${Date.now()}`;
 
-    // Create and switch to branch
-    await doltBranch({ name: testBranch });
-    await doltCheckout(testBranch);
+    await withConnection(async (conn) => {
+      // Create and switch to branch
+      await doltBranch({ name: testBranch }, conn);
+      await doltCheckout(testBranch, conn);
 
-    const activeBranch = await doltActiveBranch();
-    expect(activeBranch).toBe(testBranch);
+      const activeBranch = await doltActiveBranch(conn);
+      expect(activeBranch).toBe(testBranch);
 
-    // Make a commit on the branch
-    await doltCommit({
-      message: "test: commit on branch",
-      author: "haol-test <test@haol>",
-      allowEmpty: true,
+      // Make a commit on the branch
+      await doltCommit(
+        {
+          message: "test: commit on branch",
+          author: "haol-test <test@haol>",
+          allowEmpty: true,
+        },
+        conn,
+      );
+
+      // Switch back and merge
+      await doltCheckout("main", conn);
+      const mergeResult = await doltMerge(testBranch, conn);
+      expect(mergeResult.conflicts).toBe(0);
+
+      // Cleanup
+      await doltDeleteBranch(testBranch, conn);
     });
-
-    // Switch back and merge
-    await doltCheckout("main");
-    const mergeResult = await doltMerge(testBranch);
-    expect(mergeResult.conflicts).toBe(0);
-
-    // Cleanup
-    await doltDeleteBranch(testBranch);
   });
 });

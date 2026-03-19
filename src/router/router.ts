@@ -4,7 +4,7 @@ import { select } from "../services/agent-selection.js";
 import { execute } from "../services/execution.js";
 import * as taskLog from "../repositories/task-log.js";
 import { getActivePolicy } from "../repositories/routing-policy.js";
-import { doltCommit } from "../db/dolt.js";
+import { commitSafely } from "../db/dolt.js";
 import type { AgentRequest, ExecutionRecord } from "../types/execution.js";
 import type { ComplexityTier, TaskClassification } from "../types/task.js";
 import { uuidv7 } from "../types/task.js";
@@ -27,14 +27,8 @@ export const DEFAULT_TIMEOUT_MS: Record<ComplexityTier, number> = {
   4: 120_000,
 };
 
-async function commitSafely(message: string): Promise<void> {
-  try {
-    await doltCommit({ message, author: "haol-router <haol@system>", allowEmpty: true });
-  } catch (err) {
-    if (!(err as Error).message?.includes("nothing to commit")) {
-      throw err;
-    }
-  }
+async function routerCommit(message: string): Promise<void> {
+  await commitSafely(message, "haol-router <haol@system>");
 }
 
 export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
@@ -193,7 +187,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
 
     // 8. Commit
     const costStr = execResult.cost_usd > 0 ? `$${execResult.cost_usd.toFixed(4)}` : "$0";
-    await commitSafely(
+    await routerCommit(
       `task:${taskId} | tier:T${classification.complexity_tier} | agent:${execResult.agent_id} | cost:${costStr} | ${execResult.latency_ms}ms`,
     );
 
@@ -216,7 +210,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
         // best-effort status update
       }
       try {
-        await commitSafely(`task:${taskId} | FAILED | ${(err as Error).message}`);
+        await routerCommit(`task:${taskId} | FAILED | ${(err as Error).message}`);
       } catch {
         // best-effort commit
       }

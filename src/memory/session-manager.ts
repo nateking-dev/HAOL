@@ -30,7 +30,7 @@ function branchName(taskId: string): string {
   return `session/${taskId}`;
 }
 
-async function ensureOnMain(conn?: Queryable): Promise<void> {
+async function ensureOnMain(conn: Queryable): Promise<void> {
   const current = await doltActiveBranch(conn);
   if (current !== "main") {
     await doltCheckout("main", conn);

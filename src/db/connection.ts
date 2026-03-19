@@ -60,6 +60,16 @@ export async function withConnection<T>(fn: (conn: PoolConnection) => Promise<T>
   try {
     return await fn(conn);
   } finally {
+    // Best-effort: reset connection to main branch before returning it
+    // to the pool. If the callback checked out a different branch and
+    // then threw, this prevents subsequent pool users from operating
+    // on the wrong branch.
+    try {
+      await conn.query("CALL DOLT_CHECKOUT('main')");
+    } catch {
+      // ignore — the connection may already be on main, or the
+      // connection may be broken; either way we still release it.
+    }
     conn.release();
   }
 }
