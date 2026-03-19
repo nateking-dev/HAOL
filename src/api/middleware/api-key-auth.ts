@@ -26,13 +26,8 @@ export const apiKeyAuth: MiddlewareHandler = async (c, next) => {
 
   if (!expected) {
     if (isProduction()) {
-      console.error(
-        "[SECURITY] HAOL_API_KEY is not set in production. Rejecting request.",
-      );
-      return c.json(
-        { error: "Service unavailable" },
-        503,
-      );
+      console.error("[SECURITY] HAOL_API_KEY is not set in production. Rejecting request.");
+      return c.json({ error: "Service unavailable" }, 503);
     }
 
     // Non-production: warn once, then allow
