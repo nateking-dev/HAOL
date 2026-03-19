@@ -8,6 +8,8 @@ import { type DoltConfig } from "../config.js";
 
 export type Queryable = Pool | PoolConnection;
 
+export const DEFAULT_BRANCH = process.env.DOLT_DEFAULT_BRANCH ?? "main";
+
 let pool: Pool | null = null;
 
 export function createPool(config: DoltConfig): Pool {
@@ -54,6 +56,13 @@ export async function healthCheck(): Promise<boolean> {
   }
 }
 
+/**
+ * Acquire a dedicated connection, run `fn`, and release it.
+ * The finally block always resets the connection to the default branch
+ * before returning it to the pool. This adds one round-trip per call,
+ * even for read-only callbacks that never switch branches — an acceptable
+ * cost for preventing branch-corruption bugs in the shared pool.
+ */
 export async function withConnection<T>(fn: (conn: PoolConnection) => Promise<T>): Promise<T> {
   const p = getPool();
   const conn = await p.getConnection();
@@ -65,7 +74,7 @@ export async function withConnection<T>(fn: (conn: PoolConnection) => Promise<T>
     // then threw, this prevents subsequent pool users from operating
     // on the wrong branch.
     try {
-      await conn.query("CALL DOLT_CHECKOUT('main')");
+      await conn.query("CALL DOLT_CHECKOUT(?)", [DEFAULT_BRANCH]);
     } catch {
       // ignore — the connection may already be on main, or the
       // connection may be broken; either way we still release it.

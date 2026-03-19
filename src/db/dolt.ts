@@ -91,10 +91,11 @@ export async function doltActiveBranch(conn?: Queryable): Promise<string> {
 export async function commitSafely(
   message: string,
   author: string = "haol-system <haol@system>",
+  allowEmpty: boolean = false,
 ): Promise<void> {
   await withConnection(async (conn) => {
     try {
-      await doltCommit({ message, author, allowEmpty: true }, conn);
+      await doltCommit({ message, author, allowEmpty }, conn);
     } catch (err) {
       if (!(err as Error).message?.includes("nothing to commit")) {
         throw err;

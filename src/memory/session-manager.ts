@@ -1,4 +1,4 @@
-import { getPool, withConnection, type Queryable } from "../db/connection.js";
+import { getPool, withConnection, DEFAULT_BRANCH, type Queryable } from "../db/connection.js";
 import {
   doltBranch,
   doltCheckout,
@@ -32,8 +32,8 @@ function branchName(taskId: string): string {
 
 async function ensureOnMain(conn: Queryable): Promise<void> {
   const current = await doltActiveBranch(conn);
-  if (current !== "main") {
-    await doltCheckout("main", conn);
+  if (current !== DEFAULT_BRANCH) {
+    await doltCheckout(DEFAULT_BRANCH, conn);
   }
 }
 
