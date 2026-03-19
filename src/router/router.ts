@@ -28,7 +28,9 @@ export const DEFAULT_TIMEOUT_MS: Record<ComplexityTier, number> = {
 };
 
 async function routerCommit(message: string): Promise<void> {
-  await commitSafely(message, "haol-router <haol@system>");
+  // allowEmpty: true ensures every task gets a Dolt commit for the audit trail,
+  // even when the working set is clean (e.g., read-only classification).
+  await commitSafely(message, "haol-router <haol@system>", true);
 }
 
 export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createPool, getPool, destroy, withConnection } from "../../src/db/connection.js";
+import { createPool, getPool, destroy, withBranchConnection } from "../../src/db/connection.js";
 import {
   doltCommit,
   doltCheckout,
@@ -55,7 +55,7 @@ describe("dolt helpers", () => {
     if (!doltAvailable) skip();
     const testBranch = `test/story0-${Date.now()}`;
 
-    await withConnection(async (conn) => {
+    await withBranchConnection(async (conn) => {
       // Create and switch to branch
       await doltBranch({ name: testBranch }, conn);
       await doltCheckout(testBranch, conn);

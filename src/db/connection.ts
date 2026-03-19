@@ -58,10 +58,8 @@ export async function healthCheck(): Promise<boolean> {
 
 /**
  * Acquire a dedicated connection, run `fn`, and release it.
- * The finally block always resets the connection to the default branch
- * before returning it to the pool. This adds one round-trip per call,
- * even for read-only callbacks that never switch branches — an acceptable
- * cost for preventing branch-corruption bugs in the shared pool.
+ * No branch reset — use this for callers that never switch branches
+ * (commits, read-only queries, etc.) to avoid an extra round-trip.
  */
 export async function withConnection<T>(fn: (conn: PoolConnection) => Promise<T>): Promise<T> {
   const p = getPool();
@@ -69,15 +67,30 @@ export async function withConnection<T>(fn: (conn: PoolConnection) => Promise<T>
   try {
     return await fn(conn);
   } finally {
-    // Best-effort: reset connection to main branch before returning it
-    // to the pool. If the callback checked out a different branch and
-    // then threw, this prevents subsequent pool users from operating
-    // on the wrong branch.
+    conn.release();
+  }
+}
+
+/**
+ * Acquire a dedicated connection with branch-safety guarantees.
+ * The finally block resets the connection to the default branch before
+ * returning it to the pool, preventing branch-corruption bugs when the
+ * callback uses doltCheckout/doltMerge. Use this instead of
+ * withConnection when the callback may switch branches.
+ */
+export async function withBranchConnection<T>(
+  fn: (conn: PoolConnection) => Promise<T>,
+): Promise<T> {
+  const p = getPool();
+  const conn = await p.getConnection();
+  try {
+    return await fn(conn);
+  } finally {
     try {
       await conn.query("CALL DOLT_CHECKOUT(?)", [DEFAULT_BRANCH]);
     } catch {
-      // ignore — the connection may already be on main, or the
-      // connection may be broken; either way we still release it.
+      // The connection may already be on the default branch, or broken.
+      // Either way we still release it.
     }
     conn.release();
   }
