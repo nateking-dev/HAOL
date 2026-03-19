@@ -136,13 +136,8 @@ describe("migrations", () => {
       { table: "execution_log", name: "idx_execution_log_created_at" },
     ];
     for (const { table, name } of expectedIndexes) {
-      const rows = await query<any>(
-        `SHOW INDEX FROM ${table} WHERE Key_name = ?`,
-        [name],
-      );
-      expect(rows.length, `index ${name} on ${table}`).toBeGreaterThanOrEqual(
-        1,
-      );
+      const rows = await query<any>(`SHOW INDEX FROM ${table} WHERE Key_name = ?`, [name]);
+      expect(rows.length, `index ${name} on ${table}`).toBeGreaterThanOrEqual(1);
     }
   });
 });
