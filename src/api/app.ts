@@ -12,12 +12,20 @@ import { outcomes } from "./routes/outcomes.js";
 // Rate-limit presets
 const readLimit = rateLimit({ limit: 120, windowMs: 60_000 }); // 120 req/min
 const taskWriteLimit = rateLimit({ limit: 30, windowMs: 60_000 }); // 30 req/min
-// Tune is intentionally limited to 1 req/5min globally — tuning is expensive
-// (locks the DB, runs LLM evaluation) and concurrent runs are already blocked
-// by an advisory lock. This prevents retry storms from queueing up.
-const tuneLimit = rateLimit({ limit: 1, windowMs: 5 * 60_000 }); // 1 req/5 min
+// Tune is limited to 1 req/5min with a single shared bucket (global: true)
+// because tuning acquires a DB advisory lock, runs LLM evaluation, and
+// mutates routing rules. Per-IP would allow concurrent clients to queue up
+// requests that just block on the lock.
+const tuneLimit = rateLimit({ limit: 1, windowMs: 5 * 60_000, global: true });
 
 export function createApp(): Hono {
+  // Defense-in-depth: if someone calls createApp() without the startup
+  // guard (tests, alternate entry points), throw rather than serve
+  // unauthenticated in production.
+  if (process.env.NODE_ENV === "production" && !process.env.HAOL_API_KEY) {
+    throw new Error("HAOL_API_KEY must be set in production");
+  }
+
   const app = new Hono();
   const apiKeyAuth = createApiKeyAuth();
 

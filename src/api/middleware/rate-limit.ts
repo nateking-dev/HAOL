@@ -17,6 +17,13 @@ interface RateLimitOptions {
    * Default: false (uses socket remote address for per-IP limiting).
    */
   trustProxy?: boolean;
+  /**
+   * Use a single shared bucket for all clients instead of per-IP.
+   * Useful for endpoints that should have a process-wide limit
+   * (e.g., expensive operations protected by an advisory lock).
+   * Default: false.
+   */
+  global?: boolean;
 }
 
 /**
@@ -29,7 +36,7 @@ interface RateLimitOptions {
  * similar in that case. Fine for a single-process Hono server.
  */
 export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
-  const { limit, windowMs, trustProxy = false } = opts;
+  const { limit, windowMs, trustProxy = false, global: globalBucket = false } = opts;
   const buckets = new Map<string, BucketEntry>();
 
   // Refill rate: tokens per millisecond
@@ -55,27 +62,31 @@ export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
     const now = Date.now();
     prune(now);
 
-    // Identify the client for per-IP bucketing.
-    // When behind a trusted reverse proxy, use X-Forwarded-For.
-    // Otherwise, use the socket remote address via @hono/node-server.
-    let ip = "unknown";
-    if (trustProxy) {
-      ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-    } else {
-      try {
-        const info = getConnInfo(c);
-        ip = info.remote.address ?? "unknown";
-      } catch {
-        // getConnInfo may fail in test environments without a real socket.
-        // Log once so operators notice if this fires in production.
-        console.warn("[rate-limit] Could not resolve client IP — using shared bucket");
+    // Identify the bucket key.
+    // global: all clients share one bucket (for process-wide limits).
+    // trustProxy: read X-Forwarded-For from a trusted reverse proxy.
+    // default: use the socket remote address via @hono/node-server.
+    // Note: getConnInfo requires @hono/node-server; other adapters will
+    // fall back to the shared "unknown" bucket.
+    let key = "global";
+    if (!globalBucket) {
+      if (trustProxy) {
+        key = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+      } else {
+        try {
+          const info = getConnInfo(c);
+          key = info.remote.address ?? "unknown";
+        } catch {
+          // getConnInfo fails without a real socket (tests, non-Node adapters).
+          console.warn("[rate-limit] Could not resolve client IP — using shared bucket");
+        }
       }
     }
 
-    let entry = buckets.get(ip);
+    let entry = buckets.get(key);
     if (!entry) {
       entry = { tokens: limit, lastRefill: now };
-      buckets.set(ip, entry);
+      buckets.set(key, entry);
     }
 
     // Refill tokens based on elapsed time
@@ -92,8 +103,11 @@ export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
     entry.tokens -= 1;
 
     // Expose standard rate-limit headers
+    const resetMs = (limit - entry.tokens) / refillRate;
+    const resetEpoch = Math.ceil((now + resetMs) / 1000);
     c.header("X-RateLimit-Limit", String(limit));
     c.header("X-RateLimit-Remaining", String(Math.floor(entry.tokens)));
+    c.header("X-RateLimit-Reset", String(resetEpoch));
 
     await next();
   };
