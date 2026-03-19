@@ -30,7 +30,7 @@ export const apiKeyAuth: MiddlewareHandler = async (c, next) => {
         "[SECURITY] HAOL_API_KEY is not set in production. Rejecting request.",
       );
       return c.json(
-        { error: "Server misconfiguration: API key auth is required in production" },
+        { error: "Service unavailable" },
         503,
       );
     }

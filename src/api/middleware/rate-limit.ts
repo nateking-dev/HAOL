@@ -10,6 +10,12 @@ interface RateLimitOptions {
   limit: number;
   /** Window duration in milliseconds. */
   windowMs: number;
+  /**
+   * Whether to trust the X-Forwarded-For header for client IP identification.
+   * Only enable this when running behind a trusted reverse proxy.
+   * Default: false (all clients share a single "unknown" bucket).
+   */
+  trustProxy?: boolean;
 }
 
 /**
@@ -22,7 +28,7 @@ interface RateLimitOptions {
  * similar in that case. Fine for a single-process Hono server.
  */
 export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
-  const { limit, windowMs } = opts;
+  const { limit, windowMs, trustProxy = false } = opts;
   const buckets = new Map<string, BucketEntry>();
 
   // Refill rate: tokens per millisecond
@@ -48,12 +54,12 @@ export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
     const now = Date.now();
     prune(now);
 
-    // Use X-Forwarded-For when behind a proxy, fall back to raw IP
-    const ip =
-      c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-      // Hono's ConnInfo is not always available; fall back to a constant
-      // so rate limiting still works (shared bucket for all clients).
-      "unknown";
+    // Only read X-Forwarded-For when explicitly trusted (i.e. behind a
+    // known reverse proxy). Otherwise attackers can spoof arbitrary IPs
+    // to bypass rate limiting.
+    const ip = trustProxy
+      ? (c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown")
+      : "unknown";
 
     let entry = buckets.get(ip);
     if (!entry) {

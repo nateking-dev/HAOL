@@ -32,9 +32,12 @@ export function createApp(): Hono {
   // are rejected before consuming rate-limit tokens.
   app.post("/tasks", taskWriteLimit);
   app.post("/observability/tune", tuneLimit);
-  app.use("/tasks/*", readLimit);
-  app.use("/agents/*", readLimit);
-  app.use("/observability/*", readLimit);
+
+  // Read limiters use app.get() so they don't double-count POST requests
+  // that already have their own write limiters above.
+  app.get("/tasks/*", readLimit);
+  app.get("/agents/*", readLimit);
+  app.get("/observability/*", readLimit);
 
   app.route("/", agents);
   app.route("/", tasks);
