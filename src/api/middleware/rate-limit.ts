@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { getConnInfo } from "@hono/node-server/conninfo";
 
 interface BucketEntry {
   tokens: number;
@@ -13,7 +14,7 @@ interface RateLimitOptions {
   /**
    * Whether to trust the X-Forwarded-For header for client IP identification.
    * Only enable this when running behind a trusted reverse proxy.
-   * Default: false (all clients share a single "unknown" bucket).
+   * Default: false (uses socket remote address for per-IP limiting).
    */
   trustProxy?: boolean;
 }
@@ -54,12 +55,20 @@ export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
     const now = Date.now();
     prune(now);
 
-    // Only read X-Forwarded-For when explicitly trusted (i.e. behind a
-    // known reverse proxy). Otherwise attackers can spoof arbitrary IPs
-    // to bypass rate limiting.
-    const ip = trustProxy
-      ? (c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown")
-      : "unknown";
+    // Identify the client for per-IP bucketing.
+    // When behind a trusted reverse proxy, use X-Forwarded-For.
+    // Otherwise, use the socket remote address via @hono/node-server.
+    let ip = "unknown";
+    if (trustProxy) {
+      ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    } else {
+      try {
+        const info = getConnInfo(c);
+        ip = info.remote.address ?? "unknown";
+      } catch {
+        // getConnInfo may fail in test environments without a real socket
+      }
+    }
 
     let entry = buckets.get(ip);
     if (!entry) {

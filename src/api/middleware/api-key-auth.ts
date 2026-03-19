@@ -7,7 +7,7 @@ function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
-const isProduction = () => process.env.NODE_ENV === "production";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 let devWarningLogged = false;
 
@@ -25,7 +25,7 @@ export const apiKeyAuth: MiddlewareHandler = async (c, next) => {
   const expected = process.env.HAOL_API_KEY;
 
   if (!expected) {
-    if (isProduction()) {
+    if (IS_PRODUCTION) {
       console.error("[SECURITY] HAOL_API_KEY is not set in production. Rejecting request.");
       return c.json({ error: "Service unavailable" }, 503);
     }
