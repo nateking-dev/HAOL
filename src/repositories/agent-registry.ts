@@ -112,6 +112,8 @@ export async function create(input: CreateAgentInput): Promise<void> {
 }
 
 const UPDATABLE_COLUMNS = new Set([
+  "provider",
+  "model_id",
   "capabilities",
   "cost_per_1k_input",
   "cost_per_1k_output",
