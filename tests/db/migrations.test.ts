@@ -124,4 +124,25 @@ describe("migrations", () => {
     expect(pkColumns).toContain("task_id");
     expect(pkColumns).toContain("from_agent_id");
   });
+
+  it("migration 017 creates expected indexes", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const expectedIndexes = [
+      { table: "execution_log", name: "idx_execution_log_task_id" },
+      { table: "task_log", name: "idx_task_log_selected_agent_id" },
+      { table: "task_log", name: "idx_task_log_created_at" },
+      { table: "routing_log", name: "idx_routing_log_request_id" },
+      { table: "routing_utterances", name: "idx_utterances_embedding_model" },
+      { table: "execution_log", name: "idx_execution_log_created_at" },
+    ];
+    for (const { table, name } of expectedIndexes) {
+      const rows = await query<any>(
+        `SHOW INDEX FROM ${table} WHERE Key_name = ?`,
+        [name],
+      );
+      expect(rows.length, `index ${name} on ${table}`).toBeGreaterThanOrEqual(
+        1,
+      );
+    }
+  });
 });

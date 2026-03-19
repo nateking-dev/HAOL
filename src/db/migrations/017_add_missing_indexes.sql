@@ -12,5 +12,10 @@ CREATE INDEX idx_task_log_created_at ON task_log (created_at);
 -- routing_log.request_id — joined to task_log.task_id in tuner queries
 CREATE INDEX idx_routing_log_request_id ON routing_log (request_id);
 
--- routing_utterances.embedding_model — filtered on every classify() call
+-- routing_utterances.embedding_model — filtered in reference store readiness checks
+-- Note: low-cardinality column with != predicate; limited B-tree utility.
+-- A future is_ready boolean column would be more selective.
 CREATE INDEX idx_utterances_embedding_model ON routing_utterances (embedding_model);
+
+-- execution_log.created_at — filtered by time-window in observability queries
+CREATE INDEX idx_execution_log_created_at ON execution_log (created_at);
