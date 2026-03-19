@@ -39,16 +39,16 @@ describe("migrations", () => {
   it("applies all migration files without error", async ({ skip }) => {
     if (!doltAvailable) skip();
     const applied = await runMigrations();
-    expect(applied.length).toBe(16);
+    expect(applied.length).toBe(17);
     expect(applied[0]).toBe("001_create_agent_registry.sql");
-    expect(applied[15]).toBe("016_create_tuning_runs.sql");
+    expect(applied[16]).toBe("017_add_missing_indexes.sql");
   });
 
   it("is idempotent — running twice produces no errors", async ({ skip }) => {
     if (!doltAvailable) skip();
     // Second run should not throw
     const applied = await runMigrations();
-    expect(applied.length).toBe(16);
+    expect(applied.length).toBe(17);
   });
 
   it("creates expected tables", async ({ skip }) => {
