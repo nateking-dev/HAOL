@@ -66,7 +66,9 @@ export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
         const info = getConnInfo(c);
         ip = info.remote.address ?? "unknown";
       } catch {
-        // getConnInfo may fail in test environments without a real socket
+        // getConnInfo may fail in test environments without a real socket.
+        // Log once so operators notice if this fires in production.
+        console.warn("[rate-limit] Could not resolve client IP — using shared bucket");
       }
     }
 

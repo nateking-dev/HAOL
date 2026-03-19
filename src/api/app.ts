@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { requestId } from "./middleware/request-id.js";
-import { apiKeyAuth } from "./middleware/api-key-auth.js";
+import { createApiKeyAuth } from "./middleware/api-key-auth.js";
 import { rateLimit } from "./middleware/rate-limit.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { health } from "./routes/health.js";
@@ -12,10 +12,14 @@ import { outcomes } from "./routes/outcomes.js";
 // Rate-limit presets
 const readLimit = rateLimit({ limit: 120, windowMs: 60_000 }); // 120 req/min
 const taskWriteLimit = rateLimit({ limit: 30, windowMs: 60_000 }); // 30 req/min
+// Tune is intentionally limited to 1 req/5min globally — tuning is expensive
+// (locks the DB, runs LLM evaluation) and concurrent runs are already blocked
+// by an advisory lock. This prevents retry storms from queueing up.
 const tuneLimit = rateLimit({ limit: 1, windowMs: 5 * 60_000 }); // 1 req/5 min
 
 export function createApp(): Hono {
   const app = new Hono();
+  const apiKeyAuth = createApiKeyAuth();
 
   // Middleware
   app.use("*", requestId);
@@ -30,7 +34,8 @@ export function createApp(): Hono {
 
   // Rate limiting — applied after auth so unauthenticated requests
   // are rejected before consuming rate-limit tokens.
-  app.post("/tasks", taskWriteLimit);
+  // Use wildcard patterns so future sub-routes are also covered.
+  app.post("/tasks/*", taskWriteLimit);
   app.post("/observability/tune", tuneLimit);
 
   // Read limiters use app.get() so they don't double-count POST requests
