@@ -2,8 +2,12 @@ import { serve } from "@hono/node-server";
 import { loadConfig } from "./config.js";
 import { createPool, healthCheck } from "./db/connection.js";
 import { createApp } from "./api/app.js";
+import { validateApiKeyConfig } from "./api/middleware/api-key-auth.js";
 
 async function main() {
+  // Fail fast if production auth is misconfigured — before binding the server.
+  validateApiKeyConfig();
+
   const config = loadConfig();
   createPool(config.dolt);
 
