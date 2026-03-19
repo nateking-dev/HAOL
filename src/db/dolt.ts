@@ -65,8 +65,7 @@ export interface DoltMergeResult {
  * merge into the wrong branch.
  */
 export async function doltMerge(branch: string, conn: Queryable): Promise<DoltMergeResult> {
-  const db = conn;
-  const [rows] = await db.query("CALL DOLT_MERGE(?)", [branch]);
+  const [rows] = await conn.query("CALL DOLT_MERGE(?)", [branch]);
   const result = rows as Record<string, unknown>[];
   const row = result[0] ?? {};
   return {
