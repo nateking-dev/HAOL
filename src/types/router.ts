@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { FormatSpec } from "./outcome.js";
+import { CascadeTraceSchema } from "../cascade-router/types.js";
 
 export const TaskStatus = z.enum(["RECEIVED", "CLASSIFIED", "DISPATCHED", "COMPLETED", "FAILED"]);
 export type TaskStatus = z.infer<typeof TaskStatus>;
@@ -32,5 +33,6 @@ export const TaskResult = z.object({
   cost_usd: z.number().nullable(),
   latency_ms: z.number().nullable(),
   error: z.string().nullable(),
+  cascade_trace: CascadeTraceSchema.optional(),
 });
 export type TaskResult = z.infer<typeof TaskResult>;

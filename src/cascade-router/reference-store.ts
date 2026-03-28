@@ -2,12 +2,14 @@ import { query, execute } from "../db/connection.js";
 import { uuidv7 } from "../types/task.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type {
+  CascadeTrace,
   RoutingRule,
   ReferenceUtterance,
   RouterConfig,
   RoutingLayer,
   TierId,
 } from "./types.js";
+import { CascadeTraceSchema } from "./types.js";
 
 interface RuleRow extends RowDataPacket {
   rule_id: string;
@@ -34,6 +36,10 @@ interface ConfigRow extends RowDataPacket {
 
 interface CountRow extends RowDataPacket {
   cnt: number;
+}
+
+interface MetadataRow extends RowDataPacket {
+  metadata: string | null;
 }
 
 export async function loadRules(): Promise<RoutingRule[]> {
@@ -176,6 +182,27 @@ export async function logDecision(
       metadata ? JSON.stringify(metadata) : null,
     ],
   );
+}
+
+export async function findTraceByTaskId(taskId: string): Promise<CascadeTrace | null> {
+  const rows = await query<MetadataRow[]>(
+    "SELECT metadata FROM routing_log WHERE request_id = ? ORDER BY created_at DESC LIMIT 1",
+    [taskId],
+  );
+  const row = rows[0];
+  if (!row || !row.metadata) return null;
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(
+      typeof row.metadata === "string" ? row.metadata : JSON.stringify(row.metadata),
+    );
+  } catch {
+    return null;
+  }
+
+  const result = CascadeTraceSchema.safeParse(parsed.cascade_trace);
+  return result.success ? result.data : null;
 }
 
 export async function hasEmbeddings(): Promise<boolean> {

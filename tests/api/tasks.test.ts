@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import { uuidv7 } from "../../src/types/task.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { createApp } from "../../src/api/app.js";
@@ -97,6 +98,7 @@ afterEach(() => {
 afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
+    await pool.query("DELETE FROM routing_log WHERE input_text LIKE '%trace test%'");
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'api-task-%'");
     await pool.query("DELETE FROM task_log WHERE selected_agent_id LIKE 'api-task-%'");
     // Re-enable seed agents
@@ -167,6 +169,110 @@ describe("GET /tasks/:id", () => {
     if (!doltAvailable) skip();
 
     const res = await app.request("/tasks/non-existent-task-id");
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /tasks/:id/trace", () => {
+  it("returns cascade trace for completed task", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    mockFetchSuccess("Trace test result");
+
+    const createRes = await app.request("/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "Summarize this article for trace test" }),
+    });
+    const created = await createRes.json();
+
+    // Seed a routing_log entry with cascade_trace metadata for this task
+    const cascadeTrace = {
+      layers: [
+        {
+          layer: "deterministic",
+          status: "missed",
+          confidence: null,
+          similarity_score: null,
+          tier: null,
+          reason: "no rule matched",
+          latency_ms: 1,
+        },
+        {
+          layer: "semantic",
+          status: "matched",
+          confidence: 0.88,
+          similarity_score: 0.91,
+          tier: 2,
+          reason: "top-k hit",
+          latency_ms: 12,
+        },
+        {
+          layer: "escalation",
+          status: "skipped",
+          confidence: null,
+          similarity_score: null,
+          tier: null,
+          reason: "already resolved",
+          latency_ms: 0,
+        },
+        {
+          layer: "fallback",
+          status: "skipped",
+          confidence: null,
+          similarity_score: null,
+          tier: null,
+          reason: "already resolved",
+          latency_ms: 0,
+        },
+      ],
+      resolved_layer: "semantic",
+      total_latency_ms: 13,
+    };
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO routing_log
+         (log_id, request_id, input_text, routed_tier, routing_layer, similarity_score, confidence, latency_ms, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuidv7(),
+        created.task_id,
+        "Summarize this article for trace test",
+        2,
+        "semantic",
+        0.91,
+        0.88,
+        13,
+        JSON.stringify({ cascade_trace: cascadeTrace }),
+      ],
+    );
+
+    const res = await app.request(`/tasks/${created.task_id}/trace`);
+    expect(res.status).toBe(200);
+
+    const trace = await res.json();
+    expect(trace.layers).toHaveLength(4);
+    expect(trace.resolved_layer).toBeDefined();
+    expect(typeof trace.total_latency_ms).toBe("number");
+
+    // Verify layer order
+    expect(trace.layers.map((l: any) => l.layer)).toEqual([
+      "deterministic",
+      "semantic",
+      "escalation",
+      "fallback",
+    ]);
+
+    // Each layer has required fields
+    for (const attempt of trace.layers) {
+      expect(["matched", "missed", "skipped", "error"]).toContain(attempt.status);
+      expect(typeof attempt.reason).toBe("string");
+    }
+  });
+
+  it("returns 404 for non-existent task", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const res = await app.request("/tasks/non-existent-id/trace");
     expect(res.status).toBe(404);
   });
 });

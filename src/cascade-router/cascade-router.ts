@@ -7,7 +7,10 @@ import type {
   RoutingDecision,
   EmbeddingProvider,
   EscalationProvider,
+  LayerAttempt,
+  CascadeTrace,
 } from "./types.js";
+import { skippedAttempt } from "./types.js";
 import { matchRules } from "../classifier/rules.js";
 import { costCeilingForTier } from "../classifier/scoring.js";
 import { uuidv7, sha256 } from "../types/task.js";
@@ -75,6 +78,7 @@ export class CascadeRouter {
     const start = performance.now();
     const prompt = input.prompt;
     const metadata = input.metadata;
+    const trace: LayerAttempt[] = [];
 
     // Always run regex capability detection
     const { capabilities: regexCapabilities } = matchRules(prompt);
@@ -86,91 +90,165 @@ export class CascadeRouter {
       }
     }
 
-    let tier: TierId;
-    let layer: RoutingDecision["layer"];
+    let tier: TierId = config.default_tier;
+    let layer: RoutingDecision["layer"] = "fallback";
     let confidence = 1.0;
     let similarityScore: number | null = null;
+    let resolved = false;
 
     // Metadata tier override — skip all layers
     if (metadata?.tier !== undefined) {
       tier = metadata.tier;
       layer = "deterministic";
       confidence = 1.0;
+      resolved = true;
+      trace.push({
+        layer: "deterministic",
+        status: "matched",
+        confidence: 1.0,
+        similarity_score: null,
+        latency_ms: performance.now() - start,
+        tier: metadata.tier,
+        reason: "metadata tier override",
+      });
+      trace.push(skippedAttempt("semantic", "metadata override — skipped"));
+      trace.push(skippedAttempt("escalation", "metadata override — skipped"));
+      trace.push(skippedAttempt("fallback", "metadata override — skipped"));
     } else {
       // Layer 0: Deterministic rules
+      const l0Start = performance.now();
       const l0Result = this.runDeterministicRules(prompt, rules);
+      const l0Latency = performance.now() - l0Start;
 
       if (l0Result) {
         tier = l0Result.tier;
         layer = "deterministic";
         confidence = 1.0;
-        // Merge capabilities from matched rules
+        resolved = true;
         for (const cap of l0Result.capabilities) {
           allCapabilities.add(cap);
         }
-      } else if (utterances.length > 0 && this.embeddingProvider) {
-        // Layer 1: Semantic similarity
-        const queryEmbedding = await this.embeddingProvider.embed(prompt);
-        const matches = rankBySimilarity(queryEmbedding, utterances, config.top_k);
-        const vote = weightedTierVote(matches);
-        similarityScore = matches.length > 0 ? matches[0].score : null;
+        trace.push({
+          layer: "deterministic",
+          status: "matched",
+          confidence: 1.0,
+          similarity_score: null,
+          latency_ms: l0Latency,
+          tier: l0Result.tier,
+          reason: "rule matched",
+        });
+        // Remaining layers skipped
+        trace.push(skippedAttempt("semantic", "deterministic layer resolved"));
+        trace.push(skippedAttempt("escalation", "deterministic layer resolved"));
+        trace.push(skippedAttempt("fallback", "deterministic layer resolved"));
+      } else {
+        trace.push({
+          layer: "deterministic",
+          status: "missed",
+          confidence: null,
+          similarity_score: null,
+          latency_ms: l0Latency,
+          tier: null,
+          reason: "no rules matched",
+        });
 
-        if (vote.confidence >= config.similarity_threshold) {
-          tier = vote.tier;
-          layer = "semantic";
-          confidence = vote.confidence;
-        } else if (
-          vote.confidence >= config.escalation_threshold &&
-          config.enable_escalation &&
-          this.escalationProvider &&
-          tiers.length > 0
-        ) {
-          // Layer 2: LLM escalation
-          const escalation = await this.escalationProvider.classify(prompt, tiers);
-          tier = escalation.tier;
-          layer = "escalation";
-          confidence = escalation.confidence;
-          for (const cap of escalation.capabilities) {
-            allCapabilities.add(cap);
-          }
-        } else if (config.enable_escalation && this.escalationProvider && tiers.length > 0) {
-          // Low confidence — also escalate
-          const escalation = await this.escalationProvider.classify(prompt, tiers);
-          tier = escalation.tier;
-          layer = "escalation";
-          confidence = escalation.confidence;
-          for (const cap of escalation.capabilities) {
-            allCapabilities.add(cap);
+        // Layer 1: Semantic similarity
+        if (utterances.length > 0 && this.embeddingProvider) {
+          const l1Start = performance.now();
+          const queryEmbedding = await this.embeddingProvider.embed(prompt);
+          const matches = rankBySimilarity(queryEmbedding, utterances, config.top_k);
+          const vote = weightedTierVote(matches);
+          const l1Latency = performance.now() - l1Start;
+          similarityScore = matches.length > 0 ? matches[0].score : null;
+
+          if (vote.confidence >= config.similarity_threshold) {
+            tier = vote.tier;
+            layer = "semantic";
+            confidence = vote.confidence;
+            resolved = true;
+            trace.push({
+              layer: "semantic",
+              status: "matched",
+              confidence: vote.confidence,
+              similarity_score: similarityScore,
+              latency_ms: l1Latency,
+              tier: vote.tier,
+              reason: `confidence ${vote.confidence.toFixed(2)} >= threshold ${config.similarity_threshold}`,
+            });
+            trace.push(skippedAttempt("escalation", "semantic layer resolved"));
+            trace.push(skippedAttempt("fallback", "semantic layer resolved"));
+          } else {
+            trace.push({
+              layer: "semantic",
+              status: "missed",
+              confidence: vote.confidence,
+              similarity_score: similarityScore,
+              latency_ms: l1Latency,
+              tier: vote.tier,
+              reason: `confidence ${vote.confidence.toFixed(2)} < threshold ${config.similarity_threshold}`,
+            });
+
+            // Layer 2: LLM escalation
+            const esc = await this.tryEscalation(prompt, config, tiers, allCapabilities);
+            trace.push(esc.attempt);
+            if (esc.resolved) {
+              tier = esc.tier!;
+              layer = "escalation";
+              confidence = esc.confidence!;
+              resolved = true;
+              if (esc.fallbackAttempt) trace.push(esc.fallbackAttempt);
+            }
           }
         } else {
-          // Fallback
+          // No utterances/embeddings — skip semantic
+          const skipReason =
+            utterances.length === 0 ? "no reference utterances" : "no embedding provider";
+          trace.push(skippedAttempt("semantic", skipReason));
+
+          // Layer 2: LLM escalation (no semantic available)
+          const esc = await this.tryEscalation(prompt, config, tiers, allCapabilities);
+          trace.push(esc.attempt);
+          if (esc.resolved) {
+            tier = esc.tier!;
+            layer = "escalation";
+            confidence = esc.confidence!;
+            resolved = true;
+            if (esc.fallbackAttempt) trace.push(esc.fallbackAttempt);
+          }
+        }
+
+        // Fallback — if nothing resolved yet
+        if (!resolved) {
           tier = config.default_tier;
           layer = "fallback";
           confidence = 0;
+          trace.push({
+            layer: "fallback",
+            status: "matched",
+            confidence: 0,
+            similarity_score: null,
+            latency_ms: 0,
+            tier: config.default_tier,
+            reason: `defaulting to T${config.default_tier}`,
+          });
         }
-      } else if (config.enable_escalation && this.escalationProvider && tiers.length > 0) {
-        // No utterances but escalation available
-        const escalation = await this.escalationProvider.classify(prompt, tiers);
-        tier = escalation.tier;
-        layer = "escalation";
-        confidence = escalation.confidence;
-        for (const cap of escalation.capabilities) {
-          allCapabilities.add(cap);
-        }
-      } else {
-        // Fallback
-        tier = config.default_tier;
-        layer = "fallback";
-        confidence = 0;
       }
     }
 
     const latencyMs = performance.now() - start;
     const taskId = uuidv7();
 
+    const cascadeTrace: CascadeTrace = {
+      layers: trace,
+      resolved_layer: layer,
+      total_latency_ms: latencyMs,
+    };
+
     // Best-effort log
     try {
-      await store.logDecision(taskId, prompt, tier, layer, similarityScore, confidence, latencyMs);
+      await store.logDecision(taskId, prompt, tier, layer, similarityScore, confidence, latencyMs, {
+        cascade_trace: cascadeTrace,
+      });
     } catch {
       // Don't fail classification if logging fails
     }
@@ -183,7 +261,72 @@ export class CascadeRouter {
       prompt_hash: sha256(prompt),
       routing_confidence: confidence,
       routing_layer: layer,
+      cascade_trace: cascadeTrace,
     };
+  }
+
+  private async tryEscalation(
+    prompt: string,
+    config: RouterConfig,
+    tiers: TierDefinition[],
+    allCapabilities: Set<string>,
+  ): Promise<{
+    resolved: boolean;
+    tier?: TierId;
+    confidence?: number;
+    attempt: LayerAttempt;
+    fallbackAttempt?: LayerAttempt;
+  }> {
+    if (!config.enable_escalation || !this.escalationProvider || tiers.length === 0) {
+      const reason = !config.enable_escalation
+        ? "escalation disabled"
+        : !this.escalationProvider
+          ? "no escalation provider"
+          : "no tier definitions";
+      return {
+        resolved: false,
+        attempt: skippedAttempt("escalation", reason),
+      };
+    }
+
+    const l2Start = performance.now();
+    try {
+      const escalation = await this.escalationProvider.classify(prompt, tiers);
+      const l2Latency = performance.now() - l2Start;
+      for (const cap of escalation.capabilities) {
+        allCapabilities.add(cap);
+      }
+      return {
+        resolved: true,
+        tier: escalation.tier,
+        confidence: escalation.confidence,
+        attempt: {
+          layer: "escalation",
+          status: "matched",
+          confidence: escalation.confidence,
+          similarity_score: null,
+          latency_ms: l2Latency,
+          tier: escalation.tier,
+          reason: "LLM classification resolved",
+        },
+        fallbackAttempt: skippedAttempt("fallback", "escalation layer resolved"),
+      };
+    } catch (err) {
+      const l2Latency = performance.now() - l2Start;
+      const message = (err as Error).message ?? String(err);
+      return {
+        resolved: false,
+        attempt: {
+          layer: "escalation",
+          status: "error",
+          confidence: null,
+          similarity_score: null,
+          latency_ms: l2Latency,
+          tier: null,
+          reason: `escalation failed: ${message.slice(0, 200)}`,
+        },
+      };
+    }
   }
 
   private runDeterministicRules(

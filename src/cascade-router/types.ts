@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ComplexityTier } from "../types/task.js";
 
 // Re-export for convenience
@@ -58,6 +59,39 @@ export interface RoutingDecision {
   confidence: number;
   similarity_score?: number;
   latency_ms: number;
+  cascade_trace?: CascadeTrace;
+}
+
+export const LayerAttemptSchema = z.object({
+  layer: z.enum(["deterministic", "semantic", "escalation", "fallback"]),
+  status: z.enum(["matched", "missed", "skipped", "error"]),
+  confidence: z.number().nullable(),
+  similarity_score: z.number().nullable(),
+  latency_ms: z.number(),
+  tier: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).nullable(),
+  reason: z.string(),
+});
+
+export type LayerAttempt = z.infer<typeof LayerAttemptSchema>;
+
+export const CascadeTraceSchema = z.object({
+  layers: z.array(LayerAttemptSchema),
+  resolved_layer: z.enum(["deterministic", "semantic", "escalation", "fallback"]),
+  total_latency_ms: z.number(),
+});
+
+export type CascadeTrace = z.infer<typeof CascadeTraceSchema>;
+
+export function skippedAttempt(layer: RoutingLayer, reason: string): LayerAttempt {
+  return {
+    layer,
+    status: "skipped",
+    confidence: null,
+    similarity_score: null,
+    latency_ms: 0,
+    tier: null,
+    reason,
+  };
 }
 
 export interface SimilarityMatch {

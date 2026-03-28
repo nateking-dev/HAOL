@@ -1,5 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { clearConfigCache, safeParseThreshold } from "../../src/cascade-router/reference-store.js";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
+import {
+  clearConfigCache,
+  safeParseThreshold,
+  findTraceByTaskId,
+} from "../../src/cascade-router/reference-store.js";
+import * as connectionModule from "../../src/db/connection.js";
 import { createPool, getPool, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
@@ -111,5 +116,98 @@ describe("safeParseThreshold", () => {
     expect(safeParseThreshold("1.5", 0.6)).toBe(1);
     expect(safeParseThreshold("-0.1", 0.6)).toBe(0);
     expect(safeParseThreshold("2.0", 0.6)).toBe(1);
+  });
+});
+
+describe("findTraceByTaskId", () => {
+  const validTrace = {
+    cascade_trace: {
+      layers: [
+        {
+          layer: "deterministic",
+          status: "missed",
+          confidence: null,
+          similarity_score: null,
+          tier: null,
+          reason: "no rule matched",
+          latency_ms: 2,
+        },
+        {
+          layer: "semantic",
+          status: "matched",
+          confidence: 0.88,
+          similarity_score: 0.91,
+          tier: 2,
+          reason: "top-k hit",
+          latency_ms: 15,
+        },
+        {
+          layer: "escalation",
+          status: "skipped",
+          confidence: null,
+          similarity_score: null,
+          tier: null,
+          reason: "already resolved",
+          latency_ms: 0,
+        },
+        {
+          layer: "fallback",
+          status: "skipped",
+          confidence: null,
+          similarity_score: null,
+          tier: null,
+          reason: "already resolved",
+          latency_ms: 0,
+        },
+      ],
+      resolved_layer: "semantic",
+      total_latency_ms: 17,
+    },
+  };
+
+  let querySpy: ReturnType<typeof vi.spyOn>;
+
+  afterEach(() => {
+    querySpy?.mockRestore();
+  });
+
+  it("returns null when no routing_log row exists", async () => {
+    querySpy = vi.spyOn(connectionModule, "query").mockResolvedValue([] as any);
+    const result = await findTraceByTaskId("no-such-task");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when metadata is null", async () => {
+    querySpy = vi.spyOn(connectionModule, "query").mockResolvedValue([{ metadata: null }] as any);
+    const result = await findTraceByTaskId("task-null-meta");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when metadata JSON is malformed", async () => {
+    querySpy = vi
+      .spyOn(connectionModule, "query")
+      .mockResolvedValue([{ metadata: "{not valid json!!" }] as any);
+    const result = await findTraceByTaskId("task-bad-json");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when cascade_trace key is absent from metadata", async () => {
+    querySpy = vi
+      .spyOn(connectionModule, "query")
+      .mockResolvedValue([{ metadata: JSON.stringify({ other_key: "value" }) }] as any);
+    const result = await findTraceByTaskId("task-no-trace");
+    expect(result).toBeNull();
+  });
+
+  it("returns the trace when valid cascade_trace exists in metadata", async () => {
+    querySpy = vi
+      .spyOn(connectionModule, "query")
+      .mockResolvedValue([{ metadata: JSON.stringify(validTrace) }] as any);
+    const result = await findTraceByTaskId("task-with-trace");
+
+    expect(result).not.toBeNull();
+    expect(result!.layers).toHaveLength(4);
+    expect(result!.resolved_layer).toBe("semantic");
+    expect(result!.total_latency_ms).toBe(17);
   });
 });

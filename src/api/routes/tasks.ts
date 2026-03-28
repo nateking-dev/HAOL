@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { routeTask } from "../../router/router.js";
 import { findById } from "../../repositories/task-log.js";
 import { findByTaskId } from "../../repositories/execution-log.js";
+import { findTraceByTaskId } from "../../cascade-router/reference-store.js";
 import { RouterTaskInput } from "../../types/router.js";
 import { NotFoundError, ValidationError } from "../middleware/error-handler.js";
 
@@ -33,6 +34,15 @@ tasks.get("/tasks/:id", async (c) => {
   }
 
   return c.json({ ...task, executions }, 200);
+});
+
+tasks.get("/tasks/:id/trace", async (c) => {
+  const taskId = c.req.param("id");
+  const trace = await findTraceByTaskId(taskId);
+  if (!trace) {
+    throw new NotFoundError(`No cascade trace found for task: ${taskId}`);
+  }
+  return c.json(trace, 200);
 });
 
 export { tasks };
