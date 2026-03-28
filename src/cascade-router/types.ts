@@ -60,6 +60,24 @@ export interface RoutingDecision {
   latency_ms: number;
 }
 
+export type LayerAttemptStatus = "matched" | "missed" | "skipped" | "error";
+
+export interface LayerAttempt {
+  layer: RoutingLayer;
+  status: LayerAttemptStatus;
+  confidence: number | null;
+  similarity_score: number | null;
+  latency_ms: number;
+  tier: TierId | null;
+  reason: string;
+}
+
+export interface CascadeTrace {
+  layers: LayerAttempt[];
+  resolved_layer: RoutingLayer;
+  total_latency_ms: number;
+}
+
 export interface SimilarityMatch {
   utterance_id: string;
   tier_id: TierId;

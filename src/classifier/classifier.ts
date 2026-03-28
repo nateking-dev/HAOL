@@ -1,8 +1,11 @@
 import { TaskInput, type TaskClassification, uuidv7, sha256 } from "../types/task.js";
+import type { CascadeTrace, LayerAttempt } from "../cascade-router/types.js";
 import { matchRules } from "./rules.js";
 import { computeTier, costCeilingForTier } from "./scoring.js";
 
 export function classify(input: TaskInput): TaskClassification {
+  const start = performance.now();
+
   // 1. Validate input with Zod
   const parsed = TaskInput.parse(input);
 
@@ -34,11 +37,45 @@ export function classify(input: TaskInput): TaskClassification {
   const task_id = uuidv7();
   const prompt_hash = sha256(parsed.prompt);
 
+  const elapsed = performance.now() - start;
+
+  // 7. Build cascade trace for legacy classifier
+  const deterministicAttempt: LayerAttempt = {
+    layer: "deterministic",
+    status: "matched",
+    confidence: 1.0,
+    similarity_score: null,
+    latency_ms: elapsed,
+    tier,
+    reason: "legacy rule-based classifier — deterministic match",
+  };
+
+  const skippedLayers: LayerAttempt[] = (["semantic", "escalation", "fallback"] as const).map(
+    (layer) => ({
+      layer,
+      status: "skipped" as const,
+      confidence: null,
+      similarity_score: null,
+      latency_ms: 0,
+      tier: null,
+      reason: "legacy classifier — skipped",
+    }),
+  );
+
+  const cascade_trace: CascadeTrace = {
+    layers: [deterministicAttempt, ...skippedLayers],
+    resolved_layer: "deterministic",
+    total_latency_ms: elapsed,
+  };
+
   return {
     task_id,
     complexity_tier: tier,
     required_capabilities: allCapabilities,
     cost_ceiling_usd,
     prompt_hash,
+    routing_confidence: 1.0,
+    routing_layer: "deterministic",
+    cascade_trace,
   };
 }

@@ -19,6 +19,7 @@ import {
   evaluateRoutingDecision,
 } from "../services/outcome-collector.js";
 import { loadConfig } from "../cascade-router/reference-store.js";
+import type { CascadeTrace } from "../cascade-router/types.js";
 
 export const DEFAULT_TIMEOUT_MS: Record<ComplexityTier, number> = {
   1: 15_000,
@@ -42,6 +43,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
 
   let taskId: string | null = null;
   let status: TaskResult["status"] = "RECEIVED";
+  let cascadeTrace: CascadeTrace | undefined;
 
   try {
     // 1. Classify — try cascade router, fall back to old classifier
@@ -58,6 +60,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       });
     }
     taskId = classification.task_id;
+    cascadeTrace = classification.cascade_trace;
 
     // 2. Intake — write to task_log
     await taskLog.create(taskId, classification.prompt_hash);
@@ -206,6 +209,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       cost_usd: execResult.cost_usd,
       latency_ms: execResult.latency_ms,
       error: execResult.error_detail,
+      cascade_trace: cascadeTrace,
     };
   } catch (err) {
     // On any error, mark as failed and still commit
@@ -231,6 +235,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       cost_usd: null,
       latency_ms: null,
       error: (err as Error).message,
+      cascade_trace: cascadeTrace,
     };
   }
 }
