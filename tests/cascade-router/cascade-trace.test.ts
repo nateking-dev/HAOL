@@ -104,8 +104,8 @@ function expectTraceShape(trace: CascadeTrace) {
 
   // Exactly one layer should be the resolved layer
   const matched = trace.layers.filter((l) => l.status === "matched");
-  expect(matched.length).toBeGreaterThanOrEqual(1);
-  expect(matched.some((l) => l.layer === trace.resolved_layer)).toBe(true);
+  expect(matched).toHaveLength(1);
+  expect(matched[0].layer).toBe(trace.resolved_layer);
 }
 
 describe("CascadeTrace", () => {

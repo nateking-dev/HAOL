@@ -89,8 +89,8 @@ export class CascadeRouter {
       }
     }
 
-    let tier: TierId;
-    let layer: RoutingDecision["layer"];
+    let tier: TierId = config.default_tier;
+    let layer: RoutingDecision["layer"] = "fallback";
     let confidence = 1.0;
     let similarityScore: number | null = null;
     let resolved = false;
@@ -252,63 +252,14 @@ export class CascadeRouter {
             });
 
             // Layer 2: LLM escalation
-            if (config.enable_escalation && this.escalationProvider && tiers.length > 0) {
-              const l2Start = performance.now();
-              try {
-                const escalation = await this.escalationProvider.classify(prompt, tiers);
-                const l2Latency = performance.now() - l2Start;
-                tier = escalation.tier;
-                layer = "escalation";
-                confidence = escalation.confidence;
-                resolved = true;
-                for (const cap of escalation.capabilities) {
-                  allCapabilities.add(cap);
-                }
-                trace.push({
-                  layer: "escalation",
-                  status: "matched",
-                  confidence: escalation.confidence,
-                  similarity_score: null,
-                  latency_ms: l2Latency,
-                  tier: escalation.tier,
-                  reason: "LLM classification resolved",
-                });
-                trace.push({
-                  layer: "fallback",
-                  status: "skipped",
-                  confidence: null,
-                  similarity_score: null,
-                  latency_ms: 0,
-                  tier: null,
-                  reason: "escalation layer resolved",
-                });
-              } catch (err) {
-                const l2Latency = performance.now() - l2Start;
-                trace.push({
-                  layer: "escalation",
-                  status: "error",
-                  confidence: null,
-                  similarity_score: null,
-                  latency_ms: l2Latency,
-                  tier: null,
-                  reason: `escalation failed: ${(err as Error).message}`,
-                });
-              }
-            } else {
-              const skipReason = !config.enable_escalation
-                ? "escalation disabled"
-                : !this.escalationProvider
-                  ? "no escalation provider"
-                  : "no tier definitions";
-              trace.push({
-                layer: "escalation",
-                status: "skipped",
-                confidence: null,
-                similarity_score: null,
-                latency_ms: 0,
-                tier: null,
-                reason: skipReason,
-              });
+            const esc = await this.tryEscalation(prompt, config, tiers, allCapabilities);
+            trace.push(esc.attempt);
+            if (esc.resolved) {
+              tier = esc.tier!;
+              layer = "escalation";
+              confidence = esc.confidence!;
+              resolved = true;
+              if (esc.fallbackAttempt) trace.push(esc.fallbackAttempt);
             }
           }
         } else {
@@ -326,63 +277,14 @@ export class CascadeRouter {
           });
 
           // Layer 2: LLM escalation (no semantic available)
-          if (config.enable_escalation && this.escalationProvider && tiers.length > 0) {
-            const l2Start = performance.now();
-            try {
-              const escalation = await this.escalationProvider.classify(prompt, tiers);
-              const l2Latency = performance.now() - l2Start;
-              tier = escalation.tier;
-              layer = "escalation";
-              confidence = escalation.confidence;
-              resolved = true;
-              for (const cap of escalation.capabilities) {
-                allCapabilities.add(cap);
-              }
-              trace.push({
-                layer: "escalation",
-                status: "matched",
-                confidence: escalation.confidence,
-                similarity_score: null,
-                latency_ms: l2Latency,
-                tier: escalation.tier,
-                reason: "LLM classification resolved",
-              });
-              trace.push({
-                layer: "fallback",
-                status: "skipped",
-                confidence: null,
-                similarity_score: null,
-                latency_ms: 0,
-                tier: null,
-                reason: "escalation layer resolved",
-              });
-            } catch (err) {
-              const l2Latency = performance.now() - l2Start;
-              trace.push({
-                layer: "escalation",
-                status: "error",
-                confidence: null,
-                similarity_score: null,
-                latency_ms: l2Latency,
-                tier: null,
-                reason: `escalation failed: ${(err as Error).message}`,
-              });
-            }
-          } else {
-            const skipReason = !config.enable_escalation
-              ? "escalation disabled"
-              : !this.escalationProvider
-                ? "no escalation provider"
-                : "no tier definitions";
-            trace.push({
-              layer: "escalation",
-              status: "skipped",
-              confidence: null,
-              similarity_score: null,
-              latency_ms: 0,
-              tier: null,
-              reason: skipReason,
-            });
+          const esc = await this.tryEscalation(prompt, config, tiers, allCapabilities);
+          trace.push(esc.attempt);
+          if (esc.resolved) {
+            tier = esc.tier!;
+            layer = "escalation";
+            confidence = esc.confidence!;
+            resolved = true;
+            if (esc.fallbackAttempt) trace.push(esc.fallbackAttempt);
           }
         }
 
@@ -409,38 +311,109 @@ export class CascadeRouter {
 
     const cascadeTrace: CascadeTrace = {
       layers: trace,
-      resolved_layer: layer!,
+      resolved_layer: layer,
       total_latency_ms: latencyMs,
     };
 
     // Best-effort log
     try {
-      await store.logDecision(
-        taskId,
-        prompt,
-        tier!,
-        layer!,
-        similarityScore,
-        confidence,
-        latencyMs,
-        {
-          cascade_trace: cascadeTrace,
-        },
-      );
+      await store.logDecision(taskId, prompt, tier, layer, similarityScore, confidence, latencyMs, {
+        cascade_trace: cascadeTrace,
+      });
     } catch {
       // Don't fail classification if logging fails
     }
 
     return {
       task_id: taskId,
-      complexity_tier: tier!,
+      complexity_tier: tier,
       required_capabilities: [...allCapabilities],
-      cost_ceiling_usd: costCeilingForTier(tier!),
+      cost_ceiling_usd: costCeilingForTier(tier),
       prompt_hash: sha256(prompt),
       routing_confidence: confidence,
-      routing_layer: layer!,
+      routing_layer: layer,
       cascade_trace: cascadeTrace,
     };
+  }
+
+  private async tryEscalation(
+    prompt: string,
+    config: RouterConfig,
+    tiers: TierDefinition[],
+    allCapabilities: Set<string>,
+  ): Promise<{
+    resolved: boolean;
+    tier?: TierId;
+    confidence?: number;
+    attempt: LayerAttempt;
+    fallbackAttempt?: LayerAttempt;
+  }> {
+    if (!config.enable_escalation || !this.escalationProvider || tiers.length === 0) {
+      const reason = !config.enable_escalation
+        ? "escalation disabled"
+        : !this.escalationProvider
+          ? "no escalation provider"
+          : "no tier definitions";
+      return {
+        resolved: false,
+        attempt: {
+          layer: "escalation",
+          status: "skipped",
+          confidence: null,
+          similarity_score: null,
+          latency_ms: 0,
+          tier: null,
+          reason,
+        },
+      };
+    }
+
+    const l2Start = performance.now();
+    try {
+      const escalation = await this.escalationProvider.classify(prompt, tiers);
+      const l2Latency = performance.now() - l2Start;
+      for (const cap of escalation.capabilities) {
+        allCapabilities.add(cap);
+      }
+      return {
+        resolved: true,
+        tier: escalation.tier,
+        confidence: escalation.confidence,
+        attempt: {
+          layer: "escalation",
+          status: "matched",
+          confidence: escalation.confidence,
+          similarity_score: null,
+          latency_ms: l2Latency,
+          tier: escalation.tier,
+          reason: "LLM classification resolved",
+        },
+        fallbackAttempt: {
+          layer: "fallback",
+          status: "skipped",
+          confidence: null,
+          similarity_score: null,
+          latency_ms: 0,
+          tier: null,
+          reason: "escalation layer resolved",
+        },
+      };
+    } catch (err) {
+      const l2Latency = performance.now() - l2Start;
+      const message = (err as Error).message ?? String(err);
+      return {
+        resolved: false,
+        attempt: {
+          layer: "escalation",
+          status: "error",
+          confidence: null,
+          similarity_score: null,
+          latency_ms: l2Latency,
+          tier: null,
+          reason: `escalation failed: ${message.slice(0, 200)}`,
+        },
+      };
+    }
   }
 
   private runDeterministicRules(

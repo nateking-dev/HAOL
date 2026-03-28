@@ -36,6 +36,10 @@ interface CountRow extends RowDataPacket {
   cnt: number;
 }
 
+interface MetadataRow extends RowDataPacket {
+  metadata: string | null;
+}
+
 export async function loadRules(): Promise<RoutingRule[]> {
   const rows = await query<RuleRow[]>(
     `SELECT rule_id, tier_id, rule_type, pattern, capabilities, priority, enabled, description
@@ -176,6 +180,26 @@ export async function logDecision(
       metadata ? JSON.stringify(metadata) : null,
     ],
   );
+}
+
+export async function findTraceByTaskId(taskId: string): Promise<Record<string, unknown> | null> {
+  const rows = await query<MetadataRow[]>(
+    "SELECT metadata FROM routing_log WHERE request_id = ? ORDER BY created_at DESC LIMIT 1",
+    [taskId],
+  );
+  const row = rows[0];
+  if (!row || !row.metadata) return null;
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(
+      typeof row.metadata === "string" ? row.metadata : JSON.stringify(row.metadata),
+    );
+  } catch {
+    return null;
+  }
+
+  return (parsed.cascade_trace as Record<string, unknown>) ?? null;
 }
 
 export async function hasEmbeddings(): Promise<boolean> {
