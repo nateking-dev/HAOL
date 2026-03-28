@@ -59,24 +59,7 @@ export interface RoutingDecision {
   confidence: number;
   similarity_score?: number;
   latency_ms: number;
-}
-
-export type LayerAttemptStatus = "matched" | "missed" | "skipped" | "error";
-
-export interface LayerAttempt {
-  layer: RoutingLayer;
-  status: LayerAttemptStatus;
-  confidence: number | null;
-  similarity_score: number | null;
-  latency_ms: number;
-  tier: TierId | null;
-  reason: string;
-}
-
-export interface CascadeTrace {
-  layers: LayerAttempt[];
-  resolved_layer: RoutingLayer;
-  total_latency_ms: number;
+  cascade_trace?: CascadeTrace;
 }
 
 export const LayerAttemptSchema = z.object({
@@ -89,11 +72,15 @@ export const LayerAttemptSchema = z.object({
   reason: z.string(),
 });
 
+export type LayerAttempt = z.infer<typeof LayerAttemptSchema>;
+
 export const CascadeTraceSchema = z.object({
   layers: z.array(LayerAttemptSchema),
   resolved_layer: z.enum(["deterministic", "semantic", "escalation", "fallback"]),
   total_latency_ms: z.number(),
 });
+
+export type CascadeTrace = z.infer<typeof CascadeTraceSchema>;
 
 export function skippedAttempt(layer: RoutingLayer, reason: string): LayerAttempt {
   return {
