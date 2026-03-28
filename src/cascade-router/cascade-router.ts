@@ -10,6 +10,7 @@ import type {
   LayerAttempt,
   CascadeTrace,
 } from "./types.js";
+import { skippedAttempt } from "./types.js";
 import { matchRules } from "../classifier/rules.js";
 import { costCeilingForTier } from "../classifier/scoring.js";
 import { uuidv7, sha256 } from "../types/task.js";
@@ -110,33 +111,9 @@ export class CascadeRouter {
         tier: metadata.tier,
         reason: "metadata tier override",
       });
-      trace.push({
-        layer: "semantic",
-        status: "skipped",
-        confidence: null,
-        similarity_score: null,
-        latency_ms: 0,
-        tier: null,
-        reason: "metadata override — skipped",
-      });
-      trace.push({
-        layer: "escalation",
-        status: "skipped",
-        confidence: null,
-        similarity_score: null,
-        latency_ms: 0,
-        tier: null,
-        reason: "metadata override — skipped",
-      });
-      trace.push({
-        layer: "fallback",
-        status: "skipped",
-        confidence: null,
-        similarity_score: null,
-        latency_ms: 0,
-        tier: null,
-        reason: "metadata override — skipped",
-      });
+      trace.push(skippedAttempt("semantic", "metadata override — skipped"));
+      trace.push(skippedAttempt("escalation", "metadata override — skipped"));
+      trace.push(skippedAttempt("fallback", "metadata override — skipped"));
     } else {
       // Layer 0: Deterministic rules
       const l0Start = performance.now();
@@ -161,33 +138,9 @@ export class CascadeRouter {
           reason: "rule matched",
         });
         // Remaining layers skipped
-        trace.push({
-          layer: "semantic",
-          status: "skipped",
-          confidence: null,
-          similarity_score: null,
-          latency_ms: 0,
-          tier: null,
-          reason: "deterministic layer resolved",
-        });
-        trace.push({
-          layer: "escalation",
-          status: "skipped",
-          confidence: null,
-          similarity_score: null,
-          latency_ms: 0,
-          tier: null,
-          reason: "deterministic layer resolved",
-        });
-        trace.push({
-          layer: "fallback",
-          status: "skipped",
-          confidence: null,
-          similarity_score: null,
-          latency_ms: 0,
-          tier: null,
-          reason: "deterministic layer resolved",
-        });
+        trace.push(skippedAttempt("semantic", "deterministic layer resolved"));
+        trace.push(skippedAttempt("escalation", "deterministic layer resolved"));
+        trace.push(skippedAttempt("fallback", "deterministic layer resolved"));
       } else {
         trace.push({
           layer: "deterministic",
@@ -222,24 +175,8 @@ export class CascadeRouter {
               tier: vote.tier,
               reason: `confidence ${vote.confidence.toFixed(2)} >= threshold ${config.similarity_threshold}`,
             });
-            trace.push({
-              layer: "escalation",
-              status: "skipped",
-              confidence: null,
-              similarity_score: null,
-              latency_ms: 0,
-              tier: null,
-              reason: "semantic layer resolved",
-            });
-            trace.push({
-              layer: "fallback",
-              status: "skipped",
-              confidence: null,
-              similarity_score: null,
-              latency_ms: 0,
-              tier: null,
-              reason: "semantic layer resolved",
-            });
+            trace.push(skippedAttempt("escalation", "semantic layer resolved"));
+            trace.push(skippedAttempt("fallback", "semantic layer resolved"));
           } else {
             trace.push({
               layer: "semantic",
@@ -266,15 +203,7 @@ export class CascadeRouter {
           // No utterances/embeddings — skip semantic
           const skipReason =
             utterances.length === 0 ? "no reference utterances" : "no embedding provider";
-          trace.push({
-            layer: "semantic",
-            status: "skipped",
-            confidence: null,
-            similarity_score: null,
-            latency_ms: 0,
-            tier: null,
-            reason: skipReason,
-          });
+          trace.push(skippedAttempt("semantic", skipReason));
 
           // Layer 2: LLM escalation (no semantic available)
           const esc = await this.tryEscalation(prompt, config, tiers, allCapabilities);
@@ -356,15 +285,7 @@ export class CascadeRouter {
           : "no tier definitions";
       return {
         resolved: false,
-        attempt: {
-          layer: "escalation",
-          status: "skipped",
-          confidence: null,
-          similarity_score: null,
-          latency_ms: 0,
-          tier: null,
-          reason,
-        },
+        attempt: skippedAttempt("escalation", reason),
       };
     }
 
@@ -388,15 +309,7 @@ export class CascadeRouter {
           tier: escalation.tier,
           reason: "LLM classification resolved",
         },
-        fallbackAttempt: {
-          layer: "fallback",
-          status: "skipped",
-          confidence: null,
-          similarity_score: null,
-          latency_ms: 0,
-          tier: null,
-          reason: "escalation layer resolved",
-        },
+        fallbackAttempt: skippedAttempt("fallback", "escalation layer resolved"),
       };
     } catch (err) {
       const l2Latency = performance.now() - l2Start;

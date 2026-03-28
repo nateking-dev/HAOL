@@ -2,12 +2,14 @@ import { query, execute } from "../db/connection.js";
 import { uuidv7 } from "../types/task.js";
 import type { RowDataPacket } from "mysql2/promise";
 import type {
+  CascadeTrace,
   RoutingRule,
   ReferenceUtterance,
   RouterConfig,
   RoutingLayer,
   TierId,
 } from "./types.js";
+import { CascadeTraceSchema } from "./types.js";
 
 interface RuleRow extends RowDataPacket {
   rule_id: string;
@@ -182,7 +184,7 @@ export async function logDecision(
   );
 }
 
-export async function findTraceByTaskId(taskId: string): Promise<Record<string, unknown> | null> {
+export async function findTraceByTaskId(taskId: string): Promise<CascadeTrace | null> {
   const rows = await query<MetadataRow[]>(
     "SELECT metadata FROM routing_log WHERE request_id = ? ORDER BY created_at DESC LIMIT 1",
     [taskId],
@@ -199,7 +201,8 @@ export async function findTraceByTaskId(taskId: string): Promise<Record<string, 
     return null;
   }
 
-  return (parsed.cascade_trace as Record<string, unknown>) ?? null;
+  const result = CascadeTraceSchema.safeParse(parsed.cascade_trace);
+  return result.success ? result.data : null;
 }
 
 export async function hasEmbeddings(): Promise<boolean> {

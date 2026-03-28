@@ -1,5 +1,6 @@
 import { TaskInput, type TaskClassification, uuidv7, sha256 } from "../types/task.js";
 import type { CascadeTrace, LayerAttempt } from "../cascade-router/types.js";
+import { skippedAttempt } from "../cascade-router/types.js";
 import { matchRules } from "./rules.js";
 import { computeTier, costCeilingForTier } from "./scoring.js";
 
@@ -51,15 +52,7 @@ export function classify(input: TaskInput): TaskClassification {
   };
 
   const skippedLayers: LayerAttempt[] = (["semantic", "escalation", "fallback"] as const).map(
-    (layer) => ({
-      layer,
-      status: "skipped" as const,
-      confidence: null,
-      similarity_score: null,
-      latency_ms: 0,
-      tier: null,
-      reason: "legacy classifier — skipped",
-    }),
+    (layer) => skippedAttempt(layer, "legacy classifier — skipped"),
   );
 
   const cascade_trace: CascadeTrace = {

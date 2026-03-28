@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import type { CascadeTrace } from "../cascade-router/types.js";
+import { CascadeTraceSchema } from "../cascade-router/types.js";
 
 // --- UUIDv7 generation ---
 
@@ -40,6 +40,6 @@ export const TaskClassification = z.object({
   prompt_hash: z.string(),
   routing_confidence: z.number().optional(),
   routing_layer: z.string().optional(),
-  cascade_trace: z.custom<CascadeTrace>().optional(),
+  cascade_trace: CascadeTraceSchema.optional(),
 });
 export type TaskClassification = z.infer<typeof TaskClassification>;
