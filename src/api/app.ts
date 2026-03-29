@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { requestId } from "./middleware/request-id.js";
 import { createApiKeyAuth } from "./middleware/api-key-auth.js";
 import { rateLimit } from "./middleware/rate-limit.js";
@@ -31,6 +32,9 @@ export function createApp(): Hono {
 
   // Middleware
   app.use("*", requestId);
+
+  // Demo UI — static files, unauthenticated
+  app.use("/demo/*", serveStatic({ root: "./public/", rewriteRequestPath: (p) => p.replace(/^\/demo/, "") }));
 
   // Health check is unauthenticated (load balancers, K8s probes)
   app.route("/", health);

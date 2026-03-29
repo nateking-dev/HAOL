@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HAOL — Live Classification Demo</title>
+    <link rel="stylesheet" href="/demo/css/demo.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <div class="brand">
+          <div class="brand-icon">H</div>
+          <div>
+            <div class="brand-name">HAOL</div>
+            <div class="brand-tagline">Heterogeneous Agent Orchestration Layer</div>
+          </div>
+        </div>
+        <div class="header-badge">Live Classification Demo</div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <!-- Left Panel: Input -->
+      <section class="panel panel-input">
+        <h2 class="panel-title">Prompt</h2>
+        <textarea
+          id="prompt-input"
+          class="prompt-textarea"
+          placeholder="Type a prompt to classify and route..."
+          rows="4"
+        ></textarea>
+        <button id="submit-btn" class="btn btn-primary" type="button">Route Task</button>
+
+        <div class="divider"></div>
+
+        <h3 class="section-title">Demo Script</h3>
+        <p class="section-subtitle">Click a prompt to see it cascade through the routing layers.</p>
+        <div id="demo-prompts" class="demo-prompts"></div>
+
+        <div class="divider"></div>
+
+        <div id="cost-ticker" class="cost-ticker" style="display: none">
+          <h3 class="section-title">Session Cost</h3>
+          <div class="cost-row">
+            <span class="cost-label">HAOL routing</span>
+            <span id="cost-actual" class="cost-value">$0.0000</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">All via Opus</span>
+            <span id="cost-counterfactual" class="cost-value cost-counterfactual">—</span>
+          </div>
+          <div id="savings-row" class="savings-row" style="display: none">
+            <span class="savings-label">Savings</span>
+            <span id="savings-value" class="savings-value"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Center Panel: Cascade -->
+      <section class="panel panel-cascade">
+        <h2 class="panel-title">Cascade Journey</h2>
+
+        <div id="cascade-layers" class="cascade-layers">
+          <div class="layer-card" data-layer="deterministic" data-state="idle">
+            <div class="layer-header">
+              <span class="layer-badge">L0</span>
+              <span class="layer-name">Deterministic Rules</span>
+              <span class="layer-status-icon"></span>
+            </div>
+            <div class="layer-meta">
+              <span class="meta-latency"></span>
+              <span class="meta-confidence"></span>
+            </div>
+            <div class="layer-reason"></div>
+          </div>
+
+          <div class="layer-connector">
+            <div class="connector-line"></div>
+            <div class="connector-arrow"></div>
+          </div>
+
+          <div class="layer-card" data-layer="semantic" data-state="idle">
+            <div class="layer-header">
+              <span class="layer-badge">L1</span>
+              <span class="layer-name">Semantic Similarity</span>
+              <span class="layer-status-icon"></span>
+            </div>
+            <div class="layer-meta">
+              <span class="meta-latency"></span>
+              <span class="meta-confidence"></span>
+            </div>
+            <div class="layer-reason"></div>
+          </div>
+
+          <div class="layer-connector">
+            <div class="connector-line"></div>
+            <div class="connector-arrow"></div>
+          </div>
+
+          <div class="layer-card" data-layer="escalation" data-state="idle">
+            <div class="layer-header">
+              <span class="layer-badge">L2</span>
+              <span class="layer-name">LLM Escalation</span>
+              <span class="layer-status-icon"></span>
+            </div>
+            <div class="layer-meta">
+              <span class="meta-latency"></span>
+              <span class="meta-confidence"></span>
+            </div>
+            <div class="layer-reason"></div>
+          </div>
+
+          <div class="layer-connector">
+            <div class="connector-line"></div>
+            <div class="connector-arrow"></div>
+          </div>
+
+          <div class="layer-card" data-layer="fallback" data-state="idle">
+            <div class="layer-header">
+              <span class="layer-badge">L3</span>
+              <span class="layer-name">Fallback</span>
+              <span class="layer-status-icon"></span>
+            </div>
+            <div class="layer-meta">
+              <span class="meta-latency"></span>
+              <span class="meta-confidence"></span>
+            </div>
+            <div class="layer-reason"></div>
+          </div>
+        </div>
+
+        <div id="total-latency" class="total-latency" style="display: none">
+          Total routing: <span id="total-latency-value"></span>
+        </div>
+      </section>
+
+      <!-- Right Panel: Agent Selection + Response -->
+      <section class="panel panel-result">
+        <h2 class="panel-title">Agent Selection</h2>
+
+        <div id="selection-empty" class="empty-state">
+          Submit a prompt to see the routing decision.
+        </div>
+
+        <div id="selection-detail" style="display: none">
+          <div class="selection-winner">
+            <span class="winner-label">Selected Agent</span>
+            <span id="winner-agent" class="winner-agent"></span>
+            <span id="winner-tier" class="winner-tier"></span>
+          </div>
+
+          <table id="scoring-table" class="scoring-table">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>Capability</th>
+                <th>Cost</th>
+                <th>Latency</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="scoring-body"></tbody>
+          </table>
+
+          <div class="policy-weights" id="policy-weights"></div>
+        </div>
+
+        <div class="divider"></div>
+
+        <h2 class="panel-title">Response</h2>
+        <div id="response-empty" class="empty-state">Waiting for agent execution...</div>
+        <div id="response-content" class="response-content" style="display: none"></div>
+      </section>
+    </main>
+
+    <script src="/demo/js/api.js"></script>
+    <script src="/demo/js/prompts.js"></script>
+    <script src="/demo/js/cascade-viz.js"></script>
+    <script src="/demo/js/app.js"></script>
+  </body>
+</html>

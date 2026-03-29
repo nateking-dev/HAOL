@@ -341,6 +341,70 @@ export async function routingAccuracyByAgent(hours: number): Promise<RoutingAccu
   });
 }
 
+// --- Cost savings (actual vs counterfactual) ---
+
+export interface CostSavingsRow {
+  task_count: number;
+  actual_cost: number;
+  counterfactual_cost: number;
+  savings_usd: number;
+  savings_pct: number;
+}
+
+interface CostSavingsRaw extends RowDataPacket {
+  task_count: string | number;
+  actual_cost: string | number;
+  total_input_tokens: string | number;
+  total_output_tokens: string | number;
+}
+
+// Counterfactual: what if every task was routed to claude-opus-4-6?
+// Opus rates from seed: $0.015/1k input, $0.075/1k output
+const OPUS_COST_PER_1K_INPUT = 0.015;
+const OPUS_COST_PER_1K_OUTPUT = 0.075;
+
+export async function costSavings(hours: number): Promise<CostSavingsRow> {
+  const rows = await query<CostSavingsRaw[]>(
+    `SELECT COUNT(*) AS task_count,
+            COALESCE(SUM(cost_usd), 0) AS actual_cost,
+            COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+            COALESCE(SUM(output_tokens), 0) AS total_output_tokens
+     FROM execution_log
+     WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+       AND outcome = 'SUCCESS'`,
+    [hours],
+  );
+
+  const row = rows[0];
+  const taskCount =
+    typeof row.task_count === "string" ? parseInt(row.task_count, 10) : Number(row.task_count);
+  const actualCost =
+    typeof row.actual_cost === "string" ? parseFloat(row.actual_cost) : Number(row.actual_cost);
+  const inputTokens =
+    typeof row.total_input_tokens === "string"
+      ? parseInt(row.total_input_tokens, 10)
+      : Number(row.total_input_tokens);
+  const outputTokens =
+    typeof row.total_output_tokens === "string"
+      ? parseInt(row.total_output_tokens, 10)
+      : Number(row.total_output_tokens);
+
+  const counterfactualCost =
+    (inputTokens / 1000) * OPUS_COST_PER_1K_INPUT +
+    (outputTokens / 1000) * OPUS_COST_PER_1K_OUTPUT;
+
+  const savingsUsd = counterfactualCost - actualCost;
+  const savingsPct = counterfactualCost > 0 ? (savingsUsd / counterfactualCost) * 100 : 0;
+
+  return {
+    task_count: taskCount,
+    actual_cost: actualCost,
+    counterfactual_cost: counterfactualCost,
+    savings_usd: savingsUsd,
+    savings_pct: savingsPct,
+  };
+}
+
 // --- Helpers ---
 
 function parseDurationToHours(duration: string): number {
