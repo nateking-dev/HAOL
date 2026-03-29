@@ -31,7 +31,7 @@
     label.className = "prompt-label";
     label.textContent = p.label;
     card.appendChild(label);
-    card.appendChild(document.createTextNode(p.prompt));
+    card.appendChild(document.createTextNode(p.display || p.prompt));
     card.addEventListener("click", () => {
       if (running) return;
       promptInput.value = p.prompt;

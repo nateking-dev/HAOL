@@ -7,11 +7,16 @@ const API = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
     });
+    const data = await res.json().catch(() => null);
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || `HTTP ${res.status}`);
+      // The server returns the full TaskResult on 500 (FAILED tasks),
+      // which still contains cascade_trace and selection_detail for the demo.
+      if (data && data.cascade_trace) {
+        return data;
+      }
+      throw new Error(data?.error || `HTTP ${res.status}`);
     }
-    return res.json();
+    return data;
   },
 
   async getSavings(hours = 24) {
