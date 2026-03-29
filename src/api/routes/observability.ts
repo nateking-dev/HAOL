@@ -9,6 +9,7 @@ import {
   commitHistory,
   outcomeSignalRates,
   routingAccuracyByAgent,
+  costSavings,
 } from "../../observability/queries.js";
 import { getDashboard } from "../../observability/dashboard.js";
 import {
@@ -74,6 +75,12 @@ observability.get("/stats/outcomes", async (c) => {
 observability.get("/stats/routing-accuracy", async (c) => {
   const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
   const data = await routingAccuracyByAgent(hours);
+  return c.json(data, 200);
+});
+
+observability.get("/stats/savings", async (c) => {
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const data = await costSavings(hours);
   return c.json(data, 200);
 });
 

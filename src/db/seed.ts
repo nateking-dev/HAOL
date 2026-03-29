@@ -88,7 +88,7 @@ VALUES
    0.000800, 0.004000, 200000, 300, 'active', 2),
 
   ('claude-sonnet-4-5', 'anthropic', 'claude-sonnet-4-20250514',
-   '["code_generation","reasoning","structured_output","long_context","tool_use","vision"]',
+   '["summarization","classification","code_generation","reasoning","structured_output","long_context","tool_use","vision"]',
    0.003000, 0.015000, 200000, 800, 'active', 3),
 
   ('gpt-4o-mini', 'openai', 'gpt-4o-mini',
@@ -97,7 +97,7 @@ VALUES
 
   -- Pricing: $15/$75 per MTok (https://docs.anthropic.com/en/docs/about-claude/models)
   ('claude-opus-4-6', 'anthropic', 'claude-opus-4-6',
-   '["code_generation","reasoning","structured_output","long_context","tool_use","vision","multilingual"]',
+   '["summarization","classification","code_generation","reasoning","structured_output","long_context","tool_use","vision","multilingual"]',
    0.015000, 0.075000, 1048576, 1200, 'active', 4),
 
   ('local-llama', 'local', 'llama-3.2-8b',

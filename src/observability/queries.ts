@@ -341,6 +341,94 @@ export async function routingAccuracyByAgent(hours: number): Promise<RoutingAccu
   });
 }
 
+// --- Cost savings (actual vs counterfactual) ---
+
+export interface CostSavingsRow {
+  task_count: number;
+  actual_cost: number;
+  counterfactual_cost: number;
+  savings_usd: number;
+  savings_pct: number;
+}
+
+interface CostSavingsRaw extends RowDataPacket {
+  task_count: string | number;
+  actual_cost: string | number;
+  total_input_tokens: string | number;
+  total_output_tokens: string | number;
+}
+
+// Counterfactual: what if every task was routed to the most expensive agent?
+// Pricing is derived from agent_registry (highest tier_ceiling agent) so it
+// stays in sync with the seed data rather than hardcoding rates.
+
+interface OpusRateRaw extends RowDataPacket {
+  cost_per_1k_input: string | number;
+  cost_per_1k_output: string | number;
+}
+
+export async function costSavings(hours: number): Promise<CostSavingsRow> {
+  // Look up the most expensive agent's rates from the registry
+  const rateRows = await query<OpusRateRaw[]>(
+    `SELECT cost_per_1k_input, cost_per_1k_output
+     FROM agent_registry
+     WHERE status = 'active'
+     ORDER BY tier_ceiling DESC, cost_per_1k_input DESC
+     LIMIT 1`,
+  );
+
+  const opusInput =
+    rateRows.length > 0
+      ? typeof rateRows[0].cost_per_1k_input === "string"
+        ? parseFloat(rateRows[0].cost_per_1k_input)
+        : Number(rateRows[0].cost_per_1k_input)
+      : 0.015;
+  const opusOutput =
+    rateRows.length > 0
+      ? typeof rateRows[0].cost_per_1k_output === "string"
+        ? parseFloat(rateRows[0].cost_per_1k_output)
+        : Number(rateRows[0].cost_per_1k_output)
+      : 0.075;
+
+  const rows = await query<CostSavingsRaw[]>(
+    `SELECT COUNT(*) AS task_count,
+            COALESCE(SUM(cost_usd), 0) AS actual_cost,
+            COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+            COALESCE(SUM(output_tokens), 0) AS total_output_tokens
+     FROM execution_log
+     WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+       AND outcome = 'SUCCESS'`,
+    [hours],
+  );
+
+  const row = rows[0];
+  const taskCount =
+    typeof row.task_count === "string" ? parseInt(row.task_count, 10) : Number(row.task_count);
+  const actualCost =
+    typeof row.actual_cost === "string" ? parseFloat(row.actual_cost) : Number(row.actual_cost);
+  const inputTokens =
+    typeof row.total_input_tokens === "string"
+      ? parseInt(row.total_input_tokens, 10)
+      : Number(row.total_input_tokens);
+  const outputTokens =
+    typeof row.total_output_tokens === "string"
+      ? parseInt(row.total_output_tokens, 10)
+      : Number(row.total_output_tokens);
+
+  const counterfactualCost = (inputTokens / 1000) * opusInput + (outputTokens / 1000) * opusOutput;
+
+  const savingsUsd = counterfactualCost - actualCost;
+  const savingsPct = counterfactualCost > 0 ? (savingsUsd / counterfactualCost) * 100 : 0;
+
+  return {
+    task_count: taskCount,
+    actual_cost: actualCost,
+    counterfactual_cost: counterfactualCost,
+    savings_usd: savingsUsd,
+    savings_pct: savingsPct,
+  };
+}
+
 // --- Helpers ---
 
 function parseDurationToHours(duration: string): number {

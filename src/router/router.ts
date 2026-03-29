@@ -11,6 +11,7 @@ import { uuidv7 } from "../types/task.js";
 import type { RoutingPolicy } from "../types/selection.js";
 import * as execRepo from "../repositories/execution-log.js";
 import type { RouterTaskInput, TaskResult } from "../types/router.js";
+import type { SelectionResult } from "../types/selection.js";
 import { RouterTaskInput as RouterTaskInputSchema } from "../types/router.js";
 import {
   collectStructuralSignals,
@@ -40,6 +41,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
   let taskId: string | null = null;
   let status: TaskResult["status"] = "RECEIVED";
   let cascadeTrace: CascadeTrace | undefined;
+  let selectionResult: SelectionResult | undefined;
 
   try {
     // 1. Classify — try cascade router, fall back to old classifier
@@ -88,6 +90,7 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     // 4. Select agent
     const policy = await getActivePolicy();
     const selection = await select(classification, policy ?? undefined);
+    selectionResult = selection;
 
     await taskLog.updateSelection(taskId, selection.selected_agent_id, selection.rationale);
     status = "DISPATCHED";
@@ -206,6 +209,17 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       latency_ms: execResult.latency_ms,
       error: execResult.error_detail,
       cascade_trace: cascadeTrace,
+      selection_detail: selectionResult
+        ? {
+            scored_candidates: selectionResult.scored_candidates,
+            policy_weights: {
+              capability: policy?.weight_capability ?? 0.5,
+              cost: policy?.weight_cost ?? 0.3,
+              latency: policy?.weight_latency ?? 0.2,
+            },
+            fallback_applied: selectionResult.fallback_applied,
+          }
+        : undefined,
     };
   } catch (err) {
     // On any error, mark as failed and still commit
@@ -232,6 +246,17 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       latency_ms: null,
       error: (err as Error).message,
       cascade_trace: cascadeTrace,
+      selection_detail: selectionResult
+        ? {
+            scored_candidates: selectionResult.scored_candidates,
+            policy_weights: {
+              capability: 0.5,
+              cost: 0.3,
+              latency: 0.2,
+            },
+            fallback_applied: selectionResult.fallback_applied,
+          }
+        : undefined,
     };
   }
 }
