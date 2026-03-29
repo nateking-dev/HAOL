@@ -25,10 +25,18 @@ const RED = "\x1b[31m";
 const YELLOW = "\x1b[33m";
 const BOLD = "\x1b[1m";
 
-function ok(msg: string) { console.log(`  ${GREEN}\u2713${RESET} ${msg}`); }
-function warn(msg: string) { console.log(`  ${YELLOW}\u26a0${RESET} ${msg}`); }
-function fail(msg: string) { console.log(`  ${RED}\u2717${RESET} ${msg}`); }
-function heading(msg: string) { console.log(`\n${BOLD}${msg}${RESET}`); }
+function ok(msg: string) {
+  console.log(`  ${GREEN}\u2713${RESET} ${msg}`);
+}
+function warn(msg: string) {
+  console.log(`  ${YELLOW}\u26a0${RESET} ${msg}`);
+}
+function fail(msg: string) {
+  console.log(`  ${RED}\u2717${RESET} ${msg}`);
+}
+function heading(msg: string) {
+  console.log(`\n${BOLD}${msg}${RESET}`);
+}
 
 async function main() {
   console.log(`${BOLD}HAOL Demo Setup${RESET}\n`);
@@ -38,7 +46,11 @@ async function main() {
   // 1. Dolt connectivity
   heading("1. Database");
   try {
-    try { getPool(); } catch { createPool(config.dolt); }
+    try {
+      getPool();
+    } catch {
+      createPool(config.dolt);
+    }
     const rows = await query<(RowDataPacket & { v: string })[]>("SELECT VERSION() AS v");
     ok(`Connected to Dolt (${rows[0]?.v || "unknown version"})`);
   } catch (err) {
@@ -79,7 +91,11 @@ async function main() {
   heading("4. Embeddings");
   try {
     // Re-establish pool after seed may have destroyed it
-    try { getPool(); } catch { createPool(config.dolt); }
+    try {
+      getPool();
+    } catch {
+      createPool(config.dolt);
+    }
 
     const pending = await query<(RowDataPacket & { cnt: number })[]>(
       "SELECT COUNT(*) AS cnt FROM routing_utterances WHERE embedding_model = 'pending'",
@@ -133,7 +149,9 @@ async function main() {
 
   // Local (Ollama)
   try {
-    const res = await fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(2000) });
+    const res = await fetch("http://localhost:11434/api/tags", {
+      signal: AbortSignal.timeout(2000),
+    });
     res.ok ? ok("Ollama: reachable") : warn("Ollama: responded with " + res.status);
   } catch {
     warn("Ollama: not reachable (local-llama agent will be unavailable)");

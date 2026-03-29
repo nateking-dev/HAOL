@@ -34,7 +34,10 @@ export function createApp(): Hono {
   app.use("*", requestId);
 
   // Demo UI — static files, unauthenticated
-  app.use("/demo/*", serveStatic({ root: "./public/", rewriteRequestPath: (p) => p.replace(/^\/demo/, "") }));
+  app.use(
+    "/demo/*",
+    serveStatic({ root: "./public/", rewriteRequestPath: (p) => p.replace(/^\/demo/, "") }),
+  );
 
   // Health check is unauthenticated (load balancers, K8s probes)
   app.route("/", health);

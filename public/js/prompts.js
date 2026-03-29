@@ -50,7 +50,8 @@ We want to put a conversational AI layer in front of it, but:
   },
   {
     label: "The Heavy Hitter",
-    display: "Analyze this screenshot of a dashboard and generate the corresponding React component.",
+    display:
+      "Analyze this screenshot of a dashboard and generate the corresponding React component.",
     prompt: `Analyze this screenshot of a dashboard and generate the corresponding React component with TypeScript types.
 
 The dashboard shows a real-time metrics panel with the following layout:
@@ -60,7 +61,8 @@ The dashboard shows a real-time metrics panel with the following layout:
 - Color scheme: dark sidebar (#1a1a2e), white content area, accent blue (#4361ee) for primary actions, green/red for positive/negative trends.
 - The component should use Recharts for the chart, be fully responsive, and include proper loading and empty states.
 - The dashboard must support multilingual labels — all visible text (headers, tooltips, axis labels, column names) should be driven by an i18n translation object passed as a prop, with English as the default locale.`,
-    description: "Multi-capability routing: vision + code + reasoning + multilingual. Routes to the most capable agent.",
+    description:
+      "Multi-capability routing: vision + code + reasoning + multilingual. Routes to the most capable agent.",
   },
   {
     label: "The Escalator",
@@ -73,6 +75,7 @@ The mockup shows a settings page with a two-column layout:
 - Below the toggles: A "Quiet Hours" section with two time pickers (start/end) and a timezone dropdown.
 - Footer: A "Save Changes" primary button and a "Reset to Defaults" text button.
 - The component should handle state for all toggles and time pickers, with an unsaved changes indicator in the header when modifications are pending.`,
-    description: "Dodges every keyword rule and embedding match. Forces LLM escalation to classify.",
+    description:
+      "Dodges every keyword rule and embedding match. Forces LLM escalation to classify.",
   },
 ];

@@ -140,8 +140,7 @@
 
       // Show policy weights
       if (policy_weights) {
-        policyWeights.textContent =
-          `Weights: capability \u00d7 ${policy_weights.capability} + cost \u00d7 ${policy_weights.cost} + latency \u00d7 ${policy_weights.latency}`;
+        policyWeights.textContent = `Weights: capability \u00d7 ${policy_weights.capability} + cost \u00d7 ${policy_weights.cost} + latency \u00d7 ${policy_weights.latency}`;
       }
 
       if (fallback_applied && fallback_applied !== "NONE") {

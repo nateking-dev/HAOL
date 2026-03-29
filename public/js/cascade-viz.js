@@ -55,8 +55,9 @@ const CascadeViz = {
       if (attempt.similarity_score != null) {
         const existing = card.querySelector(".meta-confidence").textContent;
         const sim = `similarity: ${(attempt.similarity_score * 100).toFixed(1)}%`;
-        card.querySelector(".meta-confidence").textContent =
-          existing ? `${existing}  |  ${sim}` : sim;
+        card.querySelector(".meta-confidence").textContent = existing
+          ? `${existing}  |  ${sim}`
+          : sim;
       }
 
       if (attempt.reason) {
@@ -82,11 +83,16 @@ const CascadeViz = {
 
   _statusIcon(status) {
     switch (status) {
-      case "matched": return "\u2713";
-      case "missed": return "\u2717";
-      case "skipped": return "\u2014";
-      case "error": return "!";
-      default: return "";
+      case "matched":
+        return "\u2713";
+      case "missed":
+        return "\u2717";
+      case "skipped":
+        return "\u2014";
+      case "error":
+        return "!";
+      default:
+        return "";
     }
   },
 

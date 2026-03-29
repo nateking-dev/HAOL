@@ -390,8 +390,7 @@ export async function costSavings(hours: number): Promise<CostSavingsRow> {
       : Number(row.total_output_tokens);
 
   const counterfactualCost =
-    (inputTokens / 1000) * OPUS_COST_PER_1K_INPUT +
-    (outputTokens / 1000) * OPUS_COST_PER_1K_OUTPUT;
+    (inputTokens / 1000) * OPUS_COST_PER_1K_INPUT + (outputTokens / 1000) * OPUS_COST_PER_1K_OUTPUT;
 
   const savingsUsd = counterfactualCost - actualCost;
   const savingsPct = counterfactualCost > 0 ? (savingsUsd / counterfactualCost) * 100 : 0;
