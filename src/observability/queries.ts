@@ -358,12 +358,38 @@ interface CostSavingsRaw extends RowDataPacket {
   total_output_tokens: string | number;
 }
 
-// Counterfactual: what if every task was routed to claude-opus-4-6?
-// Opus rates from seed: $0.015/1k input, $0.075/1k output
-const OPUS_COST_PER_1K_INPUT = 0.015;
-const OPUS_COST_PER_1K_OUTPUT = 0.075;
+// Counterfactual: what if every task was routed to the most expensive agent?
+// Pricing is derived from agent_registry (highest tier_ceiling agent) so it
+// stays in sync with the seed data rather than hardcoding rates.
+
+interface OpusRateRaw extends RowDataPacket {
+  cost_per_1k_input: string | number;
+  cost_per_1k_output: string | number;
+}
 
 export async function costSavings(hours: number): Promise<CostSavingsRow> {
+  // Look up the most expensive agent's rates from the registry
+  const rateRows = await query<OpusRateRaw[]>(
+    `SELECT cost_per_1k_input, cost_per_1k_output
+     FROM agent_registry
+     WHERE status = 'active'
+     ORDER BY tier_ceiling DESC, cost_per_1k_input DESC
+     LIMIT 1`,
+  );
+
+  const opusInput =
+    rateRows.length > 0
+      ? typeof rateRows[0].cost_per_1k_input === "string"
+        ? parseFloat(rateRows[0].cost_per_1k_input)
+        : Number(rateRows[0].cost_per_1k_input)
+      : 0.015;
+  const opusOutput =
+    rateRows.length > 0
+      ? typeof rateRows[0].cost_per_1k_output === "string"
+        ? parseFloat(rateRows[0].cost_per_1k_output)
+        : Number(rateRows[0].cost_per_1k_output)
+      : 0.075;
+
   const rows = await query<CostSavingsRaw[]>(
     `SELECT COUNT(*) AS task_count,
             COALESCE(SUM(cost_usd), 0) AS actual_cost,
@@ -389,8 +415,7 @@ export async function costSavings(hours: number): Promise<CostSavingsRow> {
       ? parseInt(row.total_output_tokens, 10)
       : Number(row.total_output_tokens);
 
-  const counterfactualCost =
-    (inputTokens / 1000) * OPUS_COST_PER_1K_INPUT + (outputTokens / 1000) * OPUS_COST_PER_1K_OUTPUT;
+  const counterfactualCost = (inputTokens / 1000) * opusInput + (outputTokens / 1000) * opusOutput;
 
   const savingsUsd = counterfactualCost - actualCost;
   const savingsPct = counterfactualCost > 0 ? (savingsUsd / counterfactualCost) * 100 : 0;

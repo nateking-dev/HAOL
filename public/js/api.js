@@ -1,8 +1,9 @@
 // HAOL Demo — API client
+// Uses /demo/api/* endpoints which bypass auth, scoped to demo use only.
 
 const API = {
   async submitTask(prompt) {
-    const res = await fetch("/tasks", {
+    const res = await fetch("/demo/api/task", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
@@ -19,8 +20,9 @@ const API = {
     return data;
   },
 
-  async getSavings(hours = 24) {
-    const res = await fetch(`/observability/stats/savings?hours=${hours}`);
+  async getSavings(since) {
+    const param = since ? `since=${encodeURIComponent(since)}` : "hours=24";
+    const res = await fetch(`/demo/api/savings?${param}`);
     if (!res.ok) return null;
     return res.json();
   },

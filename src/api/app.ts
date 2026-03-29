@@ -9,6 +9,7 @@ import { agents } from "./routes/agents.js";
 import { tasks } from "./routes/tasks.js";
 import { observability } from "./routes/observability.js";
 import { outcomes } from "./routes/outcomes.js";
+import { demo } from "./routes/demo.js";
 
 // Rate-limit presets
 const readLimit = rateLimit({ limit: 120, windowMs: 60_000 }); // 120 req/min
@@ -33,11 +34,12 @@ export function createApp(): Hono {
   // Middleware
   app.use("*", requestId);
 
-  // Demo UI — static files, unauthenticated
+  // Demo UI — static files and API proxy, unauthenticated
   app.use(
     "/demo/*",
     serveStatic({ root: "./public/", rewriteRequestPath: (p) => p.replace(/^\/demo/, "") }),
   );
+  app.route("/", demo);
 
   // Health check is unauthenticated (load balancers, K8s probes)
   app.route("/", health);

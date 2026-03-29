@@ -81,10 +81,17 @@ async function main() {
     const { execSync } = await import("child_process");
     execSync("npx tsx src/db/seed.ts", { cwd: process.cwd(), stdio: "inherit" });
     ok("Seed data inserted");
-  } catch {
-    // Seed uses INSERT IGNORE, so partial re-runs are safe — a non-zero exit
-    // here usually means the data already exists.
-    warn("Seed exited with an error (INSERT IGNORE means re-runs are usually fine)");
+  } catch (err) {
+    // Seed uses INSERT IGNORE, so duplicate-key re-runs are safe.
+    // But other errors (schema mismatch, connection failure) are real problems.
+    const stderr = (err as { stderr?: Buffer })?.stderr?.toString() ?? "";
+    const isDuplicate =
+      stderr.includes("Duplicate") || stderr.includes("INSERT IGNORE") || stderr === "";
+    if (isDuplicate) {
+      warn("Seed exited with an error (likely duplicate data — INSERT IGNORE makes re-runs safe)");
+    } else {
+      fail(`Seed failed: ${stderr.slice(0, 200) || (err as Error).message}`);
+    }
   }
 
   // 4. Embeddings

@@ -43,7 +43,7 @@ export const TaskResult = z.object({
         cost: z.number(),
         latency: z.number(),
       }),
-      fallback_applied: z.enum(["NONE", "NEXT_BEST", "TIER_UP"]),
+      fallback_applied: z.enum(["NONE", "NEXT_BEST", "TIER_UP", "ABORT"]),
     })
     .optional(),
 });

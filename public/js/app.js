@@ -4,6 +4,7 @@
   // State
   let running = false;
   let totalCost = 0;
+  const sessionStart = new Date().toISOString();
 
   // DOM references
   const promptInput = document.getElementById("prompt-input");
@@ -175,15 +176,17 @@
     costTicker.style.display = "block";
     costActual.textContent = `$${totalCost.toFixed(4)}`;
 
-    // Fetch savings for the counterfactual
-    API.getSavings(1).then((savings) => {
-      if (!savings || savings.task_count === 0) return;
+    // Fetch savings scoped to this session
+    API.getSavings(sessionStart)
+      .then((savings) => {
+        if (!savings || savings.task_count === 0) return;
 
-      costCounterfactual.textContent = `$${savings.counterfactual_cost.toFixed(4)}`;
-      if (savings.savings_pct > 0) {
-        savingsRow.style.display = "flex";
-        savingsValue.textContent = `${savings.savings_pct.toFixed(1)}%`;
-      }
-    });
+        costCounterfactual.textContent = `$${savings.counterfactual_cost.toFixed(4)}`;
+        if (savings.savings_pct > 0) {
+          savingsRow.style.display = "flex";
+          savingsValue.textContent = `${savings.savings_pct.toFixed(1)}%`;
+        }
+      })
+      .catch(() => {});
   }
 })();

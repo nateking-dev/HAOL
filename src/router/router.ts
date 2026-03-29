@@ -246,6 +246,17 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       latency_ms: null,
       error: (err as Error).message,
       cascade_trace: cascadeTrace,
+      selection_detail: selectionResult
+        ? {
+            scored_candidates: selectionResult.scored_candidates,
+            policy_weights: {
+              capability: 0.5,
+              cost: 0.3,
+              latency: 0.2,
+            },
+            fallback_applied: selectionResult.fallback_applied,
+          }
+        : undefined,
     };
   }
 }

@@ -11,6 +11,7 @@ import {
   commitHistory,
   agentRegistryDiff,
   outcomeSignalRates,
+  costSavings,
 } from "../../src/observability/queries.js";
 
 let doltAvailable = false;
@@ -197,6 +198,34 @@ describe("outcomeSignalRates", () => {
     expect(latency!.positive).toBe(2);
     expect(latency!.negative).toBe(0);
     expect(latency!.rate).toBeCloseTo(1.0, 2);
+  });
+});
+
+describe("costSavings", () => {
+  it("computes actual vs counterfactual cost from seeded data", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const result = await costSavings(9999);
+
+    // Seeded SUCCESS executions: e1 (100/50 tokens, $0.005), e2 (200/100 tokens, $0.02), e3 (500/250 tokens, $0.20)
+    expect(result.task_count).toBeGreaterThanOrEqual(3);
+    expect(result.actual_cost).toBeGreaterThanOrEqual(0.225);
+    // Counterfactual should be higher since Opus rates > most agent rates
+    expect(result.counterfactual_cost).toBeGreaterThan(0);
+    expect(result.savings_pct).toBeGreaterThanOrEqual(0);
+    expect(result.savings_pct).toBeLessThanOrEqual(100);
+  });
+
+  it("returns zeros when no tasks match the time window", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const result = await costSavings(0);
+
+    expect(result.task_count).toBe(0);
+    expect(result.actual_cost).toBe(0);
+    expect(result.counterfactual_cost).toBe(0);
+    expect(result.savings_usd).toBe(0);
+    expect(result.savings_pct).toBe(0);
   });
 });
 
