@@ -333,11 +333,18 @@ function authHeaders(): Record<string, string> {
 
 async function submitTask(scenario: Scenario): Promise<ScenarioResult> {
   const start = Date.now();
+  // Per-request timeout: a hung server would otherwise stall a worker forever
+  // and starve the pool. Add a small buffer over the scenario's own timeout to
+  // let server-side timeout handling fire first when possible.
+  const scenarioTimeout = scenario.request.constraints?.timeout_ms ?? 120_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), scenarioTimeout + 5_000);
   try {
     const resp = await fetch(`${BASE_URL}/tasks`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify(scenario.request),
+      signal: controller.signal,
     });
     const body = (await resp.json()) as TaskResult;
     return {
@@ -348,13 +355,16 @@ async function submitTask(scenario: Scenario): Promise<ScenarioResult> {
       error: null,
     };
   } catch (e: any) {
+    const aborted = e?.name === "AbortError";
     return {
       scenario,
       result: null,
       wallTimeMs: Date.now() - start,
       httpStatus: null,
-      error: e.message,
+      error: aborted ? `client timeout after ${scenarioTimeout + 5_000}ms` : e.message,
     };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

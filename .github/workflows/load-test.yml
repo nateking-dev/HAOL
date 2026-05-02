@@ -95,19 +95,40 @@ jobs:
 
       - name: Run load test
         id: load_test
+        env:
+          # Pass workflow_dispatch inputs through env, not direct ${{ }}
+          # interpolation, so values can't be parsed as shell. Each is also
+          # validated as numeric before use.
+          INPUT_CONCURRENCY: ${{ inputs.concurrency }}
+          INPUT_MAX_P95_LATENCY_MS: ${{ inputs.max_p95_latency_ms }}
+          INPUT_MAX_COST_USD: ${{ inputs.max_cost_usd }}
+          INPUT_MAX_FAILURE_RATE: ${{ inputs.max_failure_rate }}
         run: |
-          ARGS="--concurrency ${{ inputs.concurrency }} --json"
-          if [ -n "${{ inputs.max_p95_latency_ms }}" ]; then
-            ARGS="$ARGS --max-p95-latency-ms ${{ inputs.max_p95_latency_ms }}"
+          set -euo pipefail
+
+          # Numeric validation: integers for concurrency/latency, decimals for cost/rate.
+          is_int() { [[ "$1" =~ ^[0-9]+$ ]]; }
+          is_num() { [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
+
+          if ! is_int "$INPUT_CONCURRENCY"; then
+            echo "Invalid concurrency: $INPUT_CONCURRENCY"; exit 2
           fi
-          if [ -n "${{ inputs.max_cost_usd }}" ]; then
-            ARGS="$ARGS --max-cost-usd ${{ inputs.max_cost_usd }}"
+
+          ARGS=(--concurrency "$INPUT_CONCURRENCY" --json)
+          if [ -n "$INPUT_MAX_P95_LATENCY_MS" ]; then
+            is_int "$INPUT_MAX_P95_LATENCY_MS" || { echo "Invalid max_p95_latency_ms"; exit 2; }
+            ARGS+=(--max-p95-latency-ms "$INPUT_MAX_P95_LATENCY_MS")
           fi
-          if [ -n "${{ inputs.max_failure_rate }}" ]; then
-            ARGS="$ARGS --max-failure-rate ${{ inputs.max_failure_rate }}"
+          if [ -n "$INPUT_MAX_COST_USD" ]; then
+            is_num "$INPUT_MAX_COST_USD" || { echo "Invalid max_cost_usd"; exit 2; }
+            ARGS+=(--max-cost-usd "$INPUT_MAX_COST_USD")
           fi
-          set -o pipefail
-          npm run load-test -- $ARGS | tee load-test.out
+          if [ -n "$INPUT_MAX_FAILURE_RATE" ]; then
+            is_num "$INPUT_MAX_FAILURE_RATE" || { echo "Invalid max_failure_rate"; exit 2; }
+            ARGS+=(--max-failure-rate "$INPUT_MAX_FAILURE_RATE")
+          fi
+
+          npm run load-test -- "${ARGS[@]}" | tee load-test.out
           grep '^HAOL_LOAD_TEST_JSON ' load-test.out | sed 's/^HAOL_LOAD_TEST_JSON //' > load-test.json
 
       - name: Append summary to job
