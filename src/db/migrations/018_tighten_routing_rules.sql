@@ -19,8 +19,8 @@
 --     (api call, function call).
 --
 -- Stems use explicit suffix groups instead of partial-stem matching to
--- avoid false positives on noun forms (e.g. "compare" matches but
--- "comparison" does not; "implement" matches but "implementation" does not).
+-- avoid false positives on noun forms — "compare" matches but "comparison"
+-- does not, "implement" matches but "implementation" does not.
 
 -- rule-code (T3): strong code verbs alone, OR generic create-verb + code-noun.
 -- The verb→noun gap uses .{0,40}? (lazy bounded character match) instead of
@@ -43,7 +43,7 @@ UPDATE routing_rules
 SET pattern = '\\b(api[\\s._]call|function[\\s._]call)\\b|\\b(use|uses|used|using|invoke|invokes|invoked|invoking|call|calls|called|calling)\\b.{0,40}?\\b(tool|api|function)\\b'
 WHERE rule_id = 'rule-tooluse';
 
--- rule-vision (T3): cleaner alternation; behavior unchanged. The vision
+-- rule-vision (T3): cleaner alternation, behavior unchanged. The vision
 -- nouns are strongly intent-correlated so leaving them as bare-word
 -- matches is appropriate.
 UPDATE routing_rules
