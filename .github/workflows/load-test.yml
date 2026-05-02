@@ -128,8 +128,13 @@ jobs:
             ARGS+=(--max-failure-rate "$INPUT_MAX_FAILURE_RATE")
           fi
 
-          npm run load-test -- "${ARGS[@]}" | tee load-test.out
-          grep '^HAOL_LOAD_TEST_JSON ' load-test.out | sed 's/^HAOL_LOAD_TEST_JSON //' > load-test.json
+          # Capture exit separately so a threshold-violation exit (1) doesn't
+          # abort the step under pipefail+set-e before we extract the JSON.
+          LOAD_EXIT=0
+          npm run load-test -- "${ARGS[@]}" | tee load-test.out || LOAD_EXIT=$?
+          grep '^HAOL_LOAD_TEST_JSON ' load-test.out \
+            | sed 's/^HAOL_LOAD_TEST_JSON //' > load-test.json || true
+          exit $LOAD_EXIT
 
       - name: Append summary to job
         if: always()
