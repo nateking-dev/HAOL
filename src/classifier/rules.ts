@@ -42,6 +42,7 @@ export const rules: Rule[] = [
       /\b(compare|compares|comparing|compared)\b/i,
       /\b(evaluate|evaluates|evaluating|evaluated)\b/i,
       /\b(assess|assesses|assessing|assessed)\b/i,
+      /\b(investigate|investigates|investigating|investigated)\b/i,
       /\b(reason|reasons|reasoning|reasoned)\b/i,
       /\b(examine|examines|examining|examined)\b/i,
     ],

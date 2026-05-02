@@ -220,6 +220,37 @@ describe("CascadeRouter", () => {
       expect(result.complexity_tier).toBe(3);
     });
 
+    it("respects priority even when rules arrive out of order", async () => {
+      // The matcher sorts defensively — so even if a caller passes T3
+      // rules first, the T1 rule at priority 10 still wins.
+      mockLoadRules.mockResolvedValue([
+        {
+          rule_id: "r-code",
+          tier_id: 3 as TierId,
+          rule_type: "regex",
+          pattern: "\\bcode\\b",
+          capabilities: ["code_generation"],
+          priority: 20,
+          enabled: true,
+          description: null,
+        },
+        {
+          rule_id: "r-summarize",
+          tier_id: 1 as TierId,
+          rule_type: "regex",
+          pattern: "\\bsummariz",
+          capabilities: ["summarization"],
+          priority: 10,
+          enabled: true,
+          description: null,
+        },
+      ]);
+      mockLoadUtterances.mockResolvedValue([]);
+      const router = await CascadeRouter.create();
+      const result = await router.classify({ prompt: "Summarize this code review" });
+      expect(result.complexity_tier).toBe(1);
+    });
+
     it("matches prefix rules", async () => {
       mockLoadRules.mockResolvedValue([
         {
@@ -346,7 +377,7 @@ describe("CascadeRouter", () => {
         tier_id: 3 as TierId,
         rule_type: "regex" as const,
         pattern:
-          "\\b(implement(s|ed|ing)?|debug(s|ged|ging)?|refactor(s|ed|ing)?|optimiz(e|es|ed|ing)?)\\b|\\b(write|writes|wrote|writing|create|creates|created|creating|build|builds|built|building|generate|generates|generated|generating|define|defines|defined|defining|fix|fixes|fixed|fixing)\\b.{0,40}?\\b(code|function|class|method|module|script|program|service|library|middleware|component|cli|api|endpoint|query)\\b",
+          "\\b(implement(s|ed|ing)?|debug(s|g(ed|ing))?|refactor(s|ed|ing)?|optimiz(e|es|ed|ing)?)\\b|\\b(write|writes|wrote|writing|create|creates|created|creating|build|builds|built|building|generate|generates|generated|generating|define|defines|defined|defining|fix|fixes|fixed|fixing)\\b.{0,40}?\\b(code|function|class|method|module|script|program|service|library|middleware|component|cli|api|endpoint|query)\\b",
         capabilities: ["code_generation"],
         priority: 20,
         enabled: true,
@@ -416,8 +447,17 @@ describe("CascadeRouter", () => {
       }
     });
 
-    it("rule-code matches 'Implement', 'Refactoring', 'Debug'", async () => {
-      for (const prompt of ["Implement a cache", "Refactoring the module", "Debug this issue"]) {
+    it("rule-code matches 'Implement', 'Refactoring', 'Debug', 'debugged', 'debugging'", async () => {
+      // Inflection coverage including the irregular debug forms (double-g):
+      // debug + ged → debugged, debug + ging → debugging. The naïve
+      // debug(s|ed|ing)? would silently miss both.
+      for (const prompt of [
+        "Implement a cache",
+        "Refactoring the module",
+        "Debug this issue",
+        "I debugged the connection pool",
+        "We're debugging the upstream timeout",
+      ]) {
         const result = await router.classify({ prompt });
         expect(result.complexity_tier).toBe(3);
         expect(result.required_capabilities).toContain("code_generation");

@@ -28,7 +28,7 @@
 -- with unbounded + inner is its trigger for "potentially nested quantifier."
 -- The lazy bound at 40 chars covers ~6-7 intervening words.
 UPDATE routing_rules
-SET pattern = '\\b(implement(s|ed|ing)?|debug(s|ged|ging)?|refactor(s|ed|ing)?|optimiz(e|es|ed|ing)?)\\b|\\b(write|writes|wrote|writing|create|creates|created|creating|build|builds|built|building|generate|generates|generated|generating|define|defines|defined|defining|fix|fixes|fixed|fixing)\\b.{0,40}?\\b(code|function|class|method|module|script|program|service|library|middleware|component|cli|api|endpoint|query)\\b'
+SET pattern = '\\b(implement(s|ed|ing)?|debug(s|g(ed|ing))?|refactor(s|ed|ing)?|optimiz(e|es|ed|ing)?)\\b|\\b(write|writes|wrote|writing|create|creates|created|creating|build|builds|built|building|generate|generates|generated|generating|define|defines|defined|defining|fix|fixes|fixed|fixing)\\b.{0,40}?\\b(code|function|class|method|module|script|program|service|library|middleware|component|cli|api|endpoint|query)\\b'
 WHERE rule_id = 'rule-code';
 
 -- rule-reasoning (T3): verb forms only — drop noun forms like "analysis",

@@ -333,20 +333,26 @@ export class CascadeRouter {
     prompt: string,
     rules: RoutingRule[],
   ): { tier: TierId; capabilities: string[] } | null {
-    // Rules arrive ORDER BY priority ASC from loadRules(). The FIRST matched
-    // rule wins for tier — so a T1 rule at priority 10 short-circuits a T3
-    // rule at priority 20 even if both match. Capabilities still aggregate
-    // across all matched rules since they're additive properties of the
-    // request, not ranked.
+    // The FIRST matched rule wins for tier — so a T1 rule at priority 10
+    // short-circuits a T3 rule at priority 20 even if both match.
+    // Capabilities still aggregate across all matched rules since they're
+    // additive properties of the request, not ranked.
     //
     // Previously this picked max(tier) across all matches, which silently
     // ignored the priority column and meant any incidental T3 keyword
     // ("the analysis showed...", "the function returned...") would clobber
     // a clear T1/T2 instruction.
+    //
+    // loadRules() returns rules ORDER BY priority ASC, but we sort
+    // defensively here so any alternate call path (tests, future
+    // refactors) can't silently break the priority logic by passing
+    // rules in a different order.
+    const sorted = [...rules].sort((a, b) => a.priority - b.priority);
+
     let winningTier: TierId | null = null;
     const capabilities: string[] = [];
 
-    for (const rule of rules) {
+    for (const rule of sorted) {
       let matched = false;
 
       switch (rule.rule_type) {
