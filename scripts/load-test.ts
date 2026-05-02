@@ -2,8 +2,10 @@
  * HAOL Load Test — Realistic Scenario Generator
  *
  * Submits a diverse mix of prompts across all tiers and capabilities,
- * then produces a summary report. Doubles as a CI regression gate when
- * threshold flags are supplied.
+ * then produces a summary report including routing assertions (each
+ * scenario carries expectedTier + expectedCapabilities; mismatches are
+ * reported but do not yet fail the build). Doubles as a CI regression
+ * gate when threshold flags are supplied.
  *
  * Usage:
  *   npx tsx scripts/load-test.ts [options]
@@ -320,7 +322,17 @@ interface JsonSummary {
     }
   >;
   thresholds: ThresholdCheck[];
+  routing_mismatches: {
+    tier: number;
+    capabilities: number;
+    details: { scenario: string; expected_tier: number; actual_tier: number | null }[];
+  };
   ok: boolean;
+}
+
+interface RoutingAudit {
+  tierMismatches: { scenario: Scenario; actualTier: number | null }[];
+  capabilityGaps: { scenario: Scenario; missing: string[]; actualAgent: string | null }[];
 }
 
 // ── Execution ──
@@ -329,6 +341,20 @@ function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (API_KEY) headers.Authorization = `Bearer ${API_KEY}`;
   return headers;
+}
+
+async function fetchAgentCapabilities(): Promise<Map<string, string[]>> {
+  // One-shot lookup so capability assertions can compare scenario expectations
+  // against the chosen agent's configured capability set. Returns an empty map
+  // on any failure — capability checks are skipped, tier checks still run.
+  try {
+    const resp = await fetch(`${BASE_URL}/agents`, { headers: authHeaders() });
+    if (!resp.ok) return new Map();
+    const body = (await resp.json()) as { agent_id: string; capabilities: string[] }[];
+    return new Map(body.map((a) => [a.agent_id, a.capabilities ?? []]));
+  } catch {
+    return new Map();
+  }
 }
 
 async function submitTask(scenario: Scenario): Promise<ScenarioResult> {
@@ -529,7 +555,62 @@ function generateReport(results: ScenarioResult[]): string {
   return lines.join("\n");
 }
 
-function buildSummary(results: ScenarioResult[], thresholds: ThresholdCheck[]): JsonSummary {
+function auditRouting(results: ScenarioResult[], agentCaps: Map<string, string[]>): RoutingAudit {
+  const tierMismatches: RoutingAudit["tierMismatches"] = [];
+  const capabilityGaps: RoutingAudit["capabilityGaps"] = [];
+
+  for (const r of results) {
+    if (!r.result) continue;
+    const actualTier = r.result.complexity_tier;
+    if (actualTier !== r.scenario.expectedTier) {
+      tierMismatches.push({ scenario: r.scenario, actualTier });
+    }
+
+    if (r.scenario.expectedCapabilities.length === 0) continue;
+    const agentId = r.result.selected_agent_id;
+    if (!agentId) continue;
+    const caps = agentCaps.get(agentId);
+    if (!caps) continue; // unknown agent or capability map unavailable
+    const missing = r.scenario.expectedCapabilities.filter((c) => !caps.includes(c));
+    if (missing.length > 0) {
+      capabilityGaps.push({ scenario: r.scenario, missing, actualAgent: agentId });
+    }
+  }
+
+  return { tierMismatches, capabilityGaps };
+}
+
+function appendRoutingAuditToReport(audit: RoutingAudit, lines: string[]): void {
+  const thinHr = "─".repeat(90);
+  lines.push("");
+  lines.push("  ROUTING ASSERTIONS");
+  lines.push(thinHr);
+  lines.push(`  Tier mismatches:        ${audit.tierMismatches.length}/${scenarios.length}`);
+  lines.push(`  Capability gaps:        ${audit.capabilityGaps.length}/${scenarios.length}`);
+
+  if (audit.tierMismatches.length > 0) {
+    lines.push("");
+    for (const m of audit.tierMismatches) {
+      lines.push(
+        `    [tier]    expected T${m.scenario.expectedTier}, got T${m.actualTier ?? "?"}: ${m.scenario.name}`,
+      );
+    }
+  }
+  if (audit.capabilityGaps.length > 0) {
+    lines.push("");
+    for (const g of audit.capabilityGaps) {
+      lines.push(
+        `    [cap]     missing [${g.missing.join(", ")}] on ${g.actualAgent}: ${g.scenario.name}`,
+      );
+    }
+  }
+}
+
+function buildSummary(
+  results: ScenarioResult[],
+  thresholds: ThresholdCheck[],
+  audit: RoutingAudit,
+): JsonSummary {
   const succeeded = results.filter((r) => r.result?.status === "COMPLETED");
   const failed = results.filter((r) => r.result?.status === "FAILED");
   const errored = results.filter((r) => r.error || !r.result?.status);
@@ -577,6 +658,15 @@ function buildSummary(results: ScenarioResult[], thresholds: ThresholdCheck[]): 
     },
     per_tier: perTier,
     thresholds,
+    routing_mismatches: {
+      tier: audit.tierMismatches.length,
+      capabilities: audit.capabilityGaps.length,
+      details: audit.tierMismatches.map((m) => ({
+        scenario: m.scenario.name,
+        expected_tier: m.scenario.expectedTier,
+        actual_tier: m.actualTier,
+      })),
+    },
     ok: thresholds.every((t) => t.passed),
   };
 }
@@ -683,10 +773,20 @@ async function main() {
     process.exit(1);
   }
 
+  const agentCaps = await fetchAgentCapabilities();
+  if (agentCaps.size === 0) {
+    console.log("  Note: /agents unavailable — capability audit will be skipped\n");
+  }
+
   console.log("  Running scenarios...\n");
   const results = await runWithConcurrency(scenarios, CONCURRENCY);
-  const report = generateReport(results);
-  console.log(report);
+  const audit = auditRouting(results, agentCaps);
+
+  const reportLines = generateReport(results).split("\n");
+  // Append routing audit before the closing horizontal rule so it stays
+  // grouped with the rest of the report block.
+  appendRoutingAuditToReport(audit, reportLines);
+  console.log(reportLines.join("\n"));
 
   const thresholds = evaluateThresholds(results);
   if (thresholds.length > 0) {
@@ -700,7 +800,7 @@ async function main() {
   }
 
   if (EMIT_JSON) {
-    const summary = buildSummary(results, thresholds);
+    const summary = buildSummary(results, thresholds, audit);
     console.log("");
     console.log("HAOL_LOAD_TEST_JSON " + JSON.stringify(summary));
   }
