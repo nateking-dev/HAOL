@@ -76,7 +76,9 @@ jobs:
 
       - name: Start HAOL server
         run: |
-          npm run dev > server.log 2>&1 &
+          # Use the compiled output so the load test exercises the same
+          # artifact that would be deployed (not tsx's live transpile).
+          node dist/index.js > server.log 2>&1 &
           echo $! > server.pid
           for i in $(seq 1 30); do
             if curl -sf http://localhost:3000/health >/dev/null 2>&1; then
@@ -107,6 +109,11 @@ jobs:
           INPUT_MAX_P95_LATENCY_MS: ${{ inputs.max_p95_latency_ms }}
           INPUT_MAX_COST_USD: ${{ inputs.max_cost_usd }}
           INPUT_MAX_FAILURE_RATE: ${{ inputs.max_failure_rate }}
+          # Forward server auth token if configured. The CI server starts
+          # without HAOL_API_KEY set (non-prod mode allows unauthenticated
+          # requests), but if/when the secret is added the load test will
+          # send Bearer auth automatically.
+          HAOL_API_KEY: ${{ secrets.HAOL_API_KEY }}
         run: |
           set -euo pipefail
 

@@ -483,8 +483,8 @@ function generateReport(results: ScenarioResult[]): string {
     if (tierResults.length === 0) continue;
 
     const tierOk = tierResults.filter((r) => r.result?.status === "COMPLETED");
-    const latencies = tierOk.map((r) => r.result!.latency_ms!).filter(Boolean);
-    const costs = tierOk.map((r) => r.result!.cost_usd!).filter((c) => c != null);
+    const latencies = pickNumbers(tierOk, (r) => r.result?.latency_ms);
+    const costs = pickNumbers(tierOk, (r) => r.result?.cost_usd);
 
     lines.push(
       `  T${tier}: ${tierResults.length} tasks | ${tierOk.length} completed | ${tierResults.length - tierOk.length} failed`,
@@ -525,8 +525,8 @@ function generateReport(results: ScenarioResult[]): string {
 
   for (const [agent, agentResults] of Object.entries(agentMap).sort()) {
     const ok = agentResults.filter((r) => r.result?.status === "COMPLETED");
-    const latencies = ok.map((r) => r.result!.latency_ms!).filter(Boolean);
-    const costs = ok.map((r) => r.result!.cost_usd!).filter((c) => c != null);
+    const latencies = pickNumbers(ok, (r) => r.result?.latency_ms);
+    const costs = pickNumbers(ok, (r) => r.result?.cost_usd);
     lines.push(`  ${agent}`);
     lines.push(
       `    Tasks: ${agentResults.length}  |  Success: ${ok.length}  |  Fail: ${agentResults.length - ok.length}`,
@@ -624,8 +624,8 @@ function buildSummary(
     const tierResults = results.filter((r) => r.result?.complexity_tier === tier);
     if (tierResults.length === 0) continue;
     const tierOk = tierResults.filter((r) => r.result?.status === "COMPLETED");
-    const latencies = tierOk.map((r) => r.result!.latency_ms!).filter(Boolean);
-    const costs = tierOk.map((r) => r.result!.cost_usd ?? 0);
+    const latencies = pickNumbers(tierOk, (r) => r.result?.latency_ms);
+    const costs = pickNumbers(tierOk, (r) => r.result?.cost_usd);
     perTier[`T${tier}`] = {
       count: tierResults.length,
       completed: tierOk.length,
@@ -723,6 +723,17 @@ function avg(arr: number[]): number {
 function sum(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0);
 }
+// Extract a numeric field from each item, dropping null/undefined but
+// preserving legitimate 0 (which a `filter(Boolean)` would silently drop —
+// matters for the local provider where cost is exactly 0).
+function pickNumbers<T>(items: T[], pick: (item: T) => number | null | undefined): number[] {
+  const out: number[] = [];
+  for (const item of items) {
+    const v = pick(item);
+    if (typeof v === "number") out.push(v);
+  }
+  return out;
+}
 function percentile(arr: number[], p: number): number {
   if (arr.length === 0) return 0;
   const sorted = [...arr].sort((a, b) => a - b);
@@ -761,7 +772,7 @@ async function main() {
   console.log("");
 
   try {
-    const healthResp = await fetch(`${BASE_URL}/health`);
+    const healthResp = await fetch(`${BASE_URL}/health`, { headers: authHeaders() });
     if (!healthResp.ok) {
       console.error(`Health check failed: HTTP ${healthResp.status}`);
       process.exit(1);
