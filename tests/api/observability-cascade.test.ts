@@ -82,6 +82,9 @@ describe("GET /observability/cascade", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toHaveProperty("window_hours", 1);
+    expect(body).toHaveProperty("snapshot_at");
+    expect(typeof body.snapshot_at).toBe("string");
+    expect(body).toHaveProperty("consistency", "best_effort");
     expect(body).toHaveProperty("total_decisions");
     expect(body).toHaveProperty("by_layer");
     const byLayer = body.by_layer as Record<string, unknown>;
@@ -117,7 +120,12 @@ describe("GET /observability/cascade", () => {
       total_decisions: number;
       by_layer: Record<string, { count: number; share: number }>;
       by_tier: Record<string, { count: number }>;
-      near_misses: Array<{ similarity_score: number; routing_layer: string }>;
+      near_misses: Array<{
+        similarity_score: number;
+        routing_layer: string;
+        input_text_sha256: string;
+        input_text?: string;
+      }>;
     };
 
     expect(body.total_decisions).toBe(5);
@@ -134,6 +142,26 @@ describe("GET /observability/cascade", () => {
     expect(body.near_misses.length).toBe(1);
     expect(body.near_misses[0].similarity_score).toBeCloseTo(0.4);
     expect(body.near_misses[0].routing_layer).toBe("escalation");
+    // PII guard: hash always present, raw text omitted by default.
+    expect(body.near_misses[0].input_text_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.near_misses[0].input_text).toBeUndefined();
+  });
+
+  it("opts into raw input_text only when include_text=true", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const pool = getPool();
+    await pool.query("DELETE FROM routing_log WHERE input_text LIKE ?", [`${TEST_INPUT_PREFIX}%`]);
+    await seedRoutingLog([{ layer: "escalation", tier: 3, latency: 450, conf: 0.85, sim: 0.4 }]);
+
+    const res = await app.request("/observability/cascade?hours=1&include_text=true");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      near_misses: Array<{ input_text_sha256: string; input_text?: string }>;
+    };
+    expect(body.near_misses.length).toBe(1);
+    expect(body.near_misses[0].input_text_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.near_misses[0].input_text).toBe(`${TEST_INPUT_PREFIX}escalation-3`);
   });
 
   it("clamps the hours parameter to the valid range", async ({ skip }) => {

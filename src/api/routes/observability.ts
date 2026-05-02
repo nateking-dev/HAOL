@@ -95,7 +95,10 @@ observability.get("/stats/orphaned-pending", async (c) => {
 
 observability.get("/cascade", async (c) => {
   const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
-  const data = await getCascadeSnapshot(hours);
+  // include_text=true opts into raw prompt content in near_misses. Default
+  // false so observability access doesn't double as a PII firehose.
+  const includeText = c.req.query("include_text") === "true";
+  const data = await getCascadeSnapshot(hours, { includeText });
   return c.json(data, 200);
 });
 

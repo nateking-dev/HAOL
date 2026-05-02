@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   cascadeLayerCounts,
   cascadeTierCounts,
@@ -16,6 +17,16 @@ const NEAR_MISS_TEXT_MAX = 200;
 
 export interface CascadeSnapshot {
   window_hours: number;
+  // ISO8601 timestamp captured at the start of the snapshot. The four
+  // underlying queries fire concurrently on independent connections, so
+  // counts and percentile distributions reflect slightly different points
+  // in time under heavy concurrent writes — see `consistency` below.
+  snapshot_at: string;
+  // "best_effort" — counts and distributions are aggregated from
+  // independent queries and may briefly disagree by a handful of rows
+  // when new decisions are being inserted. Tolerable for monitoring;
+  // not suitable for accounting.
+  consistency: "best_effort";
   total_decisions: number;
   by_layer: Record<KnownLayer, { count: number; share: number }>;
   by_tier: Record<string, { count: number; share: number }>;
@@ -36,7 +47,15 @@ export interface PercentileBlock {
 }
 
 export interface NearMissEntry {
-  input_text: string;
+  // SHA-256 of the original input_text. Always present so consumers can
+  // dedupe identical near-misses across calls without ever seeing the
+  // prompt content.
+  input_text_sha256: string;
+  // Raw input prompt (truncated). Only populated when the caller passes
+  // includeText: true. Default omits it so that observability access
+  // (already auth-gated) doesn't double as a PII firehose for whoever
+  // holds the API key.
+  input_text?: string;
   similarity_score: number;
   routed_tier: number;
   routing_layer: string;
@@ -71,11 +90,16 @@ export function percentile(values: number[], p: number): number {
 
 export function percentileBlock(values: number[]): PercentileBlock {
   if (values.length === 0) return { p50: 0, p95: 0, p99: 0, max: 0 };
+  // reduce instead of Math.max(...values): the spread form throws on arrays
+  // larger than the engine's argument-count limit (~65k in V8). SAMPLE_LIMIT
+  // is well under that today, but reduce has no such ceiling.
+  let max = -Infinity;
+  for (const v of values) if (v > max) max = v;
   return {
     p50: round(percentile(values, 50)),
     p95: round(percentile(values, 95)),
     p99: round(percentile(values, 99)),
-    max: round(Math.max(...values)),
+    max: round(max),
   };
 }
 
@@ -146,7 +170,22 @@ function truncate(s: string, n: number): string {
 
 // ── Composed service entry points ───────────────────────────────
 
-export async function getCascadeSnapshot(hours: number): Promise<CascadeSnapshot> {
+export interface SnapshotOptions {
+  /**
+   * When true, near_misses includes the raw `input_text` (truncated to
+   * NEAR_MISS_TEXT_MAX). Default false — the SHA-256 is always returned
+   * so consumers can dedupe identical near-misses without seeing prompt
+   * content. Only enable for ad-hoc debugging; do not surface to
+   * dashboards or third-party integrations.
+   */
+  includeText?: boolean;
+}
+
+export async function getCascadeSnapshot(
+  hours: number,
+  opts: SnapshotOptions = {},
+): Promise<CascadeSnapshot> {
+  const snapshotAt = new Date().toISOString();
   const [layerRows, tierRows, samples, nearMisses] = await Promise.all([
     cascadeLayerCounts(hours),
     cascadeTierCounts(hours),
@@ -165,6 +204,8 @@ export async function getCascadeSnapshot(hours: number): Promise<CascadeSnapshot
 
   return {
     window_hours: hours,
+    snapshot_at: snapshotAt,
+    consistency: "best_effort",
     total_decisions: total,
     by_layer: byLayer,
     by_tier: byTier,
@@ -172,13 +213,24 @@ export async function getCascadeSnapshot(hours: number): Promise<CascadeSnapshot
     latency_by_layer_ms: latencyByLayer(samples),
     confidence: confidences.length === 0 ? null : percentileBlock(confidences),
     similarity_score: similarities.length === 0 ? null : percentileBlock(similarities),
-    near_misses: nearMisses.map((n) => ({
-      ...n,
-      input_text: truncate(n.input_text, NEAR_MISS_TEXT_MAX),
-    })),
+    near_misses: nearMisses.map((n) => {
+      const entry: NearMissEntry = {
+        input_text_sha256: sha256(n.input_text),
+        similarity_score: n.similarity_score,
+        routed_tier: n.routed_tier,
+        routing_layer: n.routing_layer,
+        created_at: n.created_at,
+      };
+      if (opts.includeText) entry.input_text = truncate(n.input_text, NEAR_MISS_TEXT_MAX);
+      return entry;
+    }),
     sample_size: samples.length,
     sample_truncated: samples.length >= SAMPLE_LIMIT,
   };
+}
+
+function sha256(s: string): string {
+  return createHash("sha256").update(s).digest("hex");
 }
 
 export async function getCascadeTimeseries(
