@@ -9,7 +9,9 @@ import type { Hono } from "hono";
 let doltAvailable = false;
 let app: Hono;
 
-const TEST_PREFIX = "test-cascade-obs-";
+// Tag test rows via input_text instead of request_id, since request_id is
+// VARCHAR(36) — exactly UUID-sized, no room for a prefix.
+const TEST_INPUT_PREFIX = "TEST_CASCADE_OBS::";
 
 beforeAll(async () => {
   const config = loadConfig();
@@ -34,8 +36,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
-    // Tag test rows via request_id prefix so cleanup is precise.
-    await pool.query("DELETE FROM routing_log WHERE request_id LIKE ?", [`${TEST_PREFIX}%`]);
+    await pool.query("DELETE FROM routing_log WHERE input_text LIKE ?", [`${TEST_INPUT_PREFIX}%`]);
   }
   await destroy();
 });
@@ -57,8 +58,8 @@ async function seedRoutingLog(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       [
         uuidv7(),
-        `${TEST_PREFIX}${uuidv7()}`,
-        "test prompt",
+        uuidv7(),
+        `${TEST_INPUT_PREFIX}${r.layer}-${r.tier}`,
         r.tier,
         r.layer,
         r.sim,
@@ -75,7 +76,7 @@ describe("GET /observability/cascade", () => {
 
     // Use a 1-hour window after cleaning out test data so we can assert zeros.
     const pool = getPool();
-    await pool.query("DELETE FROM routing_log WHERE request_id LIKE ?", [`${TEST_PREFIX}%`]);
+    await pool.query("DELETE FROM routing_log WHERE input_text LIKE ?", [`${TEST_INPUT_PREFIX}%`]);
 
     const res = await app.request("/observability/cascade?hours=1");
     expect(res.status).toBe(200);
@@ -100,7 +101,7 @@ describe("GET /observability/cascade", () => {
     if (!doltAvailable) skip();
 
     const pool = getPool();
-    await pool.query("DELETE FROM routing_log WHERE request_id LIKE ?", [`${TEST_PREFIX}%`]);
+    await pool.query("DELETE FROM routing_log WHERE input_text LIKE ?", [`${TEST_INPUT_PREFIX}%`]);
 
     await seedRoutingLog([
       { layer: "deterministic", tier: 1, latency: 5, conf: 1.0, sim: null },
