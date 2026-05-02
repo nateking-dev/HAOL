@@ -1,0 +1,172 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
+import { loadConfig } from "../../src/config.js";
+import { runMigrations } from "../../src/db/migrate.js";
+import { createApp } from "../../src/api/app.js";
+import { uuidv7 } from "../../src/types/task.js";
+import type { Hono } from "hono";
+
+let doltAvailable = false;
+let app: Hono;
+
+const TEST_PREFIX = "test-cascade-obs-";
+
+beforeAll(async () => {
+  const config = loadConfig();
+  try {
+    getPool();
+  } catch {
+    createPool(config.dolt);
+  }
+  try {
+    await query("SELECT 1");
+    // Only mark the suite as runnable once migrations succeed against a
+    // real `haol` database — `SELECT 1` succeeds even without a database
+    // selected, so the prior check is necessary but not sufficient.
+    await runMigrations();
+    doltAvailable = true;
+  } catch {
+    console.warn("Dolt + haol database not available — skipping cascade observability tests");
+  }
+  app = createApp();
+});
+
+afterAll(async () => {
+  if (doltAvailable) {
+    const pool = getPool();
+    // Tag test rows via request_id prefix so cleanup is precise.
+    await pool.query("DELETE FROM routing_log WHERE request_id LIKE ?", [`${TEST_PREFIX}%`]);
+  }
+  await destroy();
+});
+
+async function seedRoutingLog(
+  rows: Array<{
+    layer: string;
+    tier: number;
+    latency: number;
+    conf: number | null;
+    sim: number | null;
+  }>,
+) {
+  const pool = getPool();
+  for (const r of rows) {
+    await pool.query(
+      `INSERT INTO routing_log
+         (log_id, request_id, input_text, routed_tier, routing_layer, similarity_score, confidence, latency_ms, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      [
+        uuidv7(),
+        `${TEST_PREFIX}${uuidv7()}`,
+        "test prompt",
+        r.tier,
+        r.layer,
+        r.sim,
+        r.conf,
+        r.latency,
+      ],
+    );
+  }
+}
+
+describe("GET /observability/cascade", () => {
+  it("returns the snapshot shape with zero-counts when no rows match", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    // Use a 1-hour window after cleaning out test data so we can assert zeros.
+    const pool = getPool();
+    await pool.query("DELETE FROM routing_log WHERE request_id LIKE ?", [`${TEST_PREFIX}%`]);
+
+    const res = await app.request("/observability/cascade?hours=1");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toHaveProperty("window_hours", 1);
+    expect(body).toHaveProperty("total_decisions");
+    expect(body).toHaveProperty("by_layer");
+    const byLayer = body.by_layer as Record<string, unknown>;
+    expect(Object.keys(byLayer).sort()).toEqual([
+      "deterministic",
+      "escalation",
+      "fallback",
+      "semantic",
+    ]);
+    expect(body).toHaveProperty("by_tier");
+    expect(body).toHaveProperty("latency_ms");
+    expect(body).toHaveProperty("near_misses");
+    expect(Array.isArray(body.near_misses)).toBe(true);
+  });
+
+  it("aggregates seeded rows by layer", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const pool = getPool();
+    await pool.query("DELETE FROM routing_log WHERE request_id LIKE ?", [`${TEST_PREFIX}%`]);
+
+    await seedRoutingLog([
+      { layer: "deterministic", tier: 1, latency: 5, conf: 1.0, sim: null },
+      { layer: "deterministic", tier: 1, latency: 6, conf: 1.0, sim: null },
+      { layer: "semantic", tier: 2, latency: 80, conf: 0.78, sim: 0.74 },
+      { layer: "escalation", tier: 3, latency: 450, conf: 0.85, sim: 0.4 },
+      { layer: "fallback", tier: 3, latency: 0, conf: 0, sim: null },
+    ]);
+
+    const res = await app.request("/observability/cascade?hours=1");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      total_decisions: number;
+      by_layer: Record<string, { count: number; share: number }>;
+      by_tier: Record<string, { count: number }>;
+      near_misses: Array<{ similarity_score: number; routing_layer: string }>;
+    };
+
+    expect(body.total_decisions).toBe(5);
+    expect(body.by_layer.deterministic.count).toBe(2);
+    expect(body.by_layer.semantic.count).toBe(1);
+    expect(body.by_layer.escalation.count).toBe(1);
+    expect(body.by_layer.fallback.count).toBe(1);
+
+    expect(body.by_tier["1"].count).toBe(2);
+    expect(body.by_tier["3"].count).toBe(2);
+
+    // Near-misses include only escalation/fallback rows with a non-null
+    // similarity_score — only the seeded escalation row qualifies.
+    expect(body.near_misses.length).toBe(1);
+    expect(body.near_misses[0].similarity_score).toBeCloseTo(0.4);
+    expect(body.near_misses[0].routing_layer).toBe("escalation");
+  });
+
+  it("clamps the hours parameter to the valid range", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const res = await app.request("/observability/cascade?hours=999999999");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { window_hours: number };
+    expect(body.window_hours).toBe(8760); // MAX_HOURS
+  });
+});
+
+describe("GET /observability/cascade/timeseries", () => {
+  it("returns hourly buckets by default", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const res = await app.request("/observability/cascade/timeseries?hours=1");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { bucket_hours: number; buckets: unknown[] };
+    expect(body.bucket_hours).toBe(1);
+    expect(Array.isArray(body.buckets)).toBe(true);
+  });
+
+  it("accepts bucket=day", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const res = await app.request("/observability/cascade/timeseries?hours=24&bucket=day");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { bucket_hours: number };
+    expect(body.bucket_hours).toBe(24);
+  });
+
+  it("rejects unsupported bucket values with 400", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const res = await app.request("/observability/cascade/timeseries?bucket=minute");
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/bucket/);
+  });
+});

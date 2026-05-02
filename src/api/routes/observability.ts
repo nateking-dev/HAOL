@@ -12,6 +12,7 @@ import {
   costSavings,
 } from "../../observability/queries.js";
 import { getDashboard } from "../../observability/dashboard.js";
+import { getCascadeSnapshot, getCascadeTimeseries } from "../../observability/cascade.js";
 import {
   cleanupOrphanedPendingRecords,
   countOrphanedPendingRecords,
@@ -88,6 +89,27 @@ observability.get("/stats/orphaned-pending", async (c) => {
   const maxAgeHours = parseIntParam(c.req.query("max_age_hours"), 24, 1, MAX_HOURS);
   const count = await countOrphanedPendingRecords(maxAgeHours);
   return c.json({ orphaned_pending: count, max_age_hours: maxAgeHours }, 200);
+});
+
+// --- Cascade router routes ---
+
+observability.get("/cascade", async (c) => {
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const data = await getCascadeSnapshot(hours);
+  return c.json(data, 200);
+});
+
+observability.get("/cascade/timeseries", async (c) => {
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const bucketRaw = c.req.query("bucket") ?? "hour";
+  // Normalize bucket to a number of hours. Reject anything else with 400 so
+  // callers can't accidentally request unsupported bucket sizes.
+  const bucketHours = bucketRaw === "day" ? 24 : bucketRaw === "hour" ? 1 : null;
+  if (bucketHours === null) {
+    return c.json({ error: "bucket must be 'hour' or 'day'" }, 400);
+  }
+  const data = await getCascadeTimeseries(hours, bucketHours);
+  return c.json(data, 200);
 });
 
 // --- Maintenance routes ---

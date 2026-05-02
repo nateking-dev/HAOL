@@ -457,6 +457,48 @@ curl http://localhost:3000/stats/outcomes?hours=24
 curl http://localhost:3000/stats/routing-accuracy?hours=24
 ```
 
+### Cascade router observability
+
+Two endpoints aggregate `routing_log` so you can see how the cascade is performing in production traffic — and use that data to tune `similarity_threshold`, `escalation_threshold`, and `confidence_threshold` instead of guessing at them.
+
+```bash
+# Snapshot: layer hit-rate, tier distribution, latency p50/p95/p99,
+# confidence/similarity distributions, and the top 20 near-misses
+# (decisions where the semantic layer was consulted but did not resolve,
+# sorted by similarity_score DESC — these are the most informative for
+# tuning similarity_threshold).
+curl http://localhost:3000/observability/cascade?hours=24
+
+# Time-series: bucketed escalation_rate, fallback_rate, total volume,
+# and avg_latency_ms over time. bucket=hour (default) or bucket=day.
+curl http://localhost:3000/observability/cascade/timeseries?hours=72&bucket=hour
+```
+
+Snapshot response shape:
+
+```json
+{
+  "window_hours": 24,
+  "total_decisions": 1234,
+  "by_layer": {
+    "deterministic": { "count": 800, "share": 0.6483 },
+    "semantic":      { "count": 300, "share": 0.2431 },
+    "escalation":    { "count": 100, "share": 0.0810 },
+    "fallback":      { "count": 34,  "share": 0.0276 }
+  },
+  "by_tier":  { "1": { "count": 250, "share": 0.20 }, "2": { ... }, ... },
+  "latency_ms":          { "p50": 12, "p95": 180, "p99": 450, "max": 1200 },
+  "latency_by_layer_ms": { "deterministic": { ... }, "semantic": { ... }, ... },
+  "confidence":          { "p50": 0.78, "p95": 0.95, "p99": 0.99, "max": 1.0 },
+  "similarity_score":    { "p50": 0.71, "p95": 0.86, "p99": 0.91, "max": 0.94 },
+  "near_misses":         [ { "input_text": "...", "similarity_score": 0.71, ... } ],
+  "sample_size": 1234,
+  "sample_truncated": false
+}
+```
+
+Pairs naturally with `npm run load-test`: the load test catches routing regressions in synthetic runs, the cascade endpoints catch them in real traffic.
+
 ---
 
 ## Routing Tuner: Closing the Learning Loop
