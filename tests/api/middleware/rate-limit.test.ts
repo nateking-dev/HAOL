@@ -137,9 +137,10 @@ describe("rateLimit middleware", () => {
   });
 
   describe("default mode (no trustProxy, no socket)", () => {
-    it("falls back to a shared 'unknown' bucket when getConnInfo fails", async () => {
+    it("falls back to a shared bucket when getConnInfo fails", async () => {
       // Hono's app.request() has no real socket — getConnInfo throws and the
-      // middleware logs a warn, then uses the 'unknown' bucket.
+      // middleware logs a warn, then uses the "unknown" sentinel bucket
+      // (distinct from the "global" key used by global mode).
       const app = buildApp({ limit: 1, windowMs: 60_000 });
       const r1 = await app.request("/ping");
       const r2 = await app.request("/ping");

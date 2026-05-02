@@ -78,6 +78,10 @@ export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
           key = info.remote.address ?? "unknown";
         } catch {
           // getConnInfo fails without a real socket (tests, non-Node adapters).
+          // Fall back to a sentinel distinct from the "global" mode key so
+          // the per-IP and global buckets never collide if the bucket store
+          // is ever shared across middleware instances.
+          key = "unknown";
           console.warn("[rate-limit] Could not resolve client IP — using shared bucket");
         }
       }
