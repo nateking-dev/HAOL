@@ -1,0 +1,187 @@
+name: Load Test
+
+# Manual trigger only by default — the load test calls real LLM APIs and costs money.
+# To run nightly, uncomment the `schedule:` block below.
+on:
+  workflow_dispatch:
+    inputs:
+      concurrency:
+        description: "Parallel workers"
+        required: false
+        default: "3"
+      max_p95_latency_ms:
+        description: "Fail if wall p95 latency exceeds this (ms). Leave blank to skip."
+        required: false
+        default: "60000"
+      max_cost_usd:
+        description: "Fail if total cost exceeds this (USD). Leave blank to skip."
+        required: false
+        default: "1.00"
+      max_failure_rate:
+        description: "Fail if failure rate exceeds this (0.0–1.0). Leave blank to skip."
+        required: false
+        default: "0.10"
+  # schedule:
+  #   - cron: "0 7 * * *"  # 07:00 UTC nightly
+
+jobs:
+  load-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Dolt
+        run: |
+          curl -L https://github.com/dolthub/dolt/releases/download/v1.83.6/install.sh | sudo bash
+
+      - name: Start Dolt SQL server
+        working-directory: /tmp
+        run: |
+          dolt config --global --add user.email "ci@haol.dev"
+          dolt config --global --add user.name "HAOL CI"
+          mkdir -p haol-db && cd haol-db
+          dolt init
+          dolt sql-server --host 0.0.0.0 --port 3306 &
+          for i in $(seq 1 30); do
+            mysql -h 127.0.0.1 -P 3306 -u root -e "SELECT 1" 2>/dev/null && break
+            if [ "$i" -eq 30 ]; then
+              echo "Dolt failed to start within 30s"
+              exit 1
+            fi
+            sleep 1
+          done
+          mysql -h 127.0.0.1 -P 3306 -u root -e "CREATE DATABASE IF NOT EXISTS haol"
+
+      - name: Run migrations and seed
+        run: |
+          npm run migrate
+          npm run seed
+        env:
+          DOLT_HOST: 127.0.0.1
+          DOLT_PORT: 3306
+          DOLT_USER: root
+          DOLT_PASSWORD: ""
+          DOLT_DATABASE: haol
+
+      - name: Start HAOL server
+        run: |
+          # Use the compiled output so the load test exercises the same
+          # artifact that would be deployed (not tsx's live transpile).
+          node dist/index.js > server.log 2>&1 &
+          echo $! > server.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/health >/dev/null 2>&1; then
+              echo "Server ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server failed to start within 30s"
+          cat server.log
+          exit 1
+        env:
+          DOLT_HOST: 127.0.0.1
+          DOLT_PORT: 3306
+          DOLT_USER: root
+          DOLT_PASSWORD: ""
+          DOLT_DATABASE: haol
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Run load test
+        id: load_test
+        env:
+          # Pass workflow_dispatch inputs through env, not direct ${{ }}
+          # interpolation, so values can't be parsed as shell. Each is also
+          # validated as numeric before use.
+          INPUT_CONCURRENCY: ${{ inputs.concurrency }}
+          INPUT_MAX_P95_LATENCY_MS: ${{ inputs.max_p95_latency_ms }}
+          INPUT_MAX_COST_USD: ${{ inputs.max_cost_usd }}
+          INPUT_MAX_FAILURE_RATE: ${{ inputs.max_failure_rate }}
+          # Forward server auth token if configured. The CI server starts
+          # without HAOL_API_KEY set (non-prod mode allows unauthenticated
+          # requests), but if/when the secret is added the load test will
+          # send Bearer auth automatically.
+          HAOL_API_KEY: ${{ secrets.HAOL_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          # Numeric validation: integers for concurrency/latency, decimals for cost/rate.
+          is_int() { [[ "$1" =~ ^[0-9]+$ ]]; }
+          is_num() { [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
+
+          if ! is_int "$INPUT_CONCURRENCY"; then
+            echo "Invalid concurrency: $INPUT_CONCURRENCY"; exit 2
+          fi
+
+          ARGS=(--concurrency "$INPUT_CONCURRENCY" --json)
+          if [ -n "$INPUT_MAX_P95_LATENCY_MS" ]; then
+            is_int "$INPUT_MAX_P95_LATENCY_MS" || { echo "Invalid max_p95_latency_ms"; exit 2; }
+            ARGS+=(--max-p95-latency-ms "$INPUT_MAX_P95_LATENCY_MS")
+          fi
+          if [ -n "$INPUT_MAX_COST_USD" ]; then
+            is_num "$INPUT_MAX_COST_USD" || { echo "Invalid max_cost_usd"; exit 2; }
+            ARGS+=(--max-cost-usd "$INPUT_MAX_COST_USD")
+          fi
+          if [ -n "$INPUT_MAX_FAILURE_RATE" ]; then
+            is_num "$INPUT_MAX_FAILURE_RATE" || { echo "Invalid max_failure_rate"; exit 2; }
+            ARGS+=(--max-failure-rate "$INPUT_MAX_FAILURE_RATE")
+          fi
+
+          # Capture exit separately so a threshold-violation exit (1) doesn't
+          # abort the step under pipefail+set-e before we extract the JSON.
+          LOAD_EXIT=0
+          npm run load-test -- "${ARGS[@]}" | tee load-test.out || LOAD_EXIT=$?
+          grep '^HAOL_LOAD_TEST_JSON ' load-test.out \
+            | sed 's/^HAOL_LOAD_TEST_JSON //' > load-test.json || true
+          exit $LOAD_EXIT
+
+      - name: Append summary to job
+        if: always()
+        run: |
+          {
+            echo "## Load Test Results"
+            echo ""
+            if [ -f load-test.json ]; then
+              echo '```json'
+              cat load-test.json
+              echo '```'
+            fi
+            echo ""
+            echo "<details><summary>Full report</summary>"
+            echo ""
+            echo '```'
+            cat load-test.out 2>/dev/null || echo "(no report)"
+            echo '```'
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: |
+            load-test.out
+            load-test.json
+            server.log
+          if-no-files-found: warn
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill "$(cat server.pid)" 2>/dev/null || true
+          fi
