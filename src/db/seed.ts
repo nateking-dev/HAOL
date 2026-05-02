@@ -10,17 +10,21 @@ INSERT IGNORE INTO routing_tiers (tier_id, tier_name, description, default_agent
   (4, 'Expert', 'Expert tasks: multi-capability, vision, tool use, advanced reasoning', 'claude-opus-4-6')
 `;
 
+// Patterns are tightened to require intent phrasing rather than bare keyword
+// matches — see migration 018_tighten_routing_rules.sql for rationale.
+// Combined with the first-match-by-priority change in cascade-router.ts, this
+// reduces T3 over-escalation when prompts contain incidental T3 keywords.
 const SEED_ROUTING_RULES = `
 INSERT IGNORE INTO routing_rules (rule_id, tier_id, rule_type, pattern, capabilities, priority, description) VALUES
   ('rule-summarize', 1, 'regex', '\\\\bsummariz', '["summarization"]', 10, 'Summarization tasks'),
   ('rule-classify', 1, 'regex', '\\\\b(classif|categoriz|label\\\\b)', '["classification"]', 10, 'Classification tasks'),
-  ('rule-code', 3, 'regex', '\\\\b(code\\\\b|implement|function\\\\b|debug\\\\b|refactor)', '["code_generation"]', 20, 'Code generation tasks'),
-  ('rule-reasoning', 3, 'regex', '\\\\b(analyz|analys|compar|reason|evaluat)', '["reasoning"]', 20, 'Reasoning tasks'),
-  ('rule-vision', 3, 'regex', '\\\\b(image\\\\b|screenshot\\\\b|diagram\\\\b|photo\\\\b)', '["vision"]', 20, 'Vision tasks'),
   ('rule-structured', 2, 'regex', '\\\\b(json\\\\b|schema\\\\b|structured\\\\b|table\\\\b)', '["structured_output"]', 15, 'Structured output tasks'),
+  ('rule-multilingual', 2, 'regex', '\\\\b(translat|multilingual)', '["multilingual"]', 15, 'Multilingual tasks'),
+  ('rule-code', 3, 'regex', '\\\\b(implement(s|ed|ing)?|debug(s|g(ed|ing))?|refactor(s|ed|ing)?|optimiz(e|es|ed|ing)?)\\\\b|\\\\b(write|writes|wrote|writing|create|creates|created|creating|build|builds|built|building|generate|generates|generated|generating|define|defines|defined|defining|fix|fixes|fixed|fixing)\\\\b.{0,40}?\\\\b(code|function|class|method|module|script|program|service|library|middleware|component|cli|api|endpoint|query)\\\\b', '["code_generation"]', 20, 'Code generation tasks'),
+  ('rule-reasoning', 3, 'regex', '\\\\b(analyz(e|es|ed|ing)?|compar(e|es|ed|ing)?|evaluat(e|es|ed|ing)?|assess(es|ed|ing)?|investigat(e|es|ed|ing)?|reason(s|ed|ing)?|examin(e|es|ed|ing)?)\\\\b', '["reasoning"]', 20, 'Reasoning tasks'),
+  ('rule-vision', 3, 'regex', '\\\\b(image|screenshot|diagram|photo)\\\\b', '["vision"]', 20, 'Vision tasks'),
   ('rule-longctx', 3, 'regex', '\\\\bentire\\\\b.*\\\\bdocument\\\\b', '["long_context"]', 20, 'Long context tasks'),
-  ('rule-tooluse', 3, 'regex', '\\\\b(tool\\\\b|api\\\\b.*\\\\bcall\\\\b|function.call)', '["tool_use"]', 20, 'Tool use tasks'),
-  ('rule-multilingual', 2, 'regex', '\\\\b(translat|multilingual)', '["multilingual"]', 15, 'Multilingual tasks')
+  ('rule-tooluse', 3, 'regex', '\\\\b(api[\\\\s._]call|function[\\\\s._]call)\\\\b|\\\\b(use|uses|used|using|invoke|invokes|invoked|invoking|call|calls|called|calling)\\\\b.{0,40}?\\\\b(tool|api|function)\\\\b', '["tool_use"]', 20, 'Tool use tasks')
 `;
 
 const SEED_ROUTER_CONFIG = `

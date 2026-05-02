@@ -69,9 +69,15 @@ describe("rules", () => {
       expect(rule.patterns.some((p) => p.test("Multilingual support"))).toBe(true);
     });
 
-    it("reasoning also matches 'analysis'", () => {
+    it("reasoning does NOT match the noun form 'analysis'", () => {
+      // Tightened from the previous over-matching behavior — the bare-stem
+      // `analyz`/`analys` regexes triggered on any mention of "analysis"
+      // even when the prompt's intent was clearly summarization or
+      // classification. We now require verb forms only.
       const rule = rules.find((r) => r.name === "reasoning")!;
-      expect(rule.patterns.some((p) => p.test("Complex data analysis"))).toBe(true);
+      expect(rule.patterns.some((p) => p.test("Complex data analysis"))).toBe(false);
+      expect(rule.patterns.some((p) => p.test("This comparison shows"))).toBe(false);
+      expect(rule.patterns.some((p) => p.test("The evaluation report"))).toBe(false);
     });
 
     it("multi_step matches step-by-step and workflow keywords", () => {

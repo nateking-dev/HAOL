@@ -114,7 +114,10 @@ describe("CascadeRouter", () => {
   });
 
   describe("Layer 0 — deterministic rules", () => {
-    it("matches regex rules and uses highest tier", async () => {
+    it("uses first match by priority for tier and aggregates capabilities", async () => {
+      // Priority short-circuit: rules arrive ORDER BY priority ASC, so the
+      // first matched rule's tier wins. Capabilities still aggregate across
+      // all matched rules since they describe what the prompt needs.
       mockLoadRules.mockResolvedValue([
         {
           rule_id: "r1",
@@ -144,9 +147,108 @@ describe("CascadeRouter", () => {
         prompt: "Summarize and write code for this",
       });
 
-      expect(result.complexity_tier).toBe(3);
+      // First match (priority 10) sets tier = 1, second match doesn't override.
+      expect(result.complexity_tier).toBe(1);
+      // Capabilities aggregate from both matched rules.
       expect(result.required_capabilities).toContain("summarization");
       expect(result.required_capabilities).toContain("code_generation");
+    });
+
+    it("priority short-circuit prevents incidental T3 keywords clobbering a T1 match", async () => {
+      // Regression test for the over-escalation bug: a prompt whose
+      // instruction is clearly T1 but whose data mentions a T3 keyword
+      // should land at T1, not T3.
+      mockLoadRules.mockResolvedValue([
+        {
+          rule_id: "r-summarize",
+          tier_id: 1 as TierId,
+          rule_type: "regex",
+          pattern: "\\bsummariz",
+          capabilities: ["summarization"],
+          priority: 10,
+          enabled: true,
+          description: null,
+        },
+        {
+          rule_id: "r-reasoning",
+          tier_id: 3 as TierId,
+          rule_type: "regex",
+          pattern: "\\banalyze\\b",
+          capabilities: ["reasoning"],
+          priority: 20,
+          enabled: true,
+          description: null,
+        },
+      ]);
+      mockLoadUtterances.mockResolvedValue([]);
+
+      const router = await CascadeRouter.create();
+      const result = await router.classify({
+        prompt: "Summarize this report which goes on to analyze the data",
+      });
+      expect(result.complexity_tier).toBe(1);
+    });
+
+    it("falls through to next priority bucket when higher-priority rules miss", async () => {
+      mockLoadRules.mockResolvedValue([
+        {
+          rule_id: "r-summarize",
+          tier_id: 1 as TierId,
+          rule_type: "regex",
+          pattern: "\\bsummariz",
+          capabilities: ["summarization"],
+          priority: 10,
+          enabled: true,
+          description: null,
+        },
+        {
+          rule_id: "r-code",
+          tier_id: 3 as TierId,
+          rule_type: "regex",
+          pattern: "\\bdebug\\b",
+          capabilities: ["code_generation"],
+          priority: 20,
+          enabled: true,
+          description: null,
+        },
+      ]);
+      mockLoadUtterances.mockResolvedValue([]);
+
+      const router = await CascadeRouter.create();
+      const result = await router.classify({ prompt: "Debug this issue" });
+      // No T1 match — T3 wins via the second rule.
+      expect(result.complexity_tier).toBe(3);
+    });
+
+    it("respects priority even when rules arrive out of order", async () => {
+      // The matcher sorts defensively — so even if a caller passes T3
+      // rules first, the T1 rule at priority 10 still wins.
+      mockLoadRules.mockResolvedValue([
+        {
+          rule_id: "r-code",
+          tier_id: 3 as TierId,
+          rule_type: "regex",
+          pattern: "\\bcode\\b",
+          capabilities: ["code_generation"],
+          priority: 20,
+          enabled: true,
+          description: null,
+        },
+        {
+          rule_id: "r-summarize",
+          tier_id: 1 as TierId,
+          rule_type: "regex",
+          pattern: "\\bsummariz",
+          capabilities: ["summarization"],
+          priority: 10,
+          enabled: true,
+          description: null,
+        },
+      ]);
+      mockLoadUtterances.mockResolvedValue([]);
+      const router = await CascadeRouter.create();
+      const result = await router.classify({ prompt: "Summarize this code review" });
+      expect(result.complexity_tier).toBe(1);
     });
 
     it("matches prefix rules", async () => {
@@ -227,7 +329,19 @@ describe("CascadeRouter", () => {
     // These tests use the actual patterns from SEED_ROUTING_RULES to verify
     // they correctly match common inflected forms (the original patterns had
     // trailing \b word boundaries that broke partial stem matching).
+    // Mirror the post-migration patterns from src/db/seed.ts. Update both
+    // here and there together when changing the rule set.
     const seedRules = [
+      {
+        rule_id: "rule-summarize",
+        tier_id: 1 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\bsummariz",
+        capabilities: ["summarization"],
+        priority: 10,
+        enabled: true,
+        description: null,
+      },
       {
         rule_id: "rule-classify",
         tier_id: 1 as TierId,
@@ -239,10 +353,31 @@ describe("CascadeRouter", () => {
         description: null,
       },
       {
+        rule_id: "rule-structured",
+        tier_id: 2 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(json\\b|schema\\b|structured\\b|table\\b)",
+        capabilities: ["structured_output"],
+        priority: 15,
+        enabled: true,
+        description: null,
+      },
+      {
+        rule_id: "rule-multilingual",
+        tier_id: 2 as TierId,
+        rule_type: "regex" as const,
+        pattern: "\\b(translat|multilingual)",
+        capabilities: ["multilingual"],
+        priority: 15,
+        enabled: true,
+        description: null,
+      },
+      {
         rule_id: "rule-code",
         tier_id: 3 as TierId,
         rule_type: "regex" as const,
-        pattern: "\\b(code\\b|implement|function\\b|debug\\b|refactor)",
+        pattern:
+          "\\b(implement(s|ed|ing)?|debug(s|g(ed|ing))?|refactor(s|ed|ing)?|optimiz(e|es|ed|ing)?)\\b|\\b(write|writes|wrote|writing|create|creates|created|creating|build|builds|built|building|generate|generates|generated|generating|define|defines|defined|defining|fix|fixes|fixed|fixing)\\b.{0,40}?\\b(code|function|class|method|module|script|program|service|library|middleware|component|cli|api|endpoint|query)\\b",
         capabilities: ["code_generation"],
         priority: 20,
         enabled: true,
@@ -252,7 +387,8 @@ describe("CascadeRouter", () => {
         rule_id: "rule-reasoning",
         tier_id: 3 as TierId,
         rule_type: "regex" as const,
-        pattern: "\\b(analyz|analys|compar|reason|evaluat)",
+        pattern:
+          "\\b(analyz(e|es|ed|ing)?|compar(e|es|ed|ing)?|evaluat(e|es|ed|ing)?|assess(es|ed|ing)?|investigat(e|es|ed|ing)?|reason(s|ed|ing)?|examin(e|es|ed|ing)?)\\b",
         capabilities: ["reasoning"],
         priority: 20,
         enabled: true,
@@ -262,19 +398,9 @@ describe("CascadeRouter", () => {
         rule_id: "rule-vision",
         tier_id: 3 as TierId,
         rule_type: "regex" as const,
-        pattern: "\\b(image\\b|screenshot\\b|diagram\\b|photo\\b)",
+        pattern: "\\b(image|screenshot|diagram|photo)\\b",
         capabilities: ["vision"],
         priority: 20,
-        enabled: true,
-        description: null,
-      },
-      {
-        rule_id: "rule-structured",
-        tier_id: 2 as TierId,
-        rule_type: "regex" as const,
-        pattern: "\\b(json\\b|schema\\b|structured\\b|table\\b)",
-        capabilities: ["structured_output"],
-        priority: 15,
         enabled: true,
         description: null,
       },
@@ -292,7 +418,8 @@ describe("CascadeRouter", () => {
         rule_id: "rule-tooluse",
         tier_id: 3 as TierId,
         rule_type: "regex" as const,
-        pattern: "\\b(tool\\b|api\\b.*\\bcall\\b|function.call)",
+        pattern:
+          "\\b(api[\\s._]call|function[\\s._]call)\\b|\\b(use|uses|used|using|invoke|invokes|invoked|invoking|call|calls|called|calling)\\b.{0,40}?\\b(tool|api|function)\\b",
         capabilities: ["tool_use"],
         priority: 20,
         enabled: true,
@@ -320,24 +447,85 @@ describe("CascadeRouter", () => {
       }
     });
 
-    it("rule-code matches 'Implement', 'Refactoring', 'Debug'", async () => {
-      for (const prompt of ["Implement a cache", "Refactoring the module", "Debug this issue"]) {
+    it("rule-code matches 'Implement', 'Refactoring', 'Debug', 'debugged', 'debugging'", async () => {
+      // Inflection coverage including the irregular debug forms (double-g):
+      // debug + ged → debugged, debug + ging → debugging. The naïve
+      // debug(s|ed|ing)? would silently miss both.
+      for (const prompt of [
+        "Implement a cache",
+        "Refactoring the module",
+        "Debug this issue",
+        "I debugged the connection pool",
+        "We're debugging the upstream timeout",
+      ]) {
         const result = await router.classify({ prompt });
         expect(result.complexity_tier).toBe(3);
         expect(result.required_capabilities).toContain("code_generation");
       }
     });
 
-    it("rule-reasoning matches 'Analyze', 'Analysis', 'Comparison', 'Evaluate'", async () => {
+    it("rule-reasoning matches verb forms (Analyze, Compare, Evaluate)", async () => {
+      // Tightened pattern matches verb forms only — see migration 018.
       for (const prompt of [
         "Analyze the data",
-        "Data analysis report",
-        "Comparison of options",
+        "Compare these options",
         "Evaluate the approach",
+        "Investigating the root cause",
+        "Examining the trade-offs",
       ]) {
         const result = await router.classify({ prompt });
         expect(result.complexity_tier).toBe(3);
         expect(result.required_capabilities).toContain("reasoning");
+      }
+    });
+
+    it("rule-reasoning does NOT match noun forms (analysis, comparison, evaluation)", async () => {
+      // The previous pattern matched the partial stem `analyz` which
+      // also triggered on the noun "analysis" — over-routing prompts
+      // like "Summarize this analysis report" to T3. The tightened
+      // pattern requires verb forms.
+      for (const prompt of [
+        "Summarize this analysis report",
+        "Translate the comparison document",
+        "Classify this evaluation note",
+      ]) {
+        const result = await router.classify({ prompt });
+        // Note: these prompts each trigger a T1/T2 rule (summarize,
+        // translate, classif), so they resolve at the deterministic
+        // layer at the lower tier. The point is they don't hit T3.
+        expect(result.complexity_tier).not.toBe(3);
+        expect(result.required_capabilities).not.toContain("reasoning");
+      }
+    });
+
+    it("rule-code does NOT match incidental code-noun mentions without an intent verb", async () => {
+      // Previous pattern matched `function\b` anywhere — including
+      // "extract from this function spec" or "the function returned
+      // an error". Tightened pattern requires a code-creation verb
+      // within ~4 tokens before the noun.
+      for (const prompt of [
+        "Summarize what this function does",
+        "Classify these api responses",
+        "Translate the documentation for this module",
+      ]) {
+        const result = await router.classify({ prompt });
+        expect(result.complexity_tier).not.toBe(3);
+        expect(result.required_capabilities).not.toContain("code_generation");
+      }
+    });
+
+    it("rule-code matches verb+code-noun pairs with intervening words", async () => {
+      // Up to 3 words between the verb and the code noun (handles
+      // articles, adjectives, qualifiers like "Python" / "small").
+      for (const prompt of [
+        "Write a function to compute the LRU cache",
+        "Build a small CLI for managing tasks",
+        "Create a TypeScript service",
+        "Generate a SQL query",
+      ]) {
+        const result = await router.classify({ prompt });
+        expect(result.complexity_tier).toBe(3);
+        expect(result.required_capabilities).toContain("code_generation");
       }
     });
 
