@@ -16,6 +16,7 @@
     "seed": "tsx src/db/seed.ts",
     "seed:embeddings": "tsx src/cascade-router/seed-embeddings.ts",
     "demo:setup": "tsx scripts/demo-setup.ts",
+    "load-test": "tsx scripts/load-test.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
