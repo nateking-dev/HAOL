@@ -457,6 +457,66 @@ curl http://localhost:3000/stats/outcomes?hours=24
 curl http://localhost:3000/stats/routing-accuracy?hours=24
 ```
 
+### Cascade router observability
+
+Two endpoints aggregate `routing_log` so you can see how the cascade is performing in production traffic — and use that data to tune `similarity_threshold`, `escalation_threshold`, and `confidence_threshold` instead of guessing at them.
+
+```bash
+# Snapshot: layer hit-rate, tier distribution, latency p50/p95/p99,
+# confidence/similarity distributions, and the top 20 near-misses
+# (decisions where the semantic layer was consulted but did not resolve,
+# sorted by similarity_score DESC — these are the most informative for
+# tuning similarity_threshold).
+curl http://localhost:3000/observability/cascade?hours=24
+
+# Time-series: bucketed escalation_rate, fallback_rate, total volume,
+# and avg_latency_ms over time. bucket=hour (default) or bucket=day.
+curl http://localhost:3000/observability/cascade/timeseries?hours=72&bucket=hour
+
+# Near-misses include only a SHA-256 hash of the input prompt by default,
+# so observability access (which is auth-gated) doesn't double as a PII
+# firehose for whoever holds the API key. Pass include_text=true to opt
+# into raw prompt content for ad-hoc debugging.
+curl http://localhost:3000/observability/cascade?hours=24&include_text=true
+```
+
+Snapshot response shape:
+
+```json
+{
+  "window_hours": 24,
+  "snapshot_at": "2026-05-02T11:42:00.000Z",
+  "consistency": "best_effort",
+  "total_decisions": 1234,
+  "by_layer": {
+    "deterministic": { "count": 800, "share": 0.6483 },
+    "semantic":      { "count": 300, "share": 0.2431 },
+    "escalation":    { "count": 100, "share": 0.0810 },
+    "fallback":      { "count": 34,  "share": 0.0276 }
+  },
+  "by_tier":  { "1": { "count": 250, "share": 0.20 }, "2": { ... }, ... },
+  "latency_ms":          { "p50": 12, "p95": 180, "p99": 450, "max": 1200 },
+  "latency_by_layer_ms": { "deterministic": { ... }, "semantic": { ... }, ... },
+  "confidence":          { "p50": 0.78, "p95": 0.95, "p99": 0.99, "max": 1.0 },
+  "similarity_score":    { "p50": 0.71, "p95": 0.86, "p99": 0.91, "max": 0.94 },
+  "near_misses": [
+    {
+      "input_text_sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "similarity_score": 0.71,
+      "routed_tier": 3,
+      "routing_layer": "escalation",
+      "created_at": "2026-05-02T11:30:00.000Z"
+    }
+  ],
+  "sample_size": 1234,
+  "sample_truncated": false
+}
+```
+
+`consistency: "best_effort"` is a deliberate signal: the four underlying queries fire concurrently on independent connections, so under heavy concurrent writes the counts and percentile distributions can briefly disagree by a handful of rows. Tolerable for monitoring; not suitable for accounting. Use `snapshot_at` to correlate with other systems.
+
+Pairs naturally with `npm run load-test`: the load test catches routing regressions in synthetic runs, the cascade endpoints catch them in real traffic.
+
 ---
 
 ## Routing Tuner: Closing the Learning Loop
