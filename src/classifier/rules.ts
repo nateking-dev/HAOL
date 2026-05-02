@@ -20,13 +20,31 @@ export const rules: Rule[] = [
   },
   {
     name: "code",
-    patterns: [/\bcode\b/i, /\bimplement/i, /\bfunction\b/i, /\bdebug\b/i, /\brefactor/i],
+    // Tightened to require intent: strong code verbs alone, OR a generic
+    // create-verb followed by a code/system noun within ~40 chars. See
+    // migration 018_tighten_routing_rules.sql for full rationale.
+    patterns: [
+      /\b(implement|implements|implemented|implementing)\b/i,
+      /\b(debug|debugs|debugged|debugging)\b/i,
+      /\b(refactor|refactors|refactored|refactoring)\b/i,
+      /\b(optimize|optimizes|optimized|optimizing)\b/i,
+      /\b(write|writes|wrote|writing|create|creates|created|creating|build|builds|built|building|generate|generates|generated|generating|define|defines|defined|defining|fix|fixes|fixed|fixing)\b.{0,40}?\b(code|function|class|method|module|script|program|service|library|middleware|component|cli|api|endpoint|query)\b/i,
+    ],
     capabilities: ["code_generation"],
     tierEffect: 1,
   },
   {
     name: "reasoning",
-    patterns: [/\banalyz/i, /\banalys/i, /\bcompar/i, /\breason/i, /\bevaluat/i],
+    // Verb forms only — noun forms (analysis, comparison, evaluation) are
+    // descriptive, not intent-bearing.
+    patterns: [
+      /\b(analyze|analyzes|analyzing|analyzed|analyse|analyses|analysing|analysed)\b/i,
+      /\b(compare|compares|comparing|compared)\b/i,
+      /\b(evaluate|evaluates|evaluating|evaluated)\b/i,
+      /\b(assess|assesses|assessing|assessed)\b/i,
+      /\b(reason|reasons|reasoning|reasoned)\b/i,
+      /\b(examine|examines|examining|examined)\b/i,
+    ],
     capabilities: ["reasoning"],
     tierEffect: 1,
   },
@@ -50,7 +68,13 @@ export const rules: Rule[] = [
   },
   {
     name: "tool_use",
-    patterns: [/\btool\b/i, /\bapi\b.*\bcall\b/i, /\bfunction.call/i],
+    // Direct phrase matches for unambiguous tool-use signals, OR an action
+    // verb pointed at a tool/api/function noun within ~40 chars.
+    patterns: [
+      /\bapi[\s._]call\b/i,
+      /\bfunction[\s._]call\b/i,
+      /\b(use|uses|used|using|invoke|invokes|invoked|invoking|call|calls|called|calling)\b.{0,40}?\b(tool|api|function)\b/i,
+    ],
     capabilities: ["tool_use"],
     tierEffect: 1,
   },
