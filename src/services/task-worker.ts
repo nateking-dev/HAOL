@@ -42,6 +42,12 @@ function workerConcurrency(): number {
 }
 
 export function enqueue(taskId: string, input: RouterTaskInput): void {
+  // Reject during shutdown: pump() bails when stopping=true, so a late
+  // enqueue would sit in queue forever and prevent maybeResolveDrain() from
+  // firing — stop() would then hang until its grace-period timeout. Server
+  // shutdown order normally prevents this, but a concurrent reaper sweep
+  // can still call enqueue() after stop() begins.
+  if (stopping) return;
   if (tracked.has(taskId)) return; // duplicate — already queued or running
   tracked.add(taskId);
   queue.push({ taskId, input });

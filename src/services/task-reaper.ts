@@ -23,11 +23,16 @@ const STUCK_REASON = "worker_crashed";
 
 let timer: NodeJS.Timeout | null = null;
 
+// Floor the recovery threshold at 5 min so a misconfigured value can't
+// reap healthy in-flight T3/T4 tasks (tier-4 timeout is 120s; we need
+// well above that plus reaper-interval slop to be safe).
+const RECOVERY_AGE_FLOOR_MS = 300_000;
+
 function recoveryAgeSeconds(): number {
   const raw = process.env.WORKER_RECOVERY_AGE_MS;
   if (!raw) return 600; // 10 minutes
   const ms = parseInt(raw, 10);
-  if (!Number.isFinite(ms) || ms < 1000) return 600;
+  if (!Number.isFinite(ms) || ms < RECOVERY_AGE_FLOOR_MS) return 600;
   return Math.ceil(ms / 1000);
 }
 
