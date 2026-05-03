@@ -113,11 +113,7 @@ export async function runReaperOnce(): Promise<{
       await deleteSessionBranchSafely(row.task_id);
       failed++;
     } catch (err) {
-      console.warn(
-        "[reaper] failed to mark %s FAILED: %s",
-        row.task_id,
-        (err as Error).message,
-      );
+      console.warn("[reaper] failed to mark %s FAILED: %s", row.task_id, (err as Error).message);
     }
   }
 

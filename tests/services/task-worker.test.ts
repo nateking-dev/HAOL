@@ -122,9 +122,7 @@ describe("task-worker", () => {
     expect(finished.worker_finished_at).not.toBeNull();
   });
 
-  it("provider error → row reaches FAILED (routeTask handles its own errors)", async ({
-    skip,
-  }) => {
+  it("provider error → row reaches FAILED (routeTask handles its own errors)", async ({ skip }) => {
     if (!doltAvailable) skip();
     globalThis.fetch = vi.fn().mockImplementation(async () => ({
       ok: false,
@@ -142,9 +140,7 @@ describe("task-worker", () => {
     expect(finished.status).toBe("FAILED");
   });
 
-  it("claimQueued is idempotent — duplicate enqueue does not double-execute", async ({
-    skip,
-  }) => {
+  it("claimQueued is idempotent — duplicate enqueue does not double-execute", async ({ skip }) => {
     if (!doltAvailable) skip();
     mockProviderSuccess("once");
 

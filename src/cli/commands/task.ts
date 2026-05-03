@@ -24,11 +24,7 @@ interface TaskBody {
   [key: string]: unknown;
 }
 
-async function pollTask(
-  baseUrl: string,
-  taskId: string,
-  timeoutMs: number,
-): Promise<TaskBody> {
+async function pollTask(baseUrl: string, taskId: string, timeoutMs: number): Promise<TaskBody> {
   const deadline = Date.now() + timeoutMs;
   let lastBody: TaskBody = {};
   let backoffMs = 250;

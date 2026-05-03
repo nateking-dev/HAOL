@@ -201,10 +201,9 @@ export async function recordWorkerError(taskId: string, message: string): Promis
 
 export async function recordWorkerFinished(taskId: string): Promise<void> {
   const pool = getPool();
-  await pool.query(
-    `UPDATE task_log SET worker_finished_at = CURRENT_TIMESTAMP WHERE task_id = ?`,
-    [taskId],
-  );
+  await pool.query(`UPDATE task_log SET worker_finished_at = CURRENT_TIMESTAMP WHERE task_id = ?`, [
+    taskId,
+  ]);
 }
 
 /**

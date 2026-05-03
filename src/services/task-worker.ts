@@ -68,11 +68,7 @@ async function runJob(job: Job): Promise<void> {
   try {
     claimed = await taskLog.claimQueued(job.taskId);
   } catch (err) {
-    console.warn(
-      "[task-worker] claimQueued failed for %s: %s",
-      job.taskId,
-      (err as Error).message,
-    );
+    console.warn("[task-worker] claimQueued failed for %s: %s", job.taskId, (err as Error).message);
     return;
   }
   if (!claimed) return;
@@ -126,10 +122,7 @@ export async function stop(graceMs = 30_000): Promise<void> {
     drainResolver = resolve;
     setTimeout(() => {
       if (drainResolver) {
-        console.warn(
-          "[task-worker] grace period exceeded with %d in-flight jobs",
-          inflight,
-        );
+        console.warn("[task-worker] grace period exceeded with %d in-flight jobs", inflight);
         const r = drainResolver;
         drainResolver = null;
         r();

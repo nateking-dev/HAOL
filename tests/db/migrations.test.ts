@@ -110,10 +110,9 @@ describe("migrations", () => {
     ]) {
       expect(columns, `task_log column ${col}`).toContain(col);
     }
-    const idx = await query<any>(
-      "SHOW INDEX FROM task_log WHERE Key_name = ?",
-      ["idx_task_log_status_created"],
-    );
+    const idx = await query<any>("SHOW INDEX FROM task_log WHERE Key_name = ?", [
+      "idx_task_log_status_created",
+    ]);
     expect(idx.length).toBeGreaterThanOrEqual(1);
   });
 

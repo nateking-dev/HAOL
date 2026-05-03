@@ -13,29 +13,27 @@ afterEach(() => {
  * task_id; subsequent GETs return the completion payload (done=true).
  */
 function mockAsyncFlow(completion: Record<string, unknown>, taskId = "abc-123") {
-  globalThis.fetch = vi
-    .fn()
-    .mockImplementation(async (url: string | URL, init?: RequestInit) => {
-      const u = typeof url === "string" ? url : url.toString();
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (method === "POST" && u.endsWith("/tasks")) {
-        return {
-          ok: true,
-          status: 202,
-          json: async () => ({
-            task_id: taskId,
-            status: "QUEUED",
-            links: { self: `/tasks/${taskId}` },
-          }),
-        };
-      }
-      // GET poll
+  globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL, init?: RequestInit) => {
+    const u = typeof url === "string" ? url : url.toString();
+    const method = (init?.method ?? "GET").toUpperCase();
+    if (method === "POST" && u.endsWith("/tasks")) {
       return {
         ok: true,
-        status: 200,
-        json: async () => ({ task_id: taskId, done: true, ...completion }),
+        status: 202,
+        json: async () => ({
+          task_id: taskId,
+          status: "QUEUED",
+          links: { self: `/tasks/${taskId}` },
+        }),
       };
-    }) as unknown as typeof fetch;
+    }
+    // GET poll
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ task_id: taskId, done: true, ...completion }),
+    };
+  }) as unknown as typeof fetch;
 }
 
 function mockPostError(status: number, body: Record<string, unknown>) {
