@@ -38,7 +38,14 @@ async function main() {
   const shutdown = async (signal: string) => {
     console.log("[server] received %s, draining…", signal);
     stopReaper();
-    server.close();
+    // Await server.close so any in-flight POST handlers between the
+    // createQueued INSERT and worker.enqueue() can finish before the
+    // worker stops accepting new enqueues. Without this, a late enqueue
+    // would be rejected and the row stranded as QUEUED until the next
+    // reaper sweep on restart.
+    await new Promise<void>((resolve, reject) => {
+      server.close((err) => (err ? reject(err) : resolve()));
+    });
     await worker.stop();
     process.exit(0);
   };

@@ -41,18 +41,34 @@ function workerConcurrency(): number {
   return Number.isFinite(n) && n > 0 ? n : 4;
 }
 
-export function enqueue(taskId: string, input: RouterTaskInput): void {
+function maxQueueDepth(): number {
+  const raw = process.env.WORKER_MAX_QUEUE_DEPTH;
+  if (!raw) return 1000;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 1000;
+}
+
+export type EnqueueResult = "ok" | "stopping" | "duplicate" | "queue_full";
+
+export function enqueue(taskId: string, input: RouterTaskInput): EnqueueResult {
   // Reject during shutdown: pump() bails when stopping=true, so a late
   // enqueue would sit in queue forever and prevent maybeResolveDrain() from
   // firing — stop() would then hang until its grace-period timeout. Server
   // shutdown order normally prevents this, but a concurrent reaper sweep
   // can still call enqueue() after stop() begins.
-  if (stopping) return;
-  if (tracked.has(taskId)) return; // duplicate — already queued or running
+  if (stopping) return "stopping";
+  if (tracked.has(taskId)) return "duplicate"; // already queued or running
+  // Cap the in-memory queue so a sustained intake burst can't OOM the
+  // process. The HTTP handler converts queue_full into 429 so callers get
+  // an actionable signal instead of accumulating silently. Long-term the
+  // Dolt-backed poll queue will replace this; the cap is the defense in
+  // the meantime.
+  if (queue.length >= maxQueueDepth()) return "queue_full";
   tracked.add(taskId);
   queue.push({ taskId, input });
   // Kick the loop on next tick so callers (HTTP handler) can return first.
   setImmediate(pump);
+  return "ok";
 }
 
 function pump(): void {
@@ -89,8 +105,9 @@ async function runJob(job: Job): Promise<void> {
   if (!claimed) return;
 
   try {
-    // routeTask sets status to COMPLETED/FAILED and stamps worker_finished_at
-    // atomically (see taskLog.updateStatus for the terminal-state case).
+    // routeTask writes the terminal status via markCompleted/markFailed,
+    // which atomically stamp status, response_content (on success), and
+    // worker_finished_at in a single UPDATE.
     await routeTask(job.input, { taskId: job.taskId });
   } catch (err) {
     // routeTask handles its own failures and writes FAILED to task_log, but
@@ -147,8 +164,17 @@ export async function stop(graceMs = 30_000): Promise<void> {
 }
 
 /** Test/observability hook. */
-export function inspect(): { queued: number; inflight: number } {
-  return { queued: queue.length, inflight };
+export function inspect(): { queued: number; inflight: number; capacity: number } {
+  return { queued: queue.length, inflight, capacity: maxQueueDepth() };
+}
+
+/**
+ * Pre-flight check used by the HTTP handler to return 429 before
+ * inserting a QUEUED row. Avoids creating orphan QUEUED rows that the
+ * reaper would have to clean up later.
+ */
+export function canAccept(): boolean {
+  return !stopping && queue.length < maxQueueDepth();
 }
 
 /** Test reset — clears in-memory state without touching the DB. */

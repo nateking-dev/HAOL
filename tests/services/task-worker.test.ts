@@ -96,9 +96,11 @@ afterAll(async () => {
     const pool = getPool();
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'wrk-test-%'");
     await pool.query("DELETE FROM task_log WHERE prompt LIKE ?", [`${TEST_PROMPT_PREFIX}%`]);
+    // Re-enable everything we disabled in beforeAll. Using the inverse of
+    // the disable query (rather than a hardcoded agent list) avoids leaving
+    // future seed agents disabled if the seed list grows.
     await pool.query(
-      `UPDATE agent_registry SET status = 'active'
-       WHERE agent_id IN ('claude-haiku-4-5','claude-sonnet-4-5','gpt-4o-mini','local-llama')`,
+      "UPDATE agent_registry SET status = 'active' WHERE agent_id NOT LIKE 'wrk-test-%'",
     );
     await pool.query("DELETE FROM agent_registry WHERE agent_id LIKE 'wrk-test-%'");
   }

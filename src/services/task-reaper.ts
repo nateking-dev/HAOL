@@ -103,22 +103,22 @@ export async function runReaperOnce(): Promise<{
     reEnqueued++;
   }
 
-  // 2. Mark stale in-flight rows FAILED. Filter to states that imply a
-  // worker had picked the row up (skip QUEUED — handled above).
-  let stale: taskLog.TaskLogRecord[] = [];
+  // 2. Mark stale in-flight rows FAILED. findStale returns just the
+  // task_ids — no need to pull full rows (incl. LONGTEXT prompt) since
+  // the reaper only needs to UPDATE and delete the session branch.
+  let staleIds: string[] = [];
   try {
-    stale = await taskLog.findStale(ageSec);
+    staleIds = await taskLog.findStale(ageSec);
   } catch (err) {
     console.warn("[reaper] findStale failed: %s", (err as Error).message);
   }
-  for (const row of stale) {
-    if (row.status === "QUEUED") continue;
+  for (const taskId of staleIds) {
     try {
-      await taskLog.recordWorkerError(row.task_id, STUCK_REASON);
-      await deleteSessionBranchSafely(row.task_id);
+      await taskLog.recordWorkerError(taskId, STUCK_REASON);
+      await deleteSessionBranchSafely(taskId);
       failed++;
     } catch (err) {
-      console.warn("[reaper] failed to mark %s FAILED: %s", row.task_id, (err as Error).message);
+      console.warn("[reaper] failed to mark %s FAILED: %s", taskId, (err as Error).message);
     }
   }
 

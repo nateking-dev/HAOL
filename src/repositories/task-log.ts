@@ -217,31 +217,40 @@ export async function markCompleted(taskId: string, responseContent: string | nu
   );
 }
 
-export async function markFailed(taskId: string): Promise<void> {
+export async function markFailed(taskId: string, errorMessage?: string | null): Promise<void> {
   const pool = getPool();
   await pool.query(
     `UPDATE task_log
        SET status = 'FAILED',
+           worker_error = COALESCE(?, worker_error),
            worker_finished_at = CURRENT_TIMESTAMP
      WHERE task_id = ?`,
-    [taskId],
+    [errorMessage ? errorMessage.slice(0, 65535) : null, taskId],
   );
+}
+
+interface StaleTaskRow extends RowDataPacket {
+  task_id: string;
 }
 
 /**
  * Reaper query: find rows that have been sitting in non-terminal in-flight
  * states longer than maxAgeSeconds. QUEUED is excluded — it's handled
  * separately by findQueued() since it's safe to retry.
+ *
+ * Returns only task_ids — the reaper does not need prompt/metadata/etc.
+ * for these rows (it just marks them FAILED + deletes the session branch),
+ * and SELECT * would pull the LONGTEXT prompt for every stale row.
  */
-export async function findStale(maxAgeSeconds: number): Promise<TaskLogRecord[]> {
-  const rows = await query<TaskLogRow[]>(
-    `SELECT * FROM task_log
+export async function findStale(maxAgeSeconds: number): Promise<string[]> {
+  const rows = await query<StaleTaskRow[]>(
+    `SELECT task_id FROM task_log
        WHERE status IN ('RECEIVED','CLASSIFIED','DISPATCHED')
          AND created_at < (NOW() - INTERVAL ? SECOND)
        ORDER BY created_at ASC`,
     [maxAgeSeconds],
   );
-  return rows.map(parseRow);
+  return rows.map((r) => r.task_id);
 }
 
 /**

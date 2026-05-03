@@ -23,6 +23,14 @@ tasks.post("/tasks", async (c) => {
     throw new ValidationError(parsed.error.message);
   }
 
+  // Backpressure: refuse intake before writing a QUEUED row when the
+  // worker queue is saturated. Returning 429 lets the caller back off
+  // instead of silently piling up rows the reaper has to clean later.
+  if (!worker.canAccept()) {
+    c.header("Retry-After", "5");
+    return c.json({ error: "task queue full, retry shortly" }, 503);
+  }
+
   const taskId = uuidv7();
   const promptHash = sha256(parsed.data.prompt);
 
@@ -32,7 +40,13 @@ tasks.post("/tasks", async (c) => {
     constraints: parsed.data.constraints as Record<string, unknown> | undefined,
     expected_format: parsed.data.expected_format as Record<string, unknown> | undefined,
   });
-  worker.enqueue(taskId, parsed.data);
+  const enqueueResult = worker.enqueue(taskId, parsed.data);
+  if (enqueueResult !== "ok") {
+    // Lost the race against another concurrent intake or shutdown — leave
+    // the row QUEUED for the reaper rather than orphaning the caller.
+    c.header("Retry-After", "5");
+    return c.json({ error: "task queue unavailable, retry shortly" }, 503);
+  }
 
   c.header("Location", `/tasks/${taskId}`);
   c.header("Retry-After", "1");

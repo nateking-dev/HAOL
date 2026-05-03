@@ -189,7 +189,10 @@ export async function routeTask(
       await taskLog.markCompleted(taskId, execResult.response_content);
       status = "COMPLETED";
     } else {
-      await taskLog.markFailed(taskId);
+      // Surface the underlying execution error_detail to worker_error so a
+      // poller hitting GET /tasks/:id can see the failure cause without
+      // having to dig into the executions array.
+      await taskLog.markFailed(taskId, execResult.error_detail);
       status = "FAILED";
     }
 
@@ -246,10 +249,12 @@ export async function routeTask(
         : undefined,
     };
   } catch (err) {
-    // On any error, mark as failed and still commit
+    // On any unhandled error (classify failure, no agents, DB outage),
+    // surface the message to worker_error so callers polling GET /tasks/:id
+    // can distinguish this from a worker-level crash.
     if (taskId) {
       try {
-        await taskLog.markFailed(taskId);
+        await taskLog.markFailed(taskId, (err as Error).message);
       } catch {
         // best-effort status update
       }
