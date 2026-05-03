@@ -23,6 +23,12 @@ interface Job {
 }
 
 const queue: Job[] = [];
+// Tracks task IDs that are queued or in-flight in *this* process. The DB
+// claimQueued gate is the cross-process source of truth (it protects against
+// the reaper racing a live worker), but in-process duplicates need to be
+// caught here — we cannot rely on Dolt's isolation to serialize two near-
+// simultaneous UPDATE...WHERE status='QUEUED' statements on the same row.
+const tracked = new Set<string>();
 let inflight = 0;
 let started = false;
 let stopping = false;
@@ -36,6 +42,8 @@ function workerConcurrency(): number {
 }
 
 export function enqueue(taskId: string, input: RouterTaskInput): void {
+  if (tracked.has(taskId)) return; // duplicate — already queued or running
+  tracked.add(taskId);
   queue.push({ taskId, input });
   // Kick the loop on next tick so callers (HTTP handler) can return first.
   setImmediate(pump);
@@ -52,6 +60,7 @@ function pump(): void {
     inflight++;
     runJob(job).finally(() => {
       inflight--;
+      tracked.delete(job.taskId);
       if (queue.length > 0) {
         setImmediate(pump);
       } else {
@@ -139,6 +148,7 @@ export function inspect(): { queued: number; inflight: number } {
 /** Test reset — clears in-memory state without touching the DB. */
 export function _resetForTests(): void {
   queue.length = 0;
+  tracked.clear();
   inflight = 0;
   started = false;
   stopping = false;
