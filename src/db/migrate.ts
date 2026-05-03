@@ -56,6 +56,17 @@ export async function runMigrations(): Promise<string[]> {
 
   const applied = await loadAppliedRows();
 
+  // Warn on tracked files that have disappeared from disk. Operators may
+  // intentionally delete archived migrations (so warn rather than throw),
+  // but a silent accidental deletion would hide the fact that part of the
+  // applied schema no longer has a source-of-truth file.
+  const onDisk = new Set(files);
+  for (const recorded of applied.keys()) {
+    if (!onDisk.has(recorded)) {
+      console.warn("[migrate] applied migration %s no longer exists on disk", recorded);
+    }
+  }
+
   // One-time backfill: if tracking is empty but the schema is already
   // populated, this DB pre-dates the tracking table. Stamp every current
   // file as applied so we don't re-run non-idempotent ALTERs (e.g. 011's
@@ -99,6 +110,14 @@ export async function runMigrations(): Promise<string[]> {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
+    // Residual atomicity gap: DDL auto-commits in MySQL/Dolt, so a crash
+    // between the last statement here and the tracking INSERT below leaves
+    // the schema mutated but unrecorded. The next run will treat this file
+    // as new and re-execute it, which fails loudly (e.g. "Duplicate column"
+    // on ALTER TABLE ADD COLUMN) — the operator must then either revert
+    // the schema change or manually INSERT the tracking row. Acceptable
+    // because the failure is loud, not silent, and current migrations are
+    // DDL-only or use idempotent INSERT IGNORE / ON DUPLICATE KEY UPDATE.
     for (const statement of statements) {
       await pool.query(statement);
     }
