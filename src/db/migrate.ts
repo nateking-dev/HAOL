@@ -1,4 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../config.js";
@@ -8,35 +9,127 @@ import { doltCommit } from "./dolt.js";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, "migrations");
 
+const TRACKING_DDL = `
+  CREATE TABLE IF NOT EXISTS migrations_applied (
+    filename VARCHAR(255) NOT NULL PRIMARY KEY,
+    sha256 CHAR(64) NOT NULL,
+    applied_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+  )
+`;
+
+interface AppliedRow {
+  filename: string;
+  sha256: string;
+}
+
+export function sha256(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+async function loadAppliedRows(): Promise<Map<string, string>> {
+  const pool = getPool();
+  const [rows] = (await pool.query("SELECT filename, sha256 FROM migrations_applied")) as [
+    AppliedRow[],
+    unknown,
+  ];
+  const map = new Map<string, string>();
+  for (const row of rows) map.set(row.filename, row.sha256);
+  return map;
+}
+
+async function legacySchemaExists(): Promise<boolean> {
+  const pool = getPool();
+  // agent_registry is created by 001_create_agent_registry.sql — its presence
+  // signals that this DB was already migrated before tracking was introduced.
+  const [rows] = (await pool.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agent_registry' LIMIT 1`,
+  )) as [unknown[], unknown];
+  return rows.length > 0;
+}
+
 export async function runMigrations(): Promise<string[]> {
   const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith(".sql")).sort();
-
   const pool = getPool();
-  const applied: string[] = [];
+
+  await pool.query(TRACKING_DDL);
+
+  const applied = await loadAppliedRows();
+
+  // Warn on tracked files that have disappeared from disk. Operators may
+  // intentionally delete archived migrations (so warn rather than throw),
+  // but a silent accidental deletion would hide the fact that part of the
+  // applied schema no longer has a source-of-truth file.
+  const onDisk = new Set(files);
+  for (const recorded of applied.keys()) {
+    if (!onDisk.has(recorded)) {
+      console.warn("[migrate] applied migration %s no longer exists on disk", recorded);
+    }
+  }
+
+  // One-time backfill: if tracking is empty but the schema is already
+  // populated, this DB pre-dates the tracking table. Stamp every current
+  // file as applied so we don't re-run non-idempotent ALTERs (e.g. 011's
+  // ADD COLUMN without IF NOT EXISTS) and trip on duplicate-column errors.
+  //
+  // The insert is a single multi-row statement so a crash mid-backfill
+  // can't leave tracking partially populated — partial rows would defeat
+  // the `applied.size === 0` guard on the next run, causing un-stamped
+  // files to be treated as "new" and re-executed.
+  if (applied.size === 0 && (await legacySchemaExists())) {
+    console.log("[migrate] existing schema detected — backfilling migrations_applied");
+    const rows: [string, string][] = [];
+    for (const file of files) {
+      const sql = await readFile(join(MIGRATIONS_DIR, file), "utf8");
+      rows.push([file, sha256(sql)]);
+    }
+    await pool.query("INSERT INTO migrations_applied (filename, sha256) VALUES ?", [rows]);
+    return [];
+  }
+
+  const ran: string[] = [];
 
   for (const file of files) {
-    const sql = await readFile(join(MIGRATIONS_DIR, file), "utf-8");
+    const sql = await readFile(join(MIGRATIONS_DIR, file), "utf8");
+    const hash = sha256(sql);
+    const recordedHash = applied.get(file);
+
+    if (recordedHash) {
+      if (recordedHash !== hash) {
+        throw new Error(
+          `Migration ${file} has drifted: applied SHA ${recordedHash.slice(0, 12)}… ` +
+            `does not match disk SHA ${hash.slice(0, 12)}…. ` +
+            `Revert the file or write a new migration instead of editing applied SQL.`,
+        );
+      }
+      continue;
+    }
+
     const statements = sql
       .split(";")
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
+    // Residual atomicity gap: DDL auto-commits in MySQL/Dolt, so a crash
+    // between the last statement here and the tracking INSERT below leaves
+    // the schema mutated but unrecorded. The next run will treat this file
+    // as new and re-execute it, which fails loudly (e.g. "Duplicate column"
+    // on ALTER TABLE ADD COLUMN) — the operator must then either revert
+    // the schema change or manually INSERT the tracking row. Acceptable
+    // because the failure is loud, not silent, and current migrations are
+    // DDL-only or use idempotent INSERT IGNORE / ON DUPLICATE KEY UPDATE.
     for (const statement of statements) {
-      try {
-        await pool.query(statement);
-      } catch (err: unknown) {
-        const msg = (err as { sqlMessage?: string }).sqlMessage ?? "";
-        // Skip "already exists" / "duplicate" errors for idempotent reruns
-        if (msg.includes("already exists") || msg.includes("Duplicate")) {
-          continue;
-        }
-        throw err;
-      }
+      await pool.query(statement);
     }
-    applied.push(file);
+
+    await pool.query("INSERT INTO migrations_applied (filename, sha256) VALUES (?, ?)", [
+      file,
+      hash,
+    ]);
+    ran.push(file);
   }
 
-  return applied;
+  return ran;
 }
 
 // CLI entry point
@@ -49,9 +142,13 @@ async function main() {
   }
 
   console.log("Running migrations...");
-  const applied = await runMigrations();
-  for (const file of applied) {
-    console.log("  applied: %s", file);
+  const ran = await runMigrations();
+  if (ran.length === 0) {
+    console.log("  no new migrations to apply.");
+  } else {
+    for (const file of ran) {
+      console.log("  applied: %s", file);
+    }
   }
 
   try {
