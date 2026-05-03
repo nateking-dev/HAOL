@@ -183,13 +183,13 @@ export async function routeTask(
       }
     }
 
-    // 7. Update final status (and persist response so async pollers can read it)
+    // 7. Atomic terminal-state write — async pollers must never see
+    // status=COMPLETED with response_content=null between two writes.
     if (execResult.outcome === "SUCCESS") {
-      await taskLog.updateResponseContent(taskId, execResult.response_content);
-      await taskLog.updateStatus(taskId, "COMPLETED");
+      await taskLog.markCompleted(taskId, execResult.response_content);
       status = "COMPLETED";
     } else {
-      await taskLog.updateStatus(taskId, "FAILED");
+      await taskLog.markFailed(taskId);
       status = "FAILED";
     }
 
@@ -249,7 +249,7 @@ export async function routeTask(
     // On any error, mark as failed and still commit
     if (taskId) {
       try {
-        await taskLog.updateStatus(taskId, "FAILED");
+        await taskLog.markFailed(taskId);
       } catch {
         // best-effort status update
       }

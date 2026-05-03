@@ -29,10 +29,33 @@ async function pollTask(baseUrl: string, taskId: string, timeoutMs: number): Pro
   let lastBody: TaskBody = {};
   let backoffMs = 250;
   while (Date.now() < deadline) {
-    const res = await fetch(`${baseUrl}/tasks/${taskId}`);
-    lastBody = (await res.json()) as TaskBody;
-    if (lastBody.done === true) return lastBody;
-    if (lastBody.status === "COMPLETED" || lastBody.status === "FAILED") return lastBody;
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/tasks/${taskId}`);
+    } catch (err) {
+      // Network error — surface immediately rather than spinning to deadline.
+      return { task_id: taskId, error: `poll request failed: ${(err as Error).message}` };
+    }
+    // Permanent failures: 4xx (incl. 404 if the row was reaped) and any
+    // non-{503,429} 5xx — break out instead of looping silently.
+    if (!res.ok && res.status !== 503 && res.status !== 429) {
+      let body: TaskBody = {};
+      try {
+        body = (await res.json()) as TaskBody;
+      } catch {
+        // non-JSON body — fall through with synthesized error
+      }
+      return {
+        ...body,
+        task_id: body.task_id ?? taskId,
+        error: body.error ?? `poll failed with HTTP ${res.status}`,
+      };
+    }
+    if (res.ok) {
+      lastBody = (await res.json()) as TaskBody;
+      if (lastBody.done === true) return lastBody;
+      if (lastBody.status === "COMPLETED" || lastBody.status === "FAILED") return lastBody;
+    }
     await new Promise((r) => setTimeout(r, backoffMs));
     backoffMs = Math.min(backoffMs * 1.5, 2_000);
   }

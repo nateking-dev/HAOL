@@ -10,6 +10,10 @@ import type { Hono } from "hono";
 let doltAvailable = false;
 let app: Hono;
 const originalFetch = globalThis.fetch;
+// Explicit prefix on every prompt this test suite POSTs so afterAll cleanup
+// can match exactly without the ambiguity of broad LIKE patterns like
+// '%review%' which would collide with prompts seeded by other test files.
+const TEST_PROMPT_PREFIX = "[tasks-api.test] ";
 
 function mockFetchSuccess(content: string = "Mock response") {
   globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
@@ -128,10 +132,9 @@ afterAll(async () => {
     await pool.query("DELETE FROM routing_log WHERE input_text LIKE '%trace test%'");
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'api-task-%'");
     await pool.query("DELETE FROM task_log WHERE selected_agent_id LIKE 'api-task-%'");
-    // Best-effort cleanup of QUEUED rows we may have left without a selected_agent_id
-    await pool.query("DELETE FROM task_log WHERE prompt LIKE '%trace test%'");
-    await pool.query("DELETE FROM task_log WHERE prompt LIKE '%review%'");
-    await pool.query("DELETE FROM task_log WHERE prompt LIKE '%testing%'");
+    // Cleanup any QUEUED/orphan rows from this suite that never reached
+    // selected_agent_id assignment.
+    await pool.query("DELETE FROM task_log WHERE prompt LIKE ?", [`${TEST_PROMPT_PREFIX}%`]);
     // Re-enable seed agents
     await pool.query(
       `UPDATE agent_registry SET status = 'active'
@@ -150,7 +153,7 @@ describe("POST /tasks", () => {
     const res = await app.request("/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "Summarize this text about testing" }),
+      body: JSON.stringify({ prompt: `${TEST_PROMPT_PREFIX}summarize text about testing` }),
     });
 
     expect(res.status).toBe(202);
@@ -189,7 +192,7 @@ describe("GET /tasks/:id", () => {
     const createRes = await app.request("/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "Classify this review" }),
+      body: JSON.stringify({ prompt: `${TEST_PROMPT_PREFIX}classify this review` }),
     });
     const created = await createRes.json();
 
@@ -218,7 +221,9 @@ describe("GET /tasks/:id/trace", () => {
     const createRes = await app.request("/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "Summarize this article for trace test" }),
+      body: JSON.stringify({
+        prompt: `${TEST_PROMPT_PREFIX}summarize this article for trace test`,
+      }),
     });
     const created = await createRes.json();
 

@@ -199,22 +199,44 @@ export async function recordWorkerError(taskId: string, message: string): Promis
   );
 }
 
-export async function recordWorkerFinished(taskId: string): Promise<void> {
+/**
+ * Atomic terminal-state writes for the async pipeline. Combining
+ * status/response_content/finished-stamp into a single UPDATE prevents a
+ * polling client from observing `done: true` with `response_content` still
+ * null between two separate writes.
+ */
+export async function markCompleted(taskId: string, responseContent: string | null): Promise<void> {
   const pool = getPool();
-  await pool.query(`UPDATE task_log SET worker_finished_at = CURRENT_TIMESTAMP WHERE task_id = ?`, [
-    taskId,
-  ]);
+  await pool.query(
+    `UPDATE task_log
+       SET status = 'COMPLETED',
+           response_content = ?,
+           worker_finished_at = CURRENT_TIMESTAMP
+     WHERE task_id = ?`,
+    [responseContent, taskId],
+  );
+}
+
+export async function markFailed(taskId: string): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `UPDATE task_log
+       SET status = 'FAILED',
+           worker_finished_at = CURRENT_TIMESTAMP
+     WHERE task_id = ?`,
+    [taskId],
+  );
 }
 
 /**
- * Reaper query: find rows that have been sitting in non-terminal states
- * longer than maxAgeSeconds. Used at startup and periodically to recover
- * from worker crashes.
+ * Reaper query: find rows that have been sitting in non-terminal in-flight
+ * states longer than maxAgeSeconds. QUEUED is excluded — it's handled
+ * separately by findQueued() since it's safe to retry.
  */
 export async function findStale(maxAgeSeconds: number): Promise<TaskLogRecord[]> {
   const rows = await query<TaskLogRow[]>(
     `SELECT * FROM task_log
-       WHERE status IN ('QUEUED','RECEIVED','CLASSIFIED','DISPATCHED')
+       WHERE status IN ('RECEIVED','CLASSIFIED','DISPATCHED')
          AND created_at < (NOW() - INTERVAL ? SECOND)
        ORDER BY created_at ASC`,
     [maxAgeSeconds],
@@ -267,29 +289,16 @@ export async function updateSelection(
   );
 }
 
+/**
+ * Generic status writer. Does NOT stamp worker_finished_at — terminal
+ * transitions in the async pipeline must use markCompleted/markFailed so
+ * status, response, and finish-stamp land in a single UPDATE. This keeps
+ * worker_finished_at meaningful: a row with worker_started_at IS NULL but
+ * worker_finished_at IS NOT NULL would be confusing in observability dashboards.
+ */
 export async function updateStatus(taskId: string, status: TaskStatus): Promise<void> {
   const pool = getPool();
-  // Stamp worker_finished_at when reaching a terminal state so async pollers
-  // see status and finish-time mutate atomically.
-  if (status === "COMPLETED" || status === "FAILED") {
-    await pool.query(
-      `UPDATE task_log SET status = ?, worker_finished_at = CURRENT_TIMESTAMP WHERE task_id = ?`,
-      [status, taskId],
-    );
-  } else {
-    await pool.query(`UPDATE task_log SET status = ? WHERE task_id = ?`, [status, taskId]);
-  }
-}
-
-export async function updateResponseContent(
-  taskId: string,
-  responseContent: string | null,
-): Promise<void> {
-  const pool = getPool();
-  await pool.query(`UPDATE task_log SET response_content = ? WHERE task_id = ?`, [
-    responseContent,
-    taskId,
-  ]);
+  await pool.query(`UPDATE task_log SET status = ? WHERE task_id = ?`, [status, taskId]);
 }
 
 export async function findById(taskId: string): Promise<TaskLogRecord | null> {
