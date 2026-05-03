@@ -8,6 +8,9 @@ interface TaskLogRow extends RowDataPacket {
   created_at: string;
   status: string;
   prompt_hash: string | null;
+  prompt: string | null;
+  input_metadata: string | Record<string, unknown> | null;
+  input_constraints: string | Record<string, unknown> | null;
   complexity_tier: number | null;
   required_capabilities: string | string[] | null;
   cost_ceiling_usd: string | number | null;
@@ -16,6 +19,10 @@ interface TaskLogRow extends RowDataPacket {
   routing_confidence: number | null;
   routing_layer: string | null;
   expected_format: string | Record<string, unknown> | null;
+  worker_started_at: string | null;
+  worker_finished_at: string | null;
+  worker_error: string | null;
+  response_content: string | null;
 }
 
 export interface TaskLogRecord {
@@ -23,6 +30,9 @@ export interface TaskLogRecord {
   created_at: string;
   status: TaskStatus;
   prompt_hash: string | null;
+  prompt: string | null;
+  input_metadata: Record<string, unknown> | null;
+  input_constraints: Record<string, unknown> | null;
   complexity_tier: number | null;
   required_capabilities: string[] | null;
   cost_ceiling_usd: number | null;
@@ -31,6 +41,10 @@ export interface TaskLogRecord {
   routing_confidence: number | null;
   routing_layer: string | null;
   expected_format: Record<string, unknown> | null;
+  worker_started_at: string | null;
+  worker_finished_at: string | null;
+  worker_error: string | null;
+  response_content: string | null;
 }
 
 function parseRow(row: TaskLogRow): TaskLogRecord {
@@ -73,11 +87,26 @@ function parseRow(row: TaskLogRow): TaskLogRecord {
     }
   }
 
+  const parseJsonColumn = (
+    val: string | Record<string, unknown> | null,
+  ): Record<string, unknown> | null => {
+    if (val == null) return null;
+    if (typeof val !== "string") return val;
+    try {
+      return JSON.parse(val);
+    } catch {
+      return null;
+    }
+  };
+
   return {
     task_id: row.task_id,
     created_at: row.created_at,
     status: row.status as TaskStatus,
     prompt_hash: row.prompt_hash,
+    prompt: row.prompt,
+    input_metadata: parseJsonColumn(row.input_metadata),
+    input_constraints: parseJsonColumn(row.input_constraints),
     complexity_tier: row.complexity_tier,
     required_capabilities: capabilities,
     cost_ceiling_usd:
@@ -91,6 +120,10 @@ function parseRow(row: TaskLogRow): TaskLogRecord {
     routing_confidence: row.routing_confidence,
     routing_layer: row.routing_layer,
     expected_format: expectedFormat,
+    worker_started_at: row.worker_started_at,
+    worker_finished_at: row.worker_finished_at,
+    worker_error: row.worker_error,
+    response_content: row.response_content,
   };
 }
 
@@ -100,6 +133,135 @@ export async function create(taskId: string, promptHash: string): Promise<void> 
     `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'RECEIVED', ?)`,
     [taskId, promptHash],
   );
+}
+
+export interface QueuedTaskInput {
+  prompt: string;
+  metadata?: Record<string, unknown>;
+  constraints?: Record<string, unknown>;
+  expected_format?: Record<string, unknown>;
+}
+
+/**
+ * Async-pipeline intake: insert a row in QUEUED status with the full input
+ * stashed so a worker (or the reaper, after a crash) can run the pipeline
+ * later. Distinct from create() so the legacy synchronous CLI path is
+ * untouched.
+ */
+export async function createQueued(
+  taskId: string,
+  promptHash: string,
+  input: QueuedTaskInput,
+): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `INSERT INTO task_log
+       (task_id, status, prompt_hash, prompt, input_metadata, input_constraints, expected_format)
+     VALUES (?, 'QUEUED', ?, ?, ?, ?, ?)`,
+    [
+      taskId,
+      promptHash,
+      input.prompt,
+      input.metadata ? JSON.stringify(input.metadata) : null,
+      input.constraints ? JSON.stringify(input.constraints) : null,
+      input.expected_format ? JSON.stringify(input.expected_format) : null,
+    ],
+  );
+}
+
+/**
+ * Worker pickup: transition QUEUED → RECEIVED and stamp worker_started_at.
+ * Conditional on QUEUED so a duplicate enqueue (e.g. reaper racing a live
+ * worker) cannot kick off a second execution. Returns true if this caller
+ * acquired the row.
+ */
+export async function claimQueued(taskId: string): Promise<boolean> {
+  const pool = getPool();
+  const [result] = await pool.query(
+    `UPDATE task_log
+       SET status = 'RECEIVED',
+           worker_started_at = CURRENT_TIMESTAMP
+     WHERE task_id = ? AND status = 'QUEUED'`,
+    [taskId],
+  );
+  return (result as { affectedRows: number }).affectedRows === 1;
+}
+
+export async function recordWorkerError(taskId: string, message: string): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `UPDATE task_log
+       SET status = 'FAILED',
+           worker_error = ?,
+           worker_finished_at = CURRENT_TIMESTAMP
+     WHERE task_id = ?`,
+    [message.slice(0, 65535), taskId],
+  );
+}
+
+/**
+ * Atomic terminal-state writes for the async pipeline. Combining
+ * status/response_content/finished-stamp into a single UPDATE prevents a
+ * polling client from observing `done: true` with `response_content` still
+ * null between two separate writes.
+ */
+export async function markCompleted(taskId: string, responseContent: string | null): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `UPDATE task_log
+       SET status = 'COMPLETED',
+           response_content = ?,
+           worker_finished_at = CURRENT_TIMESTAMP
+     WHERE task_id = ?`,
+    [responseContent, taskId],
+  );
+}
+
+export async function markFailed(taskId: string, errorMessage?: string | null): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `UPDATE task_log
+       SET status = 'FAILED',
+           worker_error = COALESCE(?, worker_error),
+           worker_finished_at = CURRENT_TIMESTAMP
+     WHERE task_id = ?`,
+    [errorMessage ? errorMessage.slice(0, 65535) : null, taskId],
+  );
+}
+
+interface StaleTaskRow extends RowDataPacket {
+  task_id: string;
+}
+
+/**
+ * Reaper query: find rows that have been sitting in non-terminal in-flight
+ * states longer than maxAgeSeconds. QUEUED is excluded — it's handled
+ * separately by findQueued() since it's safe to retry.
+ *
+ * Returns only task_ids — the reaper does not need prompt/metadata/etc.
+ * for these rows (it just marks them FAILED + deletes the session branch),
+ * and SELECT * would pull the LONGTEXT prompt for every stale row.
+ */
+export async function findStale(maxAgeSeconds: number): Promise<string[]> {
+  const rows = await query<StaleTaskRow[]>(
+    `SELECT task_id FROM task_log
+       WHERE status IN ('RECEIVED','CLASSIFIED','DISPATCHED')
+         AND created_at < (NOW() - INTERVAL ? SECOND)
+       ORDER BY created_at ASC`,
+    [maxAgeSeconds],
+  );
+  return rows.map((r) => r.task_id);
+}
+
+/**
+ * Returns all currently-QUEUED rows. Used at startup to re-enqueue tasks
+ * that arrived while the worker was down.
+ */
+export async function findQueued(): Promise<TaskLogRecord[]> {
+  const rows = await query<TaskLogRow[]>(
+    `SELECT * FROM task_log WHERE status = 'QUEUED' ORDER BY created_at ASC`,
+  );
+  return rows.map(parseRow);
 }
 
 export async function updateClassification(
@@ -136,6 +298,13 @@ export async function updateSelection(
   );
 }
 
+/**
+ * Generic status writer. Does NOT stamp worker_finished_at — terminal
+ * transitions in the async pipeline must use markCompleted/markFailed so
+ * status, response, and finish-stamp land in a single UPDATE. This keeps
+ * worker_finished_at meaningful: a row with worker_started_at IS NULL but
+ * worker_finished_at IS NOT NULL would be confusing in observability dashboards.
+ */
 export async function updateStatus(taskId: string, status: TaskStatus): Promise<void> {
   const pool = getPool();
   await pool.query(`UPDATE task_log SET status = ? WHERE task_id = ?`, [status, taskId]);

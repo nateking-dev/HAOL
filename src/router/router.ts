@@ -35,10 +35,24 @@ async function routerCommit(message: string): Promise<void> {
   await commitSafely(message, "haol-router <haol@system>", true);
 }
 
-export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
-  const parsed = RouterTaskInputSchema.parse(input);
+export interface RouteTaskOptions {
+  /**
+   * Pre-allocated task_id from the async intake path. When provided, the
+   * caller has already inserted a row in task_log (typically QUEUED) and
+   * routeTask will reuse this id throughout — including in classifier
+   * decision logs — and skip the INSERT.
+   */
+  taskId?: string;
+}
 
-  let taskId: string | null = null;
+export async function routeTask(
+  input: RouterTaskInput,
+  options: RouteTaskOptions = {},
+): Promise<TaskResult> {
+  const parsed = RouterTaskInputSchema.parse(input);
+  const preAllocated = options.taskId;
+
+  let taskId: string | null = preAllocated ?? null;
   let status: TaskResult["status"] = "RECEIVED";
   let cascadeTrace: CascadeTrace | undefined;
   let selectionResult: SelectionResult | undefined;
@@ -47,21 +61,30 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     // 1. Classify — try cascade router, fall back to old classifier
     let classification: TaskClassification;
     try {
-      classification = await classifyCascade({
-        prompt: parsed.prompt,
-        metadata: parsed.metadata,
-      });
+      classification = await classifyCascade(
+        {
+          prompt: parsed.prompt,
+          metadata: parsed.metadata,
+        },
+        preAllocated,
+      );
     } catch {
-      classification = classify({
-        prompt: parsed.prompt,
-        metadata: parsed.metadata,
-      });
+      classification = classify(
+        {
+          prompt: parsed.prompt,
+          metadata: parsed.metadata,
+        },
+        preAllocated,
+      );
     }
     taskId = classification.task_id;
     cascadeTrace = classification.cascade_trace;
 
-    // 2. Intake — write to task_log
-    await taskLog.create(taskId, classification.prompt_hash);
+    // 2. Intake — write to task_log unless caller pre-inserted the row
+    // (async path inserts in QUEUED status before the worker picks it up).
+    if (!preAllocated) {
+      await taskLog.create(taskId, classification.prompt_hash);
+    }
     status = "RECEIVED";
 
     // Store routing confidence on task_log (after create so the row exists)
@@ -160,12 +183,16 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       }
     }
 
-    // 7. Update final status
+    // 7. Atomic terminal-state write — async pollers must never see
+    // status=COMPLETED with response_content=null between two writes.
     if (execResult.outcome === "SUCCESS") {
-      await taskLog.updateStatus(taskId, "COMPLETED");
+      await taskLog.markCompleted(taskId, execResult.response_content);
       status = "COMPLETED";
     } else {
-      await taskLog.updateStatus(taskId, "FAILED");
+      // Surface the underlying execution error_detail to worker_error so a
+      // poller hitting GET /tasks/:id can see the failure cause without
+      // having to dig into the executions array.
+      await taskLog.markFailed(taskId, execResult.error_detail);
       status = "FAILED";
     }
 
@@ -222,10 +249,12 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
         : undefined,
     };
   } catch (err) {
-    // On any error, mark as failed and still commit
+    // On any unhandled error (classify failure, no agents, DB outage),
+    // surface the message to worker_error so callers polling GET /tasks/:id
+    // can distinguish this from a worker-level crash.
     if (taskId) {
       try {
-        await taskLog.updateStatus(taskId, "FAILED");
+        await taskLog.markFailed(taskId, (err as Error).message);
       } catch {
         // best-effort status update
       }

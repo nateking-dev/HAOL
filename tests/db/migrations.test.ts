@@ -39,16 +39,16 @@ describe("migrations", () => {
   it("applies all migration files without error", async ({ skip }) => {
     if (!doltAvailable) skip();
     const applied = await runMigrations();
-    expect(applied.length).toBe(18);
+    expect(applied.length).toBe(20);
     expect(applied[0]).toBe("001_create_agent_registry.sql");
-    expect(applied[17]).toBe("018_tighten_routing_rules.sql");
+    expect(applied[19]).toBe("020_fix_signal_value_nullable.sql");
   });
 
   it("is idempotent — running twice produces no errors", async ({ skip }) => {
     if (!doltAvailable) skip();
     // Second run should not throw
     const applied = await runMigrations();
-    expect(applied.length).toBe(18);
+    expect(applied.length).toBe(20);
   });
 
   it("creates expected tables", async ({ skip }) => {
@@ -87,11 +87,33 @@ describe("migrations", () => {
     const rows = await query<any>("DESCRIBE task_log");
     const statusRow = rows.find((r: any) => r.Field === "status");
     expect(statusRow).toBeDefined();
+    expect(statusRow.Type).toContain("QUEUED");
     expect(statusRow.Type).toContain("RECEIVED");
     expect(statusRow.Type).toContain("CLASSIFIED");
     expect(statusRow.Type).toContain("DISPATCHED");
     expect(statusRow.Type).toContain("COMPLETED");
     expect(statusRow.Type).toContain("FAILED");
+  });
+
+  it("migration 019 adds async-pipeline columns and index to task_log", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const rows = await query<any>("DESCRIBE task_log");
+    const columns = rows.map((r: any) => r.Field);
+    for (const col of [
+      "prompt",
+      "input_metadata",
+      "input_constraints",
+      "worker_started_at",
+      "worker_finished_at",
+      "worker_error",
+      "response_content",
+    ]) {
+      expect(columns, `task_log column ${col}`).toContain(col);
+    }
+    const idx = await query<any>("SHOW INDEX FROM task_log WHERE Key_name = ?", [
+      "idx_task_log_status_created",
+    ]);
+    expect(idx.length).toBeGreaterThanOrEqual(1);
   });
 
   it("routing_policy has correct columns", async ({ skip }) => {

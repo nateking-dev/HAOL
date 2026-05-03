@@ -161,7 +161,7 @@ export async function findSuccessfulEscalations(
      WHERE rl.routing_layer = 'escalation'
        AND rl.confidence >= ?
        AND rl.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
-       AND t.status = 'completed'
+       AND t.status = 'COMPLETED'
        AND EXISTS (
          SELECT 1 FROM task_outcome o
          WHERE o.task_id = t.task_id
@@ -196,7 +196,7 @@ export async function findSuccessfulFallbacks(hours: number): Promise<FallbackSu
      JOIN task_log t ON t.task_id = rl.request_id
      WHERE rl.routing_layer = 'fallback'
        AND rl.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
-       AND t.status = 'completed'
+       AND t.status = 'COMPLETED'
        AND EXISTS (
          SELECT 1 FROM task_outcome o
          WHERE o.task_id = t.task_id

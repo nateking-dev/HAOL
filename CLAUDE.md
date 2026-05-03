@@ -37,6 +37,8 @@ The system follows a pipeline pattern orchestrated by `src/router/router.ts`:
 
 Hono HTTP framework. Routes in `src/api/routes/`. Endpoints: `/health`, `/tasks`, `/agents`, `/observability/*`.
 
+`POST /tasks` is **asynchronous**: it validates the input, inserts a `task_log` row in `QUEUED` status, hands the job to the in-process worker (`src/services/task-worker.ts`), and returns `202 Accepted` with `{ task_id, status: "QUEUED", links.self }` plus a `Location` header. Clients poll `GET /tasks/:id` until `done: true`. The worker drains the queue with bounded concurrency (`WORKER_CONCURRENCY`); on crash, the reaper (`src/services/task-reaper.ts`) re-enqueues stranded `QUEUED` rows and marks rows stuck in `RECEIVED/CLASSIFIED/DISPATCHED` past `WORKER_RECOVERY_AGE_MS` as `FAILED` with `worker_error="worker_crashed"`.
+
 ### CLI
 
 Entry point: `src/bin/haol.ts` → `src/cli/index.ts`. Commands: `task`, `status`, `agents`, `history`, `stats`, `audit`.

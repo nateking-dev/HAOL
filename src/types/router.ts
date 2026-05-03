@@ -3,7 +3,14 @@ import { FormatSpec } from "./outcome.js";
 import { CascadeTraceSchema } from "../cascade-router/types.js";
 import { ScoredCandidate } from "./selection.js";
 
-export const TaskStatus = z.enum(["RECEIVED", "CLASSIFIED", "DISPATCHED", "COMPLETED", "FAILED"]);
+export const TaskStatus = z.enum([
+  "QUEUED",
+  "RECEIVED",
+  "CLASSIFIED",
+  "DISPATCHED",
+  "COMPLETED",
+  "FAILED",
+]);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
 export const RouterTaskInput = z.object({

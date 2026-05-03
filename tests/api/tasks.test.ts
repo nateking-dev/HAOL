@@ -4,11 +4,16 @@ import { uuidv7 } from "../../src/types/task.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { createApp } from "../../src/api/app.js";
+import * as worker from "../../src/services/task-worker.js";
 import type { Hono } from "hono";
 
 let doltAvailable = false;
 let app: Hono;
 const originalFetch = globalThis.fetch;
+// Explicit prefix on every prompt this test suite POSTs so afterAll cleanup
+// can match exactly without the ambiguity of broad LIKE patterns like
+// '%review%' which would collide with prompts seeded by other test files.
+const TEST_PROMPT_PREFIX = "[tasks-api.test] ";
 
 function mockFetchSuccess(content: string = "Mock response") {
   globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
@@ -44,6 +49,29 @@ function mockFetchSuccess(content: string = "Mock response") {
       }),
     };
   }) as unknown as typeof fetch;
+}
+
+async function pollUntilDone(
+  taskId: string,
+  timeoutMs = 10_000,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const deadline = Date.now() + timeoutMs;
+  let lastBody: Record<string, unknown> = {};
+  let lastStatus = 0;
+  while (Date.now() < deadline) {
+    const res = await app.request(`/tasks/${taskId}`);
+    lastStatus = res.status;
+    lastBody = (await res.json()) as Record<string, unknown>;
+    if (lastBody.done === true) {
+      return { status: lastStatus, body: lastBody };
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(
+    `Task ${taskId} did not finish within ${timeoutMs}ms — last status=${
+      lastBody.status as string
+    }`,
+  );
 }
 
 beforeAll(async () => {
@@ -89,6 +117,7 @@ beforeAll(async () => {
     console.warn("Dolt not available — skipping tasks API tests");
   }
   app = createApp();
+  worker.start();
 });
 
 afterEach(() => {
@@ -96,11 +125,16 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+  await worker.stop(2_000);
+  worker._resetForTests();
   if (doltAvailable) {
     const pool = getPool();
     await pool.query("DELETE FROM routing_log WHERE input_text LIKE '%trace test%'");
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'api-task-%'");
     await pool.query("DELETE FROM task_log WHERE selected_agent_id LIKE 'api-task-%'");
+    // Cleanup any QUEUED/orphan rows from this suite that never reached
+    // selected_agent_id assignment.
+    await pool.query("DELETE FROM task_log WHERE prompt LIKE ?", [`${TEST_PROMPT_PREFIX}%`]);
     // Re-enable seed agents
     await pool.query(
       `UPDATE agent_registry SET status = 'active'
@@ -112,21 +146,29 @@ afterAll(async () => {
 });
 
 describe("POST /tasks", () => {
-  it("submits a task with valid prompt → 201", async ({ skip }) => {
+  it("returns 202 + task_id immediately (does not block on LLM)", async ({ skip }) => {
     if (!doltAvailable) skip();
     mockFetchSuccess("Summary result");
 
     const res = await app.request("/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "Summarize this text about testing" }),
+      body: JSON.stringify({ prompt: `${TEST_PROMPT_PREFIX}summarize text about testing` }),
     });
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
+    expect(res.headers.get("Location")).toMatch(/^\/tasks\/.+/);
+    expect(res.headers.get("Retry-After")).toBe("1");
+
     const body = await res.json();
     expect(body.task_id).toBeTruthy();
-    expect(body.status).toBe("COMPLETED");
-    expect(body.response_content).toBe("Summary result");
+    expect(body.status).toBe("QUEUED");
+    expect(body.links?.self).toBe(`/tasks/${body.task_id}`);
+
+    // Worker drains the queue and the task reaches COMPLETED.
+    const polled = await pollUntilDone(body.task_id);
+    expect(polled.body.status).toBe("COMPLETED");
+    expect(polled.body.response_content).toBe("Summary result");
   });
 
   it("rejects empty prompt → 400", async ({ skip }) => {
@@ -143,26 +185,24 @@ describe("POST /tasks", () => {
 });
 
 describe("GET /tasks/:id", () => {
-  it("returns task with current status", async ({ skip }) => {
+  it("returns task with current status (eventually COMPLETED)", async ({ skip }) => {
     if (!doltAvailable) skip();
     mockFetchSuccess("Done.");
 
-    // First create a task
     const createRes = await app.request("/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "Classify this review" }),
+      body: JSON.stringify({ prompt: `${TEST_PROMPT_PREFIX}classify this review` }),
     });
     const created = await createRes.json();
 
-    // Then fetch it
-    const res = await app.request(`/tasks/${created.task_id}`);
-    expect(res.status).toBe(200);
-
-    const body = await res.json();
-    expect(body.task_id).toBe(created.task_id);
-    expect(body.status).toBe("COMPLETED");
-    expect(body.executions).toBeTruthy();
+    const polled = await pollUntilDone(created.task_id);
+    expect(polled.status).toBe(200);
+    expect(polled.body.task_id).toBe(created.task_id);
+    expect(polled.body.status).toBe("COMPLETED");
+    expect(polled.body.done).toBe(true);
+    expect(polled.body.executions).toBeTruthy();
+    expect(polled.body.response_content).toBe("Done.");
   });
 
   it("returns 404 for non-existent task", async ({ skip }) => {
@@ -181,9 +221,14 @@ describe("GET /tasks/:id/trace", () => {
     const createRes = await app.request("/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "Summarize this article for trace test" }),
+      body: JSON.stringify({
+        prompt: `${TEST_PROMPT_PREFIX}summarize this article for trace test`,
+      }),
     });
     const created = await createRes.json();
+
+    // Wait for the worker to finish so the task_log row is in a stable state
+    await pollUntilDone(created.task_id);
 
     // Seed a routing_log entry with cascade_trace metadata for this task
     const cascadeTrace = {
