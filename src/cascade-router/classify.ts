@@ -50,9 +50,12 @@ async function getInstance(): Promise<CascadeRouter> {
   return instancePromise;
 }
 
-export async function classifyCascade(input: TaskInput): Promise<TaskClassification> {
+export async function classifyCascade(
+  input: TaskInput,
+  preAllocatedTaskId?: string,
+): Promise<TaskClassification> {
   const router = await getInstance();
-  return router.classify(input);
+  return router.classify(input, preAllocatedTaskId);
 }
 
 /** Reset the singleton (for testing) */

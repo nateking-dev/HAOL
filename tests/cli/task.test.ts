@@ -8,18 +8,47 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function mockTaskResponse(data: Record<string, unknown>, status = 201) {
+/**
+ * Mocks the async POST 202 → GET poll flow. POST returns 202 with a
+ * task_id; subsequent GETs return the completion payload (done=true).
+ */
+function mockAsyncFlow(completion: Record<string, unknown>, taskId = "abc-123") {
+  globalThis.fetch = vi
+    .fn()
+    .mockImplementation(async (url: string | URL, init?: RequestInit) => {
+      const u = typeof url === "string" ? url : url.toString();
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST" && u.endsWith("/tasks")) {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            task_id: taskId,
+            status: "QUEUED",
+            links: { self: `/tasks/${taskId}` },
+          }),
+        };
+      }
+      // GET poll
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ task_id: taskId, done: true, ...completion }),
+      };
+    }) as unknown as typeof fetch;
+}
+
+function mockPostError(status: number, body: Record<string, unknown>) {
   globalThis.fetch = vi.fn().mockResolvedValue({
     ok: status >= 200 && status < 300,
     status,
-    json: async () => data,
+    json: async () => body,
   }) as unknown as typeof fetch;
 }
 
 describe("task command", () => {
-  it("prints task_id and response in table format", async () => {
-    mockTaskResponse({
-      task_id: "abc-123",
+  it("polls after 202 and prints task_id and response in table format", async () => {
+    mockAsyncFlow({
       status: "COMPLETED",
       complexity_tier: 1,
       selected_agent_id: "haiku",
@@ -43,8 +72,7 @@ describe("task command", () => {
   });
 
   it("outputs valid JSON in json format", async () => {
-    const data = {
-      task_id: "abc-123",
+    mockAsyncFlow({
       status: "COMPLETED",
       complexity_tier: 1,
       selected_agent_id: "haiku",
@@ -52,8 +80,7 @@ describe("task command", () => {
       cost_usd: 0.001,
       latency_ms: 200,
       error: null,
-    };
-    mockTaskResponse(data);
+    });
 
     const output = await taskCommand({
       prompt: "Hello",
@@ -67,8 +94,7 @@ describe("task command", () => {
   });
 
   it("outputs minimal format", async () => {
-    mockTaskResponse({
-      task_id: "abc-123",
+    mockAsyncFlow({
       status: "COMPLETED",
       response_content: "Result",
       error: null,
@@ -85,8 +111,8 @@ describe("task command", () => {
     expect(output).toContain("Result");
   });
 
-  it("shows error on failure", async () => {
-    mockTaskResponse({ error: "No agent available" }, 500);
+  it("shows error on POST failure (no polling)", async () => {
+    mockPostError(500, { error: "No agent available" });
 
     const output = await taskCommand({
       prompt: "Hello",
@@ -98,8 +124,23 @@ describe("task command", () => {
     expect(output).toContain("No agent available");
   });
 
+  it("waitTimeoutMs=0 skips the poll and returns the QUEUED handle", async () => {
+    mockAsyncFlow({ status: "COMPLETED", response_content: "should not appear" });
+
+    const output = await taskCommand({
+      prompt: "fire and forget",
+      format: "minimal",
+      baseUrl: "http://localhost:3000",
+      waitTimeoutMs: 0,
+    });
+
+    expect(output).toContain("abc-123");
+    expect(output).toContain("QUEUED");
+    expect(output).not.toContain("should not appear");
+  });
+
   it("sends tier and capabilities metadata", async () => {
-    mockTaskResponse({ task_id: "x", status: "COMPLETED" });
+    mockAsyncFlow({ status: "COMPLETED" });
 
     await taskCommand({
       prompt: "Test",
@@ -109,8 +150,10 @@ describe("task command", () => {
       baseUrl: "http://localhost:3000",
     });
 
-    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    const body = JSON.parse(call[1].body);
+    const postCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => (c[1]?.method ?? "GET") === "POST",
+    )!;
+    const body = JSON.parse((postCall[1] as { body: string }).body);
     expect(body.metadata.tier).toBe(3);
     expect(body.metadata.capabilities).toEqual(["reasoning", "code_generation"]);
   });
@@ -118,16 +161,18 @@ describe("task command", () => {
 
 describe("run() — task command via CLI entry", () => {
   it("haol task 'hello' invokes task command", async () => {
-    mockTaskResponse({
-      task_id: "run-test",
-      status: "COMPLETED",
-      complexity_tier: 1,
-      selected_agent_id: "haiku",
-      response_content: "Hello!",
-      cost_usd: 0.001,
-      latency_ms: 100,
-      error: null,
-    });
+    mockAsyncFlow(
+      {
+        status: "COMPLETED",
+        complexity_tier: 1,
+        selected_agent_id: "haiku",
+        response_content: "Hello!",
+        cost_usd: 0.001,
+        latency_ms: 100,
+        error: null,
+      },
+      "run-test",
+    );
 
     const output = await run(["node", "haol", "task", "hello"]);
     expect(output).toContain("run-test");
@@ -135,12 +180,14 @@ describe("run() — task command via CLI entry", () => {
   });
 
   it("haol task with --tier and --cap flags", async () => {
-    mockTaskResponse({ task_id: "t", status: "COMPLETED" });
+    mockAsyncFlow({ status: "COMPLETED" }, "t");
 
     await run(["node", "haol", "task", "test", "--tier", "3", "--cap", "reasoning"]);
 
-    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    const body = JSON.parse(call[1].body);
+    const postCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => (c[1]?.method ?? "GET") === "POST",
+    )!;
+    const body = JSON.parse((postCall[1] as { body: string }).body);
     expect(body.metadata.tier).toBe(3);
     expect(body.metadata.capabilities).toEqual(["reasoning"]);
   });

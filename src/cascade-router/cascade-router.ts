@@ -69,7 +69,7 @@ export class CascadeRouter {
     this.state = { rules, utterances, config, tiers };
   }
 
-  async classify(input: TaskInput): Promise<TaskClassification> {
+  async classify(input: TaskInput, preAllocatedTaskId?: string): Promise<TaskClassification> {
     if (!this.state) {
       await this.load();
     }
@@ -236,7 +236,7 @@ export class CascadeRouter {
     }
 
     const latencyMs = performance.now() - start;
-    const taskId = uuidv7();
+    const taskId = preAllocatedTaskId ?? uuidv7();
 
     const cascadeTrace: CascadeTrace = {
       layers: trace,

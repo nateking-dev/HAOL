@@ -4,7 +4,7 @@ import { skippedAttempt } from "../cascade-router/types.js";
 import { matchRules } from "./rules.js";
 import { computeTier, costCeilingForTier } from "./scoring.js";
 
-export function classify(input: TaskInput): TaskClassification {
+export function classify(input: TaskInput, preAllocatedTaskId?: string): TaskClassification {
   const start = performance.now();
 
   // 1. Validate input with Zod
@@ -34,8 +34,9 @@ export function classify(input: TaskInput): TaskClassification {
   // 5. Compute cost ceiling
   const cost_ceiling_usd = costCeilingForTier(tier);
 
-  // 6. Generate task ID and prompt hash
-  const task_id = uuidv7();
+  // 6. Generate task ID and prompt hash (caller may pre-allocate the id when
+  // the task was already inserted into task_log by the async intake path).
+  const task_id = preAllocatedTaskId ?? uuidv7();
   const prompt_hash = sha256(parsed.prompt);
 
   const elapsed = performance.now() - start;

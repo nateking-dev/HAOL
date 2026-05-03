@@ -35,10 +35,24 @@ async function routerCommit(message: string): Promise<void> {
   await commitSafely(message, "haol-router <haol@system>", true);
 }
 
-export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
-  const parsed = RouterTaskInputSchema.parse(input);
+export interface RouteTaskOptions {
+  /**
+   * Pre-allocated task_id from the async intake path. When provided, the
+   * caller has already inserted a row in task_log (typically QUEUED) and
+   * routeTask will reuse this id throughout — including in classifier
+   * decision logs — and skip the INSERT.
+   */
+  taskId?: string;
+}
 
-  let taskId: string | null = null;
+export async function routeTask(
+  input: RouterTaskInput,
+  options: RouteTaskOptions = {},
+): Promise<TaskResult> {
+  const parsed = RouterTaskInputSchema.parse(input);
+  const preAllocated = options.taskId;
+
+  let taskId: string | null = preAllocated ?? null;
   let status: TaskResult["status"] = "RECEIVED";
   let cascadeTrace: CascadeTrace | undefined;
   let selectionResult: SelectionResult | undefined;
@@ -47,21 +61,30 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
     // 1. Classify — try cascade router, fall back to old classifier
     let classification: TaskClassification;
     try {
-      classification = await classifyCascade({
-        prompt: parsed.prompt,
-        metadata: parsed.metadata,
-      });
+      classification = await classifyCascade(
+        {
+          prompt: parsed.prompt,
+          metadata: parsed.metadata,
+        },
+        preAllocated,
+      );
     } catch {
-      classification = classify({
-        prompt: parsed.prompt,
-        metadata: parsed.metadata,
-      });
+      classification = classify(
+        {
+          prompt: parsed.prompt,
+          metadata: parsed.metadata,
+        },
+        preAllocated,
+      );
     }
     taskId = classification.task_id;
     cascadeTrace = classification.cascade_trace;
 
-    // 2. Intake — write to task_log
-    await taskLog.create(taskId, classification.prompt_hash);
+    // 2. Intake — write to task_log unless caller pre-inserted the row
+    // (async path inserts in QUEUED status before the worker picks it up).
+    if (!preAllocated) {
+      await taskLog.create(taskId, classification.prompt_hash);
+    }
     status = "RECEIVED";
 
     // Store routing confidence on task_log (after create so the row exists)
@@ -160,8 +183,9 @@ export async function routeTask(input: RouterTaskInput): Promise<TaskResult> {
       }
     }
 
-    // 7. Update final status
+    // 7. Update final status (and persist response so async pollers can read it)
     if (execResult.outcome === "SUCCESS") {
+      await taskLog.updateResponseContent(taskId, execResult.response_content);
       await taskLog.updateStatus(taskId, "COMPLETED");
       status = "COMPLETED";
     } else {
