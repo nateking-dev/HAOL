@@ -1,7 +1,20 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { runMigrations } from "../../src/db/migrate.js";
 import { loadConfig } from "../../src/config.js";
+
+const MIGRATIONS_DIR = join(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "../../src/db/migrations",
+);
+
+function sha256(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
 
 let doltAvailable = false;
 
@@ -38,17 +51,36 @@ afterAll(async () => {
 describe("migrations", () => {
   it("applies all migration files without error", async ({ skip }) => {
     if (!doltAvailable) skip();
-    const applied = await runMigrations();
-    expect(applied.length).toBe(20);
-    expect(applied[0]).toBe("001_create_agent_registry.sql");
-    expect(applied[19]).toBe("020_fix_signal_value_nullable.sql");
+    // First call either runs all 20 (fresh DB) or backfills tracking from
+    // an existing populated DB and returns an empty list. Either way the
+    // post-condition is "every file recorded in migrations_applied."
+    await runMigrations();
+    const rows = await query<{ filename: string }>(
+      "SELECT filename FROM migrations_applied ORDER BY filename",
+    );
+    expect(rows.length).toBe(20);
+    expect(rows[0].filename).toBe("001_create_agent_registry.sql");
+    expect(rows[19].filename).toBe("020_fix_signal_value_nullable.sql");
   });
 
-  it("is idempotent — running twice produces no errors", async ({ skip }) => {
+  it("is idempotent — second run does no work", async ({ skip }) => {
     if (!doltAvailable) skip();
-    // Second run should not throw
-    const applied = await runMigrations();
-    expect(applied.length).toBe(20);
+    const ran = await runMigrations();
+    expect(ran.length).toBe(0);
+  });
+
+  it("detects drift when an applied migration's SHA differs from disk", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    const file = "020_fix_signal_value_nullable.sql";
+    const onDisk = await readFile(join(MIGRATIONS_DIR, file), "utf8");
+    const realSha = sha256(onDisk);
+    const fakeSha = "0".repeat(64);
+    try {
+      await query("UPDATE migrations_applied SET sha256 = ? WHERE filename = ?", [fakeSha, file]);
+      await expect(runMigrations()).rejects.toThrow(/drifted/);
+    } finally {
+      await query("UPDATE migrations_applied SET sha256 = ? WHERE filename = ?", [realSha, file]);
+    }
   });
 
   it("creates expected tables", async ({ skip }) => {
