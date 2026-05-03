@@ -1,20 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
-import { runMigrations } from "../../src/db/migrate.js";
+import { runMigrations, sha256 } from "../../src/db/migrate.js";
 import { loadConfig } from "../../src/config.js";
 
 const MIGRATIONS_DIR = join(
   fileURLToPath(new URL(".", import.meta.url)),
   "../../src/db/migrations",
 );
-
-function sha256(content: string): string {
-  return createHash("sha256").update(content, "utf8").digest("hex");
-}
 
 let doltAvailable = false;
 
@@ -80,6 +75,33 @@ describe("migrations", () => {
       await expect(runMigrations()).rejects.toThrow(/drifted/);
     } finally {
       await query("UPDATE migrations_applied SET sha256 = ? WHERE filename = ?", [realSha, file]);
+    }
+  });
+
+  it("backfills tracking when schema is populated but migrations_applied is empty", async ({
+    skip,
+  }) => {
+    if (!doltAvailable) skip();
+    const sqlFiles = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith(".sql")).sort();
+    const expected = new Map<string, string>();
+    for (const file of sqlFiles) {
+      expected.set(file, sha256(await readFile(join(MIGRATIONS_DIR, file), "utf8")));
+    }
+
+    // Wipe tracking — simulates a DB that pre-dates this PR. agent_registry
+    // (created by 001) still exists, so the runner should detect legacy
+    // schema and backfill rather than re-running ALTERs.
+    await query("DELETE FROM migrations_applied");
+
+    const ran = await runMigrations();
+    expect(ran.length).toBe(0);
+
+    const rows = await query<{ filename: string; sha256: string }>(
+      "SELECT filename, sha256 FROM migrations_applied ORDER BY filename",
+    );
+    expect(rows.length).toBe(sqlFiles.length);
+    for (const row of rows) {
+      expect(row.sha256).toBe(expected.get(row.filename));
     }
   });
 

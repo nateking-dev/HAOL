@@ -22,7 +22,7 @@ interface AppliedRow {
   sha256: string;
 }
 
-function sha256(content: string): string {
+export function sha256(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
@@ -60,16 +60,19 @@ export async function runMigrations(): Promise<string[]> {
   // populated, this DB pre-dates the tracking table. Stamp every current
   // file as applied so we don't re-run non-idempotent ALTERs (e.g. 011's
   // ADD COLUMN without IF NOT EXISTS) and trip on duplicate-column errors.
+  //
+  // The insert is a single multi-row statement so a crash mid-backfill
+  // can't leave tracking partially populated — partial rows would defeat
+  // the `applied.size === 0` guard on the next run, causing un-stamped
+  // files to be treated as "new" and re-executed.
   if (applied.size === 0 && (await legacySchemaExists())) {
     console.log("[migrate] existing schema detected — backfilling migrations_applied");
+    const rows: [string, string][] = [];
     for (const file of files) {
       const sql = await readFile(join(MIGRATIONS_DIR, file), "utf8");
-      const hash = sha256(sql);
-      await pool.query("INSERT INTO migrations_applied (filename, sha256) VALUES (?, ?)", [
-        file,
-        hash,
-      ]);
+      rows.push([file, sha256(sql)]);
     }
+    await pool.query("INSERT INTO migrations_applied (filename, sha256) VALUES ?", [rows]);
     return [];
   }
 
