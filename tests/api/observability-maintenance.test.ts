@@ -80,9 +80,12 @@ describe("POST /observability/maintenance/cleanup-pending", () => {
   it("accepts max_age_hours parameter", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/v1/observability/maintenance/cleanup-pending?max_age_hours=48", {
-      method: "POST",
-    });
+    const res = await app.request(
+      "/v1/observability/maintenance/cleanup-pending?max_age_hours=48",
+      {
+        method: "POST",
+      },
+    );
     expect(res.status).toBe(200);
 
     const body = await res.json();
