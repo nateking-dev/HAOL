@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
+import { Writable } from "node:stream";
 import { Hono } from "hono";
 import { z } from "zod";
 import {
@@ -7,6 +8,23 @@ import {
   NotFoundError,
   NoAgentAvailableError,
 } from "../../../src/api/middleware/error-handler.js";
+import { _setDestinationForTests } from "../../../src/logging/logger.js";
+
+class CaptureStream extends Writable {
+  lines: string[] = [];
+  _write(chunk: Buffer | string, _enc: BufferEncoding, cb: () => void): void {
+    this.lines.push(chunk.toString());
+    cb();
+  }
+  errorRecords(): Array<Record<string, unknown>> {
+    return this.lines
+      .join("")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+      .filter((r) => typeof r.level === "number" && (r.level as number) >= 50);
+  }
+}
 
 function buildAppThatThrows(err: unknown) {
   const app = new Hono();
@@ -18,16 +36,21 @@ function buildAppThatThrows(err: unknown) {
 }
 
 describe("errorHandler", () => {
-  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let capture: CaptureStream;
 
   beforeEach(() => {
-    // Suppress the "Unhandled error" log from the 500 path; we assert on it
-    // when relevant.
-    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Capture structured logs from the 500 path so we can assert against them.
+    process.env.LOG_LEVEL = "trace";
+    capture = new CaptureStream();
+    _setDestinationForTests(capture);
   });
 
   afterEach(() => {
-    errorSpy.mockRestore();
+    _setDestinationForTests(undefined);
+  });
+
+  afterAll(() => {
+    delete process.env.LOG_LEVEL;
   });
 
   it("maps ValidationError to 400 with the original message", async () => {
@@ -111,13 +134,15 @@ describe("errorHandler", () => {
     expect(body.error).toBe("Internal server error");
     // Sensitive internal detail must not leak in the response body.
     expect(body.error).not.toMatch(/hunter2/);
-    // But it should be logged so operators can debug.
-    expect(errorSpy).toHaveBeenCalled();
+    // But it should be logged as a structured error so operators can debug.
+    const errors = capture.errorRecords();
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]).toMatchObject({ msg: "unhandled error" });
   });
 
   it("does not log when the error type is recognized", async () => {
     const app = buildAppThatThrows(new NotFoundError("missing"));
     await app.request("/boom");
-    expect(errorSpy).not.toHaveBeenCalled();
+    expect(capture.errorRecords()).toHaveLength(0);
   });
 });

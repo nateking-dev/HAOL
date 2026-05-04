@@ -1,6 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
+import { Writable } from "node:stream";
 import { Hono } from "hono";
 import { rateLimit } from "../../../src/api/middleware/rate-limit.js";
+import { _setDestinationForTests } from "../../../src/logging/logger.js";
+
+class CaptureStream extends Writable {
+  lines: string[] = [];
+  _write(chunk: Buffer | string, _enc: BufferEncoding, cb: () => void): void {
+    this.lines.push(chunk.toString());
+    cb();
+  }
+  warnRecords(): Array<Record<string, unknown>> {
+    return this.lines
+      .join("")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+      .filter((r) => r.level === 40);
+  }
+}
 
 interface AppOpts {
   limit: number;
@@ -21,17 +39,23 @@ function reqFrom(ip: string) {
 }
 
 describe("rateLimit middleware", () => {
-  let warnSpy: ReturnType<typeof vi.spyOn>;
+  let capture: CaptureStream;
 
   beforeEach(() => {
-    // The middleware logs a warn when getConnInfo fails (no socket in test
-    // requests). Suppress so test output stays clean.
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The middleware emits a structured warn when getConnInfo fails (no
+    // socket in test requests). Capture pino output instead of console.
+    process.env.LOG_LEVEL = "trace";
+    capture = new CaptureStream();
+    _setDestinationForTests(capture);
   });
 
   afterEach(() => {
-    warnSpy.mockRestore();
+    _setDestinationForTests(undefined);
     vi.useRealTimers();
+  });
+
+  afterAll(() => {
+    delete process.env.LOG_LEVEL;
   });
 
   describe("token bucket basics", () => {
@@ -146,7 +170,9 @@ describe("rateLimit middleware", () => {
       const r2 = await app.request("/ping");
       expect(r1.status).toBe(200);
       expect(r2.status).toBe(429);
-      expect(warnSpy).toHaveBeenCalled();
+      const warns = capture.warnRecords();
+      expect(warns.length).toBeGreaterThan(0);
+      expect(warns[0]).toMatchObject({ component: "rate-limit" });
     });
   });
 

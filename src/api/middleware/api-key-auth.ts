@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { logger } from "../../logging/logger.js";
 
 function safeCompare(a: string, b: string): boolean {
   const ha = createHash("sha256").update(a).digest();
@@ -16,7 +17,9 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
  */
 export function validateApiKeyConfig(): void {
   if (IS_PRODUCTION && !process.env.HAOL_API_KEY) {
-    console.error("[FATAL] HAOL_API_KEY is not set. Refusing to start in production without auth.");
+    logger.fatal("HAOL_API_KEY is not set; refusing to start in production without auth", {
+      component: "auth",
+    });
     process.exit(1);
   }
 }
@@ -40,9 +43,7 @@ export function createApiKeyAuth(): MiddlewareHandler {
     if (!expected) {
       // Non-production: warn once, then allow
       if (!devWarningLogged) {
-        console.warn(
-          "[WARN] HAOL_API_KEY is not set — auth is disabled. Set HAOL_API_KEY to enable authentication.",
-        );
+        logger.warn("HAOL_API_KEY is not set — auth is disabled", { component: "auth" });
         devWarningLogged = true;
       }
       await next();

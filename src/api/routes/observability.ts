@@ -19,6 +19,7 @@ import {
 } from "../../repositories/task-outcome.js";
 import { doltCommit } from "../../db/dolt.js";
 import { tune, recentTuningRuns } from "../../services/routing-tuner.js";
+import { logger } from "../../logging/logger.js";
 
 const observability = new Hono();
 
@@ -130,7 +131,10 @@ observability.post("/maintenance/cleanup-pending", async (c) => {
       });
     } catch (err) {
       committed = false;
-      console.error("doltCommit failed after cleanup-pending:", err);
+      logger.error("doltCommit failed after cleanup-pending", {
+        component: "observability",
+        error: (err as Error).message,
+      });
     }
   }
   return c.json({ deleted, max_age_hours: maxAgeHours, committed }, 200);

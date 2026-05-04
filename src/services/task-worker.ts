@@ -1,6 +1,8 @@
 import { routeTask } from "../router/router.js";
 import * as taskLog from "../repositories/task-log.js";
 import type { RouterTaskInput } from "../types/router.js";
+import { logger } from "../logging/logger.js";
+import { runWithContext } from "../logging/context.js";
 
 /**
  * In-process background worker for the async POST /tasks pipeline.
@@ -20,6 +22,11 @@ import type { RouterTaskInput } from "../types/router.js";
 interface Job {
   taskId: string;
   input: RouterTaskInput;
+  // Captured at enqueue time from the HTTP request that intook this task.
+  // Lets the worker correlate post-202 logs (which run after the request
+  // already returned) back to the originating request. Reaper-driven
+  // re-enqueues have no request_id and pass undefined.
+  requestId?: string;
 }
 
 const queue: Job[] = [];
@@ -50,7 +57,7 @@ function maxQueueDepth(): number {
 
 export type EnqueueResult = "ok" | "stopping" | "duplicate" | "queue_full";
 
-export function enqueue(taskId: string, input: RouterTaskInput): EnqueueResult {
+export function enqueue(taskId: string, input: RouterTaskInput, requestId?: string): EnqueueResult {
   // Reject during shutdown: pump() bails when stopping=true, so a late
   // enqueue would sit in queue forever and prevent maybeResolveDrain() from
   // firing — stop() would then hang until its grace-period timeout. Server
@@ -65,7 +72,7 @@ export function enqueue(taskId: string, input: RouterTaskInput): EnqueueResult {
   // the meantime.
   if (queue.length >= maxQueueDepth()) return "queue_full";
   tracked.add(taskId);
-  queue.push({ taskId, input });
+  queue.push({ taskId, input, requestId });
   // Kick the loop on next tick so callers (HTTP handler) can return first.
   setImmediate(pump);
   return "ok";
@@ -93,13 +100,26 @@ function pump(): void {
 }
 
 async function runJob(job: Job): Promise<void> {
+  // Bind task_id (and request_id, when known) into AsyncLocalStorage for the
+  // duration of this job so every downstream log line carries them.
+  return runWithContext(
+    {
+      component: "task-worker",
+      task_id: job.taskId,
+      ...(job.requestId ? { request_id: job.requestId } : {}),
+    },
+    () => runJobInner(job),
+  );
+}
+
+async function runJobInner(job: Job): Promise<void> {
   // Claim the row — if another worker (or the reaper) already moved it past
   // QUEUED, drop this duplicate enqueue silently.
   let claimed = false;
   try {
     claimed = await taskLog.claimQueued(job.taskId);
   } catch (err) {
-    console.warn("[task-worker] claimQueued failed for %s: %s", job.taskId, (err as Error).message);
+    logger.warn("claimQueued failed", { error: (err as Error).message });
     return;
   }
   if (!claimed) return;
@@ -114,15 +134,13 @@ async function runJob(job: Job): Promise<void> {
     // any unhandled throw (DB outage, etc.) lands here. Best-effort mark the
     // row FAILED so callers polling GET /tasks/:id see a terminal state.
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[task-worker] uncaught error for %s: %s", job.taskId, message);
+    logger.error("uncaught error in routeTask", { error: message });
     try {
       await taskLog.recordWorkerError(job.taskId, message);
     } catch (writeErr) {
-      console.error(
-        "[task-worker] failed to record worker_error for %s: %s",
-        job.taskId,
-        (writeErr as Error).message,
-      );
+      logger.error("failed to record worker_error", {
+        error: (writeErr as Error).message,
+      });
     }
   }
 }
@@ -154,7 +172,10 @@ export async function stop(graceMs = 30_000): Promise<void> {
     drainResolver = resolve;
     setTimeout(() => {
       if (drainResolver) {
-        console.warn("[task-worker] grace period exceeded with %d in-flight jobs", inflight);
+        logger.warn("grace period exceeded", {
+          component: "task-worker",
+          inflight,
+        });
         const r = drainResolver;
         drainResolver = null;
         r();

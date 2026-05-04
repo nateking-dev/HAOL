@@ -2,6 +2,8 @@ import * as taskLog from "../repositories/task-log.js";
 import * as worker from "./task-worker.js";
 import { doltDeleteBranch } from "../db/dolt.js";
 import type { RouterTaskInput } from "../types/router.js";
+import { logger } from "../logging/logger.js";
+import { runWithContext } from "../logging/context.js";
 
 /**
  * Crash-recovery reaper for the async task pipeline.
@@ -73,6 +75,13 @@ export async function runReaperOnce(): Promise<{
   reEnqueued: number;
   failed: number;
 }> {
+  return runWithContext({ component: "reaper" }, () => runReaperOnceInner());
+}
+
+async function runReaperOnceInner(): Promise<{
+  reEnqueued: number;
+  failed: number;
+}> {
   const ageSec = recoveryAgeSeconds();
   let reEnqueued = 0;
   let failed = 0;
@@ -85,7 +94,7 @@ export async function runReaperOnce(): Promise<{
   try {
     queued = await taskLog.findQueued();
   } catch (err) {
-    console.warn("[reaper] findQueued failed: %s", (err as Error).message);
+    logger.warn("findQueued failed", { error: (err as Error).message });
   }
   for (const row of queued) {
     const input = reconstructInput(row);
@@ -110,7 +119,7 @@ export async function runReaperOnce(): Promise<{
   try {
     staleIds = await taskLog.findStale(ageSec);
   } catch (err) {
-    console.warn("[reaper] findStale failed: %s", (err as Error).message);
+    logger.warn("findStale failed", { error: (err as Error).message });
   }
   for (const taskId of staleIds) {
     try {
@@ -118,12 +127,15 @@ export async function runReaperOnce(): Promise<{
       await deleteSessionBranchSafely(taskId);
       failed++;
     } catch (err) {
-      console.warn("[reaper] failed to mark %s FAILED: %s", taskId, (err as Error).message);
+      logger.warn("failed to mark task FAILED", {
+        task_id: taskId,
+        error: (err as Error).message,
+      });
     }
   }
 
   if (reEnqueued > 0 || failed > 0) {
-    console.log("[reaper] re-enqueued=%d failed=%d", reEnqueued, failed);
+    logger.info("reaper sweep summary", { re_enqueued: reEnqueued, failed });
   }
   return { reEnqueued, failed };
 }
@@ -132,7 +144,10 @@ export function startReaper(): void {
   if (timer) return;
   timer = setInterval(() => {
     runReaperOnce().catch((err) => {
-      console.warn("[reaper] sweep failed: %s", (err as Error).message);
+      logger.warn("sweep failed", {
+        component: "reaper",
+        error: (err as Error).message,
+      });
     });
   }, reaperIntervalMs());
   timer.unref();

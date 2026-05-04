@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { logger } from "../../logging/logger.js";
 
 export class ValidationError extends Error {
   constructor(message: string) {
@@ -44,6 +45,11 @@ export function errorHandler(err: Error, c: Context) {
     return c.json({ error: "Resource already exists" }, 409);
   }
 
-  console.error("Unhandled error:", err);
+  logger.error("unhandled error", {
+    component: "http",
+    error: err.message,
+    name: err.name,
+    stack: err.stack,
+  });
   return c.json({ error: "Internal server error" }, 500);
 }

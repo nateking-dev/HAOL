@@ -5,6 +5,7 @@ import { createApp } from "./api/app.js";
 import { validateApiKeyConfig } from "./api/middleware/api-key-auth.js";
 import * as worker from "./services/task-worker.js";
 import { startReaper, stopReaper, runReaperOnce } from "./services/task-reaper.js";
+import { logger } from "./logging/logger.js";
 
 async function main() {
   // Fail fast if production auth is misconfigured — before binding the server.
@@ -15,9 +16,17 @@ async function main() {
 
   const healthy = await healthCheck();
   if (healthy) {
-    console.log("HAOL connected to Dolt at %s:%d", config.dolt.host, config.dolt.port);
+    logger.info("connected to Dolt", {
+      component: "boot",
+      host: config.dolt.host,
+      port: config.dolt.port,
+    });
   } else {
-    console.error("Failed to connect to Dolt at %s:%d", config.dolt.host, config.dolt.port);
+    logger.fatal("failed to connect to Dolt", {
+      component: "boot",
+      host: config.dolt.host,
+      port: config.dolt.port,
+    });
     process.exit(1);
   }
 
@@ -32,11 +41,11 @@ async function main() {
   const port = parseInt(process.env.PORT ?? "3000", 10);
 
   const server = serve({ fetch: app.fetch, port }, (info) => {
-    console.log("HAOL API server listening on http://localhost:%d", info.port);
+    logger.info("API server listening", { component: "boot", port: info.port });
   });
 
   const shutdown = async (signal: string) => {
-    console.log("[server] received %s, draining…", signal);
+    logger.info("draining", { component: "server", signal });
     stopReaper();
     // Await server.close so any in-flight POST handlers between the
     // createQueued INSERT and worker.enqueue() can finish before the

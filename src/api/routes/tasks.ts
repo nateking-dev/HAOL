@@ -40,7 +40,11 @@ tasks.post("/tasks", async (c) => {
     constraints: parsed.data.constraints as Record<string, unknown> | undefined,
     expected_format: parsed.data.expected_format as Record<string, unknown> | undefined,
   });
-  const enqueueResult = worker.enqueue(taskId, parsed.data);
+  const enqueueResult = worker.enqueue(
+    taskId,
+    parsed.data,
+    (c.get as (k: string) => string | undefined)("requestId"),
+  );
   if (enqueueResult !== "ok") {
     // Lost the race against another concurrent intake or shutdown — leave
     // the row QUEUED for the reaper rather than orphaning the caller.
