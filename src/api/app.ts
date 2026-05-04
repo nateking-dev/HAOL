@@ -41,30 +41,32 @@ export function createApp(): Hono {
   );
   app.route("/", demo);
 
-  // Health check is unauthenticated (load balancers, K8s probes)
+  // Health check is unversioned (load balancers, K8s probes) and unauthenticated.
+  // Reserved unversioned root for cross-version concerns (health, future
+  // discovery endpoints) — versioned API surface lives under /v1.
   app.route("/", health);
 
   // Protected routes require API key auth (when HAOL_API_KEY is set)
-  app.use("/tasks/*", apiKeyAuth);
-  app.use("/agents/*", apiKeyAuth);
-  app.use("/observability/*", apiKeyAuth);
+  app.use("/v1/tasks/*", apiKeyAuth);
+  app.use("/v1/agents/*", apiKeyAuth);
+  app.use("/v1/observability/*", apiKeyAuth);
 
   // Rate limiting — applied after auth so unauthenticated requests
   // are rejected before consuming rate-limit tokens.
   // Use wildcard patterns so future sub-routes are also covered.
-  app.post("/tasks/*", taskWriteLimit);
-  app.post("/observability/tune", tuneLimit);
+  app.post("/v1/tasks/*", taskWriteLimit);
+  app.post("/v1/observability/tune", tuneLimit);
 
   // Read limiters use app.get() so they don't double-count POST requests
   // that already have their own write limiters above.
-  app.get("/tasks/*", readLimit);
-  app.get("/agents/*", readLimit);
-  app.get("/observability/*", readLimit);
+  app.get("/v1/tasks/*", readLimit);
+  app.get("/v1/agents/*", readLimit);
+  app.get("/v1/observability/*", readLimit);
 
-  app.route("/", agents);
-  app.route("/", tasks);
-  app.route("/observability", observability);
-  app.route("/", outcomes);
+  app.route("/v1", agents);
+  app.route("/v1", tasks);
+  app.route("/v1/observability", observability);
+  app.route("/v1", outcomes);
 
   // Error handler
   app.onError(errorHandler);

@@ -107,7 +107,7 @@ describe("status command", () => {
     });
 
     const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(call[0]).toBe("http://localhost:3000/tasks/abc-123");
+    expect(call[0]).toBe("http://localhost:3000/v1/tasks/abc-123");
   });
 });
 

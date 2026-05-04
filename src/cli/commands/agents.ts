@@ -27,7 +27,7 @@ export async function agentsListCommand(opts: AgentsListOptions): Promise<string
   const params = new URLSearchParams();
   if (opts.status) params.set("status", opts.status);
   const qs = params.toString();
-  const url = `${opts.baseUrl}/agents${qs ? "?" + qs : ""}`;
+  const url = `${opts.baseUrl}/v1/agents${qs ? "?" + qs : ""}`;
 
   const res = await fetch(url);
   const data = await res.json();
@@ -52,7 +52,7 @@ export async function agentsUpdateCommand(opts: AgentsUpdateOptions): Promise<st
   const body: Record<string, unknown> = {};
   if (opts.status) body.status = opts.status;
 
-  const res = await fetch(`${opts.baseUrl}/agents/${opts.agentId}`, {
+  const res = await fetch(`${opts.baseUrl}/v1/agents/${opts.agentId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -73,7 +73,7 @@ export async function agentsRemoveCommand(
   baseUrl: string,
   format: OutputFormat,
 ): Promise<string> {
-  const res = await fetch(`${baseUrl}/agents/${agentId}`, {
+  const res = await fetch(`${baseUrl}/v1/agents/${agentId}`, {
     method: "DELETE",
   });
 

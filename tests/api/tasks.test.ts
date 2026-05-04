@@ -59,7 +59,7 @@ async function pollUntilDone(
   let lastBody: Record<string, unknown> = {};
   let lastStatus = 0;
   while (Date.now() < deadline) {
-    const res = await app.request(`/tasks/${taskId}`);
+    const res = await app.request(`/v1/tasks/${taskId}`);
     lastStatus = res.status;
     lastBody = (await res.json()) as Record<string, unknown>;
     if (lastBody.done === true) {
@@ -150,20 +150,20 @@ describe("POST /tasks", () => {
     if (!doltAvailable) skip();
     mockFetchSuccess("Summary result");
 
-    const res = await app.request("/tasks", {
+    const res = await app.request("/v1/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt: `${TEST_PROMPT_PREFIX}summarize text about testing` }),
     });
 
     expect(res.status).toBe(202);
-    expect(res.headers.get("Location")).toMatch(/^\/tasks\/.+/);
+    expect(res.headers.get("Location")).toMatch(/^\/v1\/tasks\/.+/);
     expect(res.headers.get("Retry-After")).toBe("1");
 
     const body = await res.json();
     expect(body.task_id).toBeTruthy();
     expect(body.status).toBe("QUEUED");
-    expect(body.links?.self).toBe(`/tasks/${body.task_id}`);
+    expect(body.links?.self).toBe(`/v1/tasks/${body.task_id}`);
 
     // Worker drains the queue and the task reaches COMPLETED.
     const polled = await pollUntilDone(body.task_id);
@@ -174,7 +174,7 @@ describe("POST /tasks", () => {
   it("rejects empty prompt → 400", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks", {
+    const res = await app.request("/v1/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt: "" }),
@@ -189,7 +189,7 @@ describe("GET /tasks/:id", () => {
     if (!doltAvailable) skip();
     mockFetchSuccess("Done.");
 
-    const createRes = await app.request("/tasks", {
+    const createRes = await app.request("/v1/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt: `${TEST_PROMPT_PREFIX}classify this review` }),
@@ -208,7 +208,7 @@ describe("GET /tasks/:id", () => {
   it("returns 404 for non-existent task", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks/non-existent-task-id");
+    const res = await app.request("/v1/tasks/non-existent-task-id");
     expect(res.status).toBe(404);
   });
 });
@@ -218,7 +218,7 @@ describe("GET /tasks/:id/trace", () => {
     if (!doltAvailable) skip();
     mockFetchSuccess("Trace test result");
 
-    const createRes = await app.request("/tasks", {
+    const createRes = await app.request("/v1/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -291,7 +291,7 @@ describe("GET /tasks/:id/trace", () => {
       ],
     );
 
-    const res = await app.request(`/tasks/${created.task_id}/trace`);
+    const res = await app.request(`/v1/tasks/${created.task_id}/trace`);
     expect(res.status).toBe(200);
 
     const trace = await res.json();
@@ -317,7 +317,7 @@ describe("GET /tasks/:id/trace", () => {
   it("returns 404 for non-existent task", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks/non-existent-id/trace");
+    const res = await app.request("/v1/tasks/non-existent-id/trace");
     expect(res.status).toBe(404);
   });
 });

@@ -18,7 +18,7 @@ async function safeJson(res: Response): Promise<Record<string, unknown>> {
 export async function tuneCommand(opts: TuneCommandOptions): Promise<string> {
   const hours = opts.hours ?? 72;
   const dryRun = opts.dryRun ? "&dry_run=true" : "";
-  const res = await fetch(`${opts.baseUrl}/observability/tune?hours=${hours}${dryRun}`, {
+  const res = await fetch(`${opts.baseUrl}/v1/observability/tune?hours=${hours}${dryRun}`, {
     method: "POST",
   });
   const data = await safeJson(res);
@@ -87,7 +87,7 @@ export interface TuneHistoryCommandOptions {
 
 export async function tuneHistoryCommand(opts: TuneHistoryCommandOptions): Promise<string> {
   const limit = opts.last ?? 10;
-  const res = await fetch(`${opts.baseUrl}/observability/tune/history?limit=${limit}`);
+  const res = await fetch(`${opts.baseUrl}/v1/observability/tune/history?limit=${limit}`);
   const data = await safeJson(res);
 
   if (!res.ok) {

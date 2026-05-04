@@ -38,7 +38,7 @@ describe("POST /agents", () => {
   it("creates an agent with valid body → 201", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/agents", {
+    const res = await app.request("/v1/agents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -62,7 +62,7 @@ describe("POST /agents", () => {
   it("rejects invalid body → 400", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/agents", {
+    const res = await app.request("/v1/agents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agent_id: "bad" }),
@@ -76,7 +76,7 @@ describe("GET /agents", () => {
   it("lists all agents", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/agents");
+    const res = await app.request("/v1/agents");
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -87,7 +87,7 @@ describe("GET /agents", () => {
   it("filters by capability query param", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/agents?capability=summarization");
+    const res = await app.request("/v1/agents?capability=summarization");
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -102,7 +102,7 @@ describe("PUT /agents/:id", () => {
   it("updates agent fields → 200", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request(`/agents/${testAgentId}`, {
+    const res = await app.request(`/v1/agents/${testAgentId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ avg_latency_ms: 999 }),
@@ -116,7 +116,7 @@ describe("PUT /agents/:id", () => {
   it("returns 404 for non-existent agent", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/agents/non-existent-agent", {
+    const res = await app.request("/v1/agents/non-existent-agent", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ avg_latency_ms: 100 }),
@@ -130,14 +130,14 @@ describe("DELETE /agents/:id", () => {
   it("soft-deletes an agent → 200", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request(`/agents/${testAgentId}`, {
+    const res = await app.request(`/v1/agents/${testAgentId}`, {
       method: "DELETE",
     });
 
     expect(res.status).toBe(200);
 
     // Verify agent is disabled
-    const getRes = await app.request("/agents?status=disabled");
+    const getRes = await app.request("/v1/agents?status=disabled");
     const body = await getRes.json();
     const disabled = body.find((a: Record<string, unknown>) => a.agent_id === testAgentId);
     expect(disabled).toBeTruthy();
@@ -147,7 +147,7 @@ describe("DELETE /agents/:id", () => {
   it("returns 404 for non-existent agent", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/agents/non-existent-agent", {
+    const res = await app.request("/v1/agents/non-existent-agent", {
       method: "DELETE",
     });
 

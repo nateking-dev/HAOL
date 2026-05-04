@@ -48,7 +48,7 @@ describe("POST /tasks/:id/outcome", () => {
   it("records downstream outcome → 201", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks/" + testTaskId + "/outcome", {
+    const res = await app.request("/v1/tasks/" + testTaskId + "/outcome", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -67,7 +67,7 @@ describe("POST /tasks/:id/outcome", () => {
   it("rejects invalid body → 400", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks/" + testTaskId + "/outcome", {
+    const res = await app.request("/v1/tasks/" + testTaskId + "/outcome", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
@@ -82,7 +82,7 @@ describe("GET /tasks/:id/outcomes", () => {
     if (!doltAvailable) skip();
 
     // First post an outcome to ensure at least one exists
-    await app.request("/tasks/" + testTaskId + "/outcome", {
+    await app.request("/v1/tasks/" + testTaskId + "/outcome", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -92,7 +92,7 @@ describe("GET /tasks/:id/outcomes", () => {
       }),
     });
 
-    const res = await app.request("/tasks/" + testTaskId + "/outcomes");
+    const res = await app.request("/v1/tasks/" + testTaskId + "/outcomes");
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -103,7 +103,7 @@ describe("GET /tasks/:id/outcomes", () => {
   it("filters by tier", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks/" + testTaskId + "/outcomes?tier=3");
+    const res = await app.request("/v1/tasks/" + testTaskId + "/outcomes?tier=3");
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -116,7 +116,7 @@ describe("GET /tasks/:id/outcomes", () => {
   it("returns empty array for valid task with no outcomes", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks/" + emptyTaskId + "/outcomes");
+    const res = await app.request("/v1/tasks/" + emptyTaskId + "/outcomes");
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -127,7 +127,7 @@ describe("GET /tasks/:id/outcomes", () => {
   it("returns 404 for non-existent task", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks/nonexistent-task-no-outcomes/outcomes");
+    const res = await app.request("/v1/tasks/nonexistent-task-no-outcomes/outcomes");
     expect(res.status).toBe(404);
 
     const body = await res.json();
@@ -139,7 +139,7 @@ describe("GET /tasks/:id/outcomes/summary", () => {
   it("returns aggregated summary", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks/" + testTaskId + "/outcomes/summary");
+    const res = await app.request("/v1/tasks/" + testTaskId + "/outcomes/summary");
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -153,7 +153,7 @@ describe("GET /tasks/:id/outcomes/summary", () => {
   it("returns empty summary for valid task with no outcomes", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks/" + emptyTaskId + "/outcomes/summary");
+    const res = await app.request("/v1/tasks/" + emptyTaskId + "/outcomes/summary");
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -164,7 +164,7 @@ describe("GET /tasks/:id/outcomes/summary", () => {
   it("returns 404 for non-existent task", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/tasks/nonexistent-task-no-summary/outcomes/summary");
+    const res = await app.request("/v1/tasks/nonexistent-task-no-summary/outcomes/summary");
     expect(res.status).toBe(404);
 
     const body = await res.json();
