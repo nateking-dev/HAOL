@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, onTestFinished, vi } from "vitest";
+import type { RowDataPacket } from "mysql2/promise";
 import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
@@ -118,6 +119,20 @@ afterEach(() => {
 afterAll(async () => {
   if (doltAvailable) {
     const pool = getPool();
+    // Collect task_ids first so we can clean up session branches and
+    // session_context rows the router created during the test run.
+    const [taskRows] = await pool.query<RowDataPacket[]>(
+      "SELECT task_id FROM task_log WHERE selected_agent_id LIKE 'rtr-%'",
+    );
+    for (const r of taskRows) {
+      const id = r.task_id as string;
+      try {
+        await pool.query("CALL DOLT_BRANCH('-D', ?)", [`session/${id}`]);
+      } catch {
+        // branch may have been merged (SUCCESS path) or never created
+      }
+      await pool.query("DELETE FROM session_context WHERE session_id = ?", [id]);
+    }
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'rtr-%'");
     await pool.query("DELETE FROM task_log WHERE selected_agent_id LIKE 'rtr-%'");
     // Re-enable seed agents
@@ -271,5 +286,61 @@ describe("router pipeline", () => {
     expect(capturedRecords[1].execution_id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
+  });
+});
+
+describe("router memory wiring", () => {
+  it("merges session branch and persists context on SUCCESS", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    mockFetchSuccess("memory wired");
+
+    const result = await routeTask({
+      prompt: "Summarize this short note",
+    });
+    expect(result.status).toBe("COMPLETED");
+
+    const pool = getPool();
+
+    // commitSession deletes the session branch after merging.
+    const [branches] = await pool.query<RowDataPacket[]>(
+      "SELECT name FROM dolt_branches WHERE name = ?",
+      [`session/${result.task_id}`],
+    );
+    expect(branches.length).toBe(0);
+
+    // The merged context should be visible on main. Router writes
+    // classification, selection, and execution keys.
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT `key` FROM session_context WHERE session_id = ?",
+      [result.task_id],
+    );
+    const keys = rows.map((r) => r.key as string).sort();
+    expect(keys).toEqual(["classification", "execution", "selection"]);
+  });
+
+  it("preserves session branch on FAILED for forensics", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    mockFetchFailure();
+
+    const result = await routeTask({
+      prompt: "Summarize this failing prompt",
+    });
+    expect(result.status).toBe("FAILED");
+
+    const pool = getPool();
+
+    // discardSession is a no-op preserve — branch must remain.
+    const [branches] = await pool.query<RowDataPacket[]>(
+      "SELECT name FROM dolt_branches WHERE name = ?",
+      [`session/${result.task_id}`],
+    );
+    expect(branches.length).toBe(1);
+
+    // Nothing was merged to main — context table should be empty for this task.
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT `key` FROM session_context WHERE session_id = ?",
+      [result.task_id],
+    );
+    expect(rows.length).toBe(0);
   });
 });

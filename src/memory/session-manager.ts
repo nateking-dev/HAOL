@@ -40,6 +40,12 @@ async function ensureOnMain(conn: Queryable): Promise<void> {
 export async function createSession(taskId: string): Promise<SessionHandle> {
   const branch = branchName(taskId);
   await withBranchConnection(async (conn) => {
+    // The Dolt server runs with --no-auto-commit, so pool connections may
+    // start with autocommit=0. Branch and metadata procedure calls under
+    // autocommit=0 do not persist when the connection is released without
+    // an explicit COMMIT — force autocommit on for the lifetime of this
+    // call so DOLT_BRANCH actually creates the branch.
+    await conn.query("SET @@autocommit = 1");
     await ensureOnMain(conn);
     await doltBranch({ name: branch }, conn);
   });
@@ -102,7 +108,26 @@ export async function readContext(session: SessionHandle, key?: string): Promise
 
 export async function commitSession(session: SessionHandle): Promise<void> {
   await withBranchConnection(async (conn) => {
+    // Force autocommit on so DOLT_MERGE and DOLT_BRANCH('-d') persist when
+    // the connection is released. The server's --no-auto-commit default
+    // otherwise leaves these procedure calls in an uncommitted state and
+    // Dolt rolls them back on release, leaving the session branch behind.
+    await conn.query("SET @@autocommit = 1");
     await ensureOnMain(conn);
+    // Pool connections under --no-auto-commit can carry an uncommitted
+    // working set on main from earlier writeContext callers (whose branch
+    // checkout leaks staged changes back onto main). DOLT_MERGE refuses to
+    // run with "local changes would be stomped by merge". Make a stash-style
+    // commit of whatever's pending so the merge has a clean base —
+    // allowEmpty: true makes this a no-op when the working set is clean.
+    await doltCommit(
+      {
+        message: `session:${session.taskId} | pre-merge flush`,
+        author: "haol-memory <haol@system>",
+        allowEmpty: true,
+      },
+      conn,
+    );
     const mergeResult = await doltMerge(session.branch, conn);
     if (mergeResult.conflicts > 0) {
       // Resolve with --ours strategy by committing as-is
@@ -115,7 +140,6 @@ export async function commitSession(session: SessionHandle): Promise<void> {
         conn,
       );
     }
-    // Clean up the branch
     await doltDeleteBranch(session.branch, conn);
   });
 }

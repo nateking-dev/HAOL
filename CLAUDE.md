@@ -31,7 +31,7 @@ The system follows a pipeline pattern orchestrated by `src/router/router.ts`:
 - **Execution Engine** (`src/services/execution.ts`): Invokes providers with retry + exponential backoff (1s, 2s, 4s). Records telemetry to `execution_log`.
 - **Providers** (`src/providers/`): Anthropic, OpenAI, and Local adapters all implement the `AgentProvider` interface (`invoke`, `healthCheck`, `estimateTokens`).
 - **Repositories** (`src/repositories/`): Data access layer — one file per table.
-- **Memory** (`src/memory/`): Creates per-task Dolt branches (`session/{taskId}`) for isolated context, merges back on completion.
+- **Memory** (`src/memory/`): Per-task Dolt session branches. The router opens a `session/{taskId}` branch after classification, writes structural context (classification, selection, execution records) to `session_context`, and merges to main on SUCCESS. On FAILED the branch is preserved for forensics; the reaper's periodic sweep prunes branches older than `SESSION_BRANCH_RETENTION_DAYS` (default 7). Memory is best-effort — Dolt branching outages log a warning but never fail the task.
 
 ### API
 

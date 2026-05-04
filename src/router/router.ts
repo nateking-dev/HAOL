@@ -22,6 +22,13 @@ import {
 import { loadConfig } from "../cascade-router/reference-store.js";
 import type { CascadeTrace } from "../cascade-router/types.js";
 import { logger } from "../logging/logger.js";
+import {
+  createSession,
+  writeContext,
+  commitSession,
+  discardSession,
+  type SessionHandle,
+} from "../memory/session-manager.js";
 
 export const DEFAULT_TIMEOUT_MS: Record<ComplexityTier, number> = {
   1: 15_000,
@@ -34,6 +41,23 @@ async function routerCommit(message: string): Promise<void> {
   // allowEmpty: true ensures every task gets a Dolt commit for the audit trail,
   // even when the working set is clean (e.g., read-only classification).
   await commitSafely(message, "haol-router <haol@system>", true);
+}
+
+// Memory layer is best-effort: a Dolt branching outage must not take down
+// task routing. Failures are logged at warn level and the session handle is
+// dropped — subsequent memory steps for that task become no-ops.
+async function bestEffortMemory<T>(step: string, taskId: string, fn: () => Promise<T>): Promise<T | null> {
+  try {
+    return await fn();
+  } catch (err) {
+    logger.warn("memory step failed", {
+      component: "router",
+      step,
+      task_id: taskId,
+      error: (err as Error).message,
+    });
+    return null;
+  }
 }
 
 export interface RouteTaskOptions {
@@ -57,6 +81,7 @@ export async function routeTask(
   let status: TaskResult["status"] = "RECEIVED";
   let cascadeTrace: CascadeTrace | undefined;
   let selectionResult: SelectionResult | undefined;
+  let session: SessionHandle | null = null;
 
   try {
     // 1. Classify — try cascade router, fall back to old classifier
@@ -111,6 +136,16 @@ export async function routeTask(
     );
     status = "CLASSIFIED";
 
+    // 3b. Open per-task memory branch. Failures here drop the handle so all
+    // subsequent memory writes/commits become no-ops, but task execution
+    // proceeds normally.
+    session = await bestEffortMemory("createSession", taskId, () => createSession(taskId!));
+    if (session) {
+      await bestEffortMemory("writeContext:classification", taskId, () =>
+        writeContext(session!, "classification", classification),
+      );
+    }
+
     // 4. Select agent
     const policy = await getActivePolicy();
     const selection = await select(classification, policy ?? undefined);
@@ -118,6 +153,12 @@ export async function routeTask(
 
     await taskLog.updateSelection(taskId, selection.selected_agent_id, selection.rationale);
     status = "DISPATCHED";
+
+    if (session) {
+      await bestEffortMemory("writeContext:selection", taskId, () =>
+        writeContext(session!, "selection", selection),
+      );
+    }
 
     // 5. Execute
     const agentRequest: AgentRequest = {
@@ -197,6 +238,21 @@ export async function routeTask(
       status = "FAILED";
     }
 
+    // 7a. Memory finalization. On SUCCESS we merge the session branch into
+    // main and delete it; on FAILED we keep the branch around for forensics —
+    // pruneSessionBranches eventually reclaims it based on retention.
+    if (session) {
+      await bestEffortMemory("writeContext:execution", taskId, () =>
+        writeContext(session!, "execution", { records: allExecRecords, final: execResult }),
+      );
+      if (execResult.outcome === "SUCCESS") {
+        await bestEffortMemory("commitSession", taskId, () => commitSession(session!));
+      } else {
+        await bestEffortMemory("discardSession", taskId, () => discardSession(session!));
+      }
+      session = null;
+    }
+
     // 7b. Best-effort outcome collection
     try {
       const taskRecord = await taskLog.findById(taskId);
@@ -266,6 +322,11 @@ export async function routeTask(
         await routerCommit(`task:${taskId} | FAILED | ${(err as Error).message}`);
       } catch {
         // best-effort commit
+      }
+      if (session) {
+        // Discard (no-op preserve) so the failed-task branch remains for
+        // forensics; pruneSessionBranches reclaims it on retention expiry.
+        await bestEffortMemory("discardSession", taskId, () => discardSession(session!));
       }
     }
 
