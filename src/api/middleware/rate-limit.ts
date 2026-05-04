@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import { getConnInfo } from "@hono/node-server/conninfo";
+import { logger } from "../../logging/logger.js";
 
 interface BucketEntry {
   tokens: number;
@@ -82,7 +83,9 @@ export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
           // the per-IP and global buckets never collide if the bucket store
           // is ever shared across middleware instances.
           key = "unknown";
-          console.warn("[rate-limit] Could not resolve client IP — using shared bucket");
+          logger.warn("could not resolve client IP — using shared bucket", {
+            component: "rate-limit",
+          });
         }
       }
     }

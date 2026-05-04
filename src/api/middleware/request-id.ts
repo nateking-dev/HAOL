@@ -1,5 +1,7 @@
 import type { MiddlewareHandler } from "hono";
 import { randomUUID } from "node:crypto";
+import { runWithContext } from "../../logging/context.js";
+import type { HonoEnv } from "../types.js";
 
 const MAX_LEN = 128;
 // Strip ASCII control characters (incl. CR/LF) to prevent log-injection from
@@ -11,10 +13,13 @@ function sanitize(raw: string): string {
   return cleaned.length > 0 ? cleaned : randomUUID();
 }
 
-export const requestId: MiddlewareHandler = async (c, next) => {
+export const requestId: MiddlewareHandler<HonoEnv> = async (c, next) => {
   const supplied = c.req.header("X-Request-ID");
   const id = supplied ? sanitize(supplied) : randomUUID();
   c.set("requestId", id);
   c.header("X-Request-ID", id);
-  await next();
+  // Bind the request id into AsyncLocalStorage so any logger.* call made
+  // during this request's lifecycle (handlers, middleware, sync work the
+  // worker performs before returning 202) carries request_id automatically.
+  await runWithContext({ request_id: id }, () => next());
 };

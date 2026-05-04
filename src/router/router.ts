@@ -21,6 +21,7 @@ import {
 } from "../services/outcome-collector.js";
 import { loadConfig } from "../cascade-router/reference-store.js";
 import type { CascadeTrace } from "../cascade-router/types.js";
+import { logger } from "../logging/logger.js";
 
 export const DEFAULT_TIMEOUT_MS: Record<ComplexityTier, number> = {
   1: 15_000,
@@ -217,7 +218,10 @@ export async function routeTask(
       }
     } catch (outcomeErr) {
       // best-effort — never fail the task due to outcome collection
-      console.warn("Outcome collection failed:", (outcomeErr as Error).message);
+      logger.warn("outcome collection failed", {
+        component: "router",
+        error: (outcomeErr as Error).message,
+      });
     }
 
     // 8. Commit

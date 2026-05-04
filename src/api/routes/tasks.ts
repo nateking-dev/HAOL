@@ -6,8 +6,9 @@ import { RouterTaskInput } from "../../types/router.js";
 import { uuidv7, sha256 } from "../../types/task.js";
 import * as worker from "../../services/task-worker.js";
 import { NotFoundError, ValidationError } from "../middleware/error-handler.js";
+import type { HonoEnv } from "../types.js";
 
-const tasks = new Hono();
+const tasks = new Hono<HonoEnv>();
 
 /**
  * Async intake. We do the bare minimum synchronously — validate, allocate
@@ -40,7 +41,7 @@ tasks.post("/tasks", async (c) => {
     constraints: parsed.data.constraints as Record<string, unknown> | undefined,
     expected_format: parsed.data.expected_format as Record<string, unknown> | undefined,
   });
-  const enqueueResult = worker.enqueue(taskId, parsed.data);
+  const enqueueResult = worker.enqueue(taskId, parsed.data, c.get("requestId"));
   if (enqueueResult !== "ok") {
     // Lost the race against another concurrent intake or shutdown — leave
     // the row QUEUED for the reaper rather than orphaning the caller.

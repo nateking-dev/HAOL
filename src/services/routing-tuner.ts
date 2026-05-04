@@ -3,6 +3,7 @@ import { doltCommit } from "../db/dolt.js";
 import { uuidv7 } from "../types/task.js";
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import type { TierId } from "../cascade-router/types.js";
+import { logger } from "../logging/logger.js";
 
 const MIN_UTTERANCE_LENGTH = 20;
 
@@ -688,7 +689,10 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
           author: "haol-tuner <haol@system>",
         });
       } catch (commitErr) {
-        console.error("doltCommit failed after tuning run:", commitErr);
+        logger.error("doltCommit failed after tuning run", {
+          component: "routing-tuner",
+          error: (commitErr as Error).message,
+        });
       }
     }
 
@@ -701,7 +705,10 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
           [err instanceof Error ? err.message : "unknown", runId],
         );
       } catch (updateErr) {
-        console.error("Failed to mark tuning_run as failed:", updateErr);
+        logger.error("failed to mark tuning_run as failed", {
+          component: "routing-tuner",
+          error: (updateErr as Error).message,
+        });
       }
     }
     throw err;

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import { rateLimit } from "../../../src/api/middleware/rate-limit.js";
+import { _setDestinationForTests } from "../../../src/logging/logger.js";
+import { CaptureStream, LogLevel, setLogLevel } from "../../helpers/capture-stream.js";
 
 interface AppOpts {
   limit: number;
@@ -21,16 +23,20 @@ function reqFrom(ip: string) {
 }
 
 describe("rateLimit middleware", () => {
-  let warnSpy: ReturnType<typeof vi.spyOn>;
+  let capture: CaptureStream;
+  let restoreLogLevel: () => void;
 
   beforeEach(() => {
-    // The middleware logs a warn when getConnInfo fails (no socket in test
-    // requests). Suppress so test output stays clean.
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The middleware emits a structured warn when getConnInfo fails (no
+    // socket in test requests). Capture pino output instead of console.
+    restoreLogLevel = setLogLevel("trace");
+    capture = new CaptureStream();
+    _setDestinationForTests(capture);
   });
 
   afterEach(() => {
-    warnSpy.mockRestore();
+    _setDestinationForTests(undefined);
+    restoreLogLevel();
     vi.useRealTimers();
   });
 
@@ -146,7 +152,9 @@ describe("rateLimit middleware", () => {
       const r2 = await app.request("/ping");
       expect(r1.status).toBe(200);
       expect(r2.status).toBe(429);
-      expect(warnSpy).toHaveBeenCalled();
+      const warns = capture.records(LogLevel.WARN);
+      expect(warns.length).toBeGreaterThan(0);
+      expect(warns[0]).toMatchObject({ component: "rate-limit" });
     });
   });
 

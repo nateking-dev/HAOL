@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CascadeRouter } from "../../src/cascade-router/cascade-router.js";
+import { _setDestinationForTests } from "../../src/logging/logger.js";
+import { CaptureStream, LogLevel, setLogLevel } from "../helpers/capture-stream.js";
 import type {
   EmbeddingProvider,
   EscalationProvider,
@@ -290,15 +292,24 @@ describe("CascadeRouter", () => {
       ]);
       mockLoadUtterances.mockResolvedValue([]);
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const router = await CascadeRouter.create();
-      await router.classify({ prompt: "aaaaaa" });
+      const restoreLogLevel = setLogLevel("trace");
+      const capture = new CaptureStream();
+      _setDestinationForTests(capture);
+      try {
+        const router = await CascadeRouter.create();
+        await router.classify({ prompt: "aaaaaa" });
 
-      expect(warnSpy).toHaveBeenCalledOnce();
-      const message = warnSpy.mock.calls[0][0] as string;
-      expect(message).toContain("r-unsafe");
-      expect(message).not.toContain(unsafePattern);
-      warnSpy.mockRestore();
+        const warns = capture.records(LogLevel.WARN);
+        expect(warns).toHaveLength(1);
+        // The rule_id is logged as a structured field; the unsafe regex
+        // pattern itself must never be logged (ReDoS amplification risk).
+        expect(warns[0].rule_id).toBe("r-unsafe");
+        const serialized = JSON.stringify(warns[0]);
+        expect(serialized).not.toContain(unsafePattern);
+      } finally {
+        _setDestinationForTests(undefined);
+        restoreLogLevel();
+      }
     });
 
     it("matches contains rules", async () => {

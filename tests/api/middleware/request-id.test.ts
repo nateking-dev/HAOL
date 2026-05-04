@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import { requestId } from "../../../src/api/middleware/request-id.js";
+import { getContext } from "../../../src/logging/context.js";
 
 function buildApp() {
   const app = new Hono();
@@ -82,6 +83,34 @@ describe("requestId middleware", () => {
       const clean = "req_2026-05-02_abcdef-0123";
       const res = await app.request("/echo", { headers: { "X-Request-ID": clean } });
       expect(res.headers.get("X-Request-ID")).toBe(clean);
+    });
+  });
+
+  describe("AsyncLocalStorage propagation", () => {
+    it("binds request_id into AsyncLocalStorage for handler/log code", async () => {
+      // Anything calling getContext() or logger.* during the request must see
+      // the same id as the X-Request-ID header — that's the whole point of
+      // structured logging with request correlation.
+      const app = new Hono();
+      app.use("*", requestId);
+      app.get("/ctx", (c) => c.json({ header: c.get("requestId"), als: getContext().request_id }));
+
+      const res = await app.request("/ctx", {
+        headers: { "X-Request-ID": "req-correlation-test" },
+      });
+      const body = (await res.json()) as { header: string; als: string };
+      expect(body.als).toBe("req-correlation-test");
+      expect(body.als).toBe(body.header);
+    });
+
+    it("does not leak request_id outside the request's async scope", async () => {
+      const app = new Hono();
+      app.use("*", requestId);
+      app.get("/ping", (c) => c.json({ ok: true }));
+
+      await app.request("/ping", { headers: { "X-Request-ID": "req-leak-check" } });
+      // After the request completes, the outer scope must have no context.
+      expect(getContext().request_id).toBeUndefined();
     });
   });
 });

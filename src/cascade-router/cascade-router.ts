@@ -18,6 +18,7 @@ import type { TaskInput, TaskClassification } from "../types/task.js";
 import * as store from "./reference-store.js";
 import { rankBySimilarity, weightedTierVote } from "./similarity.js";
 import safe from "safe-regex";
+import { logger } from "../logging/logger.js";
 
 export interface CascadeRouterOpts {
   embeddingProvider?: EmbeddingProvider;
@@ -359,7 +360,10 @@ export class CascadeRouter {
         case "regex":
           try {
             if (!safe(rule.pattern)) {
-              console.warn(`Unsafe regex pattern rejected (ReDoS risk): rule=${rule.rule_id}`);
+              logger.warn("unsafe regex pattern rejected (ReDoS risk)", {
+                component: "cascade-router",
+                rule_id: rule.rule_id,
+              });
               // Log rejection so it surfaces in observability
               store
                 .logDecision(uuidv7(), prompt, rule.tier_id, "deterministic", null, 0, 0, {
