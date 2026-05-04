@@ -1,28 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Writable } from "node:stream";
 import { CascadeRouter } from "../../src/cascade-router/cascade-router.js";
 import { _setDestinationForTests } from "../../src/logging/logger.js";
+import { CaptureStream, LogLevel, setLogLevel } from "../helpers/capture-stream.js";
 import type {
   EmbeddingProvider,
   EscalationProvider,
   TierId,
   TierDefinition,
 } from "../../src/cascade-router/types.js";
-
-class CaptureStream extends Writable {
-  lines: string[] = [];
-  _write(chunk: Buffer | string, _enc: BufferEncoding, cb: () => void): void {
-    this.lines.push(chunk.toString());
-    cb();
-  }
-  records(): Array<Record<string, unknown>> {
-    return this.lines
-      .join("")
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as Record<string, unknown>);
-  }
-}
 
 // Mock DB layer
 vi.mock("../../src/cascade-router/reference-store.js", () => ({
@@ -307,15 +292,14 @@ describe("CascadeRouter", () => {
       ]);
       mockLoadUtterances.mockResolvedValue([]);
 
-      const prevLevel = process.env.LOG_LEVEL;
-      process.env.LOG_LEVEL = "trace";
+      const restoreLogLevel = setLogLevel("trace");
       const capture = new CaptureStream();
       _setDestinationForTests(capture);
       try {
         const router = await CascadeRouter.create();
         await router.classify({ prompt: "aaaaaa" });
 
-        const warns = capture.records().filter((r) => r.level === 40);
+        const warns = capture.records(LogLevel.WARN);
         expect(warns).toHaveLength(1);
         // The rule_id is logged as a structured field; the unsafe regex
         // pattern itself must never be logged (ReDoS amplification risk).
@@ -324,8 +308,7 @@ describe("CascadeRouter", () => {
         expect(serialized).not.toContain(unsafePattern);
       } finally {
         _setDestinationForTests(undefined);
-        if (prevLevel === undefined) delete process.env.LOG_LEVEL;
-        else process.env.LOG_LEVEL = prevLevel;
+        restoreLogLevel();
       }
     });
 

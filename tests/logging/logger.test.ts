@@ -1,36 +1,22 @@
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
-import { Writable } from "node:stream";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { logger, _setDestinationForTests } from "../../src/logging/logger.js";
 import { runWithContext, getContext } from "../../src/logging/context.js";
-
-class CaptureStream extends Writable {
-  lines: string[] = [];
-  _write(chunk: Buffer | string, _enc: BufferEncoding, cb: () => void): void {
-    this.lines.push(chunk.toString());
-    cb();
-  }
-  records(): Array<Record<string, unknown>> {
-    return this.lines
-      .join("")
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as Record<string, unknown>);
-  }
-}
+import { CaptureStream, LogLevel, setLogLevel } from "../helpers/capture-stream.js";
 
 let capture: CaptureStream;
+let restoreLogLevel: () => void;
 
 beforeEach(() => {
   capture = new CaptureStream();
   // The logger is built lazily under the test stream; level=trace forces
   // every method to emit so we can assert against any call.
-  process.env.LOG_LEVEL = "trace";
+  restoreLogLevel = setLogLevel("trace");
   _setDestinationForTests(capture);
 });
 
-afterAll(() => {
-  delete process.env.LOG_LEVEL;
+afterEach(() => {
   _setDestinationForTests(undefined);
+  restoreLogLevel();
 });
 
 describe("logger", () => {
@@ -48,7 +34,7 @@ describe("logger", () => {
       msg: "rate limited",
       route: "/v1/tasks",
       retry_after: 5,
-      level: 40,
+      level: LogLevel.WARN,
     });
   });
 

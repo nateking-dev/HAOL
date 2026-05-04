@@ -1,24 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
-import { Writable } from "node:stream";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import { createApiKeyAuth } from "../../../src/api/middleware/api-key-auth.js";
 import { _setDestinationForTests } from "../../../src/logging/logger.js";
-
-class CaptureStream extends Writable {
-  lines: string[] = [];
-  _write(chunk: Buffer | string, _enc: BufferEncoding, cb: () => void): void {
-    this.lines.push(chunk.toString());
-    cb();
-  }
-  records(level?: number): Array<Record<string, unknown>> {
-    const recs = this.lines
-      .join("")
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as Record<string, unknown>);
-    return level === undefined ? recs : recs.filter((r) => r.level === level);
-  }
-}
+import { CaptureStream, LogLevel, setLogLevel } from "../../helpers/capture-stream.js";
 
 function buildApp() {
   const app = new Hono();
@@ -30,9 +14,10 @@ function buildApp() {
 
 describe("createApiKeyAuth", () => {
   let capture: CaptureStream;
+  let restoreLogLevel: () => void;
 
   beforeEach(() => {
-    process.env.LOG_LEVEL = "trace";
+    restoreLogLevel = setLogLevel("trace");
     capture = new CaptureStream();
     _setDestinationForTests(capture);
   });
@@ -40,10 +25,7 @@ describe("createApiKeyAuth", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     _setDestinationForTests(undefined);
-  });
-
-  afterAll(() => {
-    delete process.env.LOG_LEVEL;
+    restoreLogLevel();
   });
 
   describe("when HAOL_API_KEY is unset", () => {
@@ -63,7 +45,7 @@ describe("createApiKeyAuth", () => {
       await app.request("/protected/ping");
       await app.request("/protected/ping");
       await app.request("/protected/ping");
-      const warns = capture.records(40);
+      const warns = capture.records(LogLevel.WARN);
       expect(warns).toHaveLength(1);
       expect(warns[0].msg).toMatch(/HAOL_API_KEY is not set/);
     });
@@ -75,7 +57,7 @@ describe("createApiKeyAuth", () => {
       const appB = buildApp();
       await appA.request("/protected/ping");
       await appB.request("/protected/ping");
-      expect(capture.records(40)).toHaveLength(2);
+      expect(capture.records(LogLevel.WARN)).toHaveLength(2);
     });
   });
 
@@ -150,7 +132,7 @@ describe("createApiKeyAuth", () => {
       await app.request("/protected/ping", {
         headers: { Authorization: `Bearer ${SECRET}` },
       });
-      expect(capture.records(40)).toHaveLength(0);
+      expect(capture.records(LogLevel.WARN)).toHaveLength(0);
     });
 
     it("does not gate routes outside the configured prefix", async () => {
@@ -182,7 +164,7 @@ describe("validateApiKeyConfig", () => {
   it("exits with code 1 in production when HAOL_API_KEY is unset", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("HAOL_API_KEY", "");
-    process.env.LOG_LEVEL = "trace";
+    const restoreLogLevel = setLogLevel("trace");
     // Re-import with fresh module state so the IS_PRODUCTION constant is
     // re-evaluated against the stubbed env. The logger module also reloads
     // here, so we must rebind the test destination to the fresh instance.
@@ -190,13 +172,16 @@ describe("validateApiKeyConfig", () => {
     const capture = new CaptureStream();
     const logging = await import("../../../src/logging/logger.js");
     logging._setDestinationForTests(capture);
-    const { validateApiKeyConfig } = await import("../../../src/api/middleware/api-key-auth.js");
-    expect(() => validateApiKeyConfig()).toThrow(/process\.exit\(1\)/);
-    const fatals = capture.records(60);
-    expect(fatals.length).toBeGreaterThan(0);
-    expect(fatals[0].msg).toMatch(/HAOL_API_KEY is not set/);
-    logging._setDestinationForTests(undefined);
-    delete process.env.LOG_LEVEL;
+    try {
+      const { validateApiKeyConfig } = await import("../../../src/api/middleware/api-key-auth.js");
+      expect(() => validateApiKeyConfig()).toThrow(/process\.exit\(1\)/);
+      const fatals = capture.records(LogLevel.FATAL);
+      expect(fatals.length).toBeGreaterThan(0);
+      expect(fatals[0].msg).toMatch(/HAOL_API_KEY is not set/);
+    } finally {
+      logging._setDestinationForTests(undefined);
+      restoreLogLevel();
+    }
   });
 
   it("does not exit in production when HAOL_API_KEY is set", async () => {

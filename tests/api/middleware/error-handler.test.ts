@@ -1,5 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
-import { Writable } from "node:stream";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
 import { z } from "zod";
 import {
@@ -9,22 +8,7 @@ import {
   NoAgentAvailableError,
 } from "../../../src/api/middleware/error-handler.js";
 import { _setDestinationForTests } from "../../../src/logging/logger.js";
-
-class CaptureStream extends Writable {
-  lines: string[] = [];
-  _write(chunk: Buffer | string, _enc: BufferEncoding, cb: () => void): void {
-    this.lines.push(chunk.toString());
-    cb();
-  }
-  errorRecords(): Array<Record<string, unknown>> {
-    return this.lines
-      .join("")
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as Record<string, unknown>)
-      .filter((r) => typeof r.level === "number" && (r.level as number) >= 50);
-  }
-}
+import { CaptureStream, LogLevel, setLogLevel } from "../../helpers/capture-stream.js";
 
 function buildAppThatThrows(err: unknown) {
   const app = new Hono();
@@ -37,20 +21,18 @@ function buildAppThatThrows(err: unknown) {
 
 describe("errorHandler", () => {
   let capture: CaptureStream;
+  let restoreLogLevel: () => void;
 
   beforeEach(() => {
     // Capture structured logs from the 500 path so we can assert against them.
-    process.env.LOG_LEVEL = "trace";
+    restoreLogLevel = setLogLevel("trace");
     capture = new CaptureStream();
     _setDestinationForTests(capture);
   });
 
   afterEach(() => {
     _setDestinationForTests(undefined);
-  });
-
-  afterAll(() => {
-    delete process.env.LOG_LEVEL;
+    restoreLogLevel();
   });
 
   it("maps ValidationError to 400 with the original message", async () => {
@@ -135,7 +117,7 @@ describe("errorHandler", () => {
     // Sensitive internal detail must not leak in the response body.
     expect(body.error).not.toMatch(/hunter2/);
     // But it should be logged as a structured error so operators can debug.
-    const errors = capture.errorRecords();
+    const errors = capture.records(LogLevel.ERROR);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0]).toMatchObject({ msg: "unhandled error" });
   });
@@ -143,6 +125,6 @@ describe("errorHandler", () => {
   it("does not log when the error type is recognized", async () => {
     const app = buildAppThatThrows(new NotFoundError("missing"));
     await app.request("/boom");
-    expect(capture.errorRecords()).toHaveLength(0);
+    expect(capture.records(LogLevel.ERROR)).toHaveLength(0);
   });
 });

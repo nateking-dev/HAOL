@@ -1,24 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
-import { Writable } from "node:stream";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import { rateLimit } from "../../../src/api/middleware/rate-limit.js";
 import { _setDestinationForTests } from "../../../src/logging/logger.js";
-
-class CaptureStream extends Writable {
-  lines: string[] = [];
-  _write(chunk: Buffer | string, _enc: BufferEncoding, cb: () => void): void {
-    this.lines.push(chunk.toString());
-    cb();
-  }
-  warnRecords(): Array<Record<string, unknown>> {
-    return this.lines
-      .join("")
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as Record<string, unknown>)
-      .filter((r) => r.level === 40);
-  }
-}
+import { CaptureStream, LogLevel, setLogLevel } from "../../helpers/capture-stream.js";
 
 interface AppOpts {
   limit: number;
@@ -40,22 +24,20 @@ function reqFrom(ip: string) {
 
 describe("rateLimit middleware", () => {
   let capture: CaptureStream;
+  let restoreLogLevel: () => void;
 
   beforeEach(() => {
     // The middleware emits a structured warn when getConnInfo fails (no
     // socket in test requests). Capture pino output instead of console.
-    process.env.LOG_LEVEL = "trace";
+    restoreLogLevel = setLogLevel("trace");
     capture = new CaptureStream();
     _setDestinationForTests(capture);
   });
 
   afterEach(() => {
     _setDestinationForTests(undefined);
+    restoreLogLevel();
     vi.useRealTimers();
-  });
-
-  afterAll(() => {
-    delete process.env.LOG_LEVEL;
   });
 
   describe("token bucket basics", () => {
@@ -170,7 +152,7 @@ describe("rateLimit middleware", () => {
       const r2 = await app.request("/ping");
       expect(r1.status).toBe(200);
       expect(r2.status).toBe(429);
-      const warns = capture.warnRecords();
+      const warns = capture.records(LogLevel.WARN);
       expect(warns.length).toBeGreaterThan(0);
       expect(warns[0]).toMatchObject({ component: "rate-limit" });
     });
