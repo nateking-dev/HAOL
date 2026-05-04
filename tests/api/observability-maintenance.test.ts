@@ -38,7 +38,7 @@ describe("GET /observability/stats/orphaned-pending", () => {
   it("returns orphaned_pending count", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/observability/stats/orphaned-pending");
+    const res = await app.request("/v1/observability/stats/orphaned-pending");
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -49,7 +49,7 @@ describe("GET /observability/stats/orphaned-pending", () => {
   it("accepts max_age_hours parameter", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/observability/stats/orphaned-pending?max_age_hours=48");
+    const res = await app.request("/v1/observability/stats/orphaned-pending?max_age_hours=48");
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -61,7 +61,7 @@ describe("POST /observability/maintenance/cleanup-pending", () => {
   it("returns deleted count with committed null when nothing deleted", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/observability/maintenance/cleanup-pending", {
+    const res = await app.request("/v1/observability/maintenance/cleanup-pending", {
       method: "POST",
     });
     expect(res.status).toBe(200);
@@ -80,9 +80,12 @@ describe("POST /observability/maintenance/cleanup-pending", () => {
   it("accepts max_age_hours parameter", async ({ skip }) => {
     if (!doltAvailable) skip();
 
-    const res = await app.request("/observability/maintenance/cleanup-pending?max_age_hours=48", {
-      method: "POST",
-    });
+    const res = await app.request(
+      "/v1/observability/maintenance/cleanup-pending?max_age_hours=48",
+      {
+        method: "POST",
+      },
+    );
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -95,7 +98,7 @@ describe("POST /observability/maintenance/cleanup-pending", () => {
     const originalKey = process.env.HAOL_API_KEY;
     process.env.HAOL_API_KEY = "test-secret-key";
     try {
-      const res = await app.request("/observability/maintenance/cleanup-pending", {
+      const res = await app.request("/v1/observability/maintenance/cleanup-pending", {
         method: "POST",
       });
       expect(res.status).toBe(401);
@@ -114,7 +117,7 @@ describe("POST /observability/maintenance/cleanup-pending", () => {
     const originalKey = process.env.HAOL_API_KEY;
     process.env.HAOL_API_KEY = "test-secret-key";
     try {
-      const res = await app.request("/observability/maintenance/cleanup-pending", {
+      const res = await app.request("/v1/observability/maintenance/cleanup-pending", {
         method: "POST",
         headers: { Authorization: "Bearer test-secret-key" },
       });

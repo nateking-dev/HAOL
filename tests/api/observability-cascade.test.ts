@@ -78,7 +78,7 @@ describe("GET /observability/cascade", () => {
     const pool = getPool();
     await pool.query("DELETE FROM routing_log WHERE input_text LIKE ?", [`${TEST_INPUT_PREFIX}%`]);
 
-    const res = await app.request("/observability/cascade?hours=1");
+    const res = await app.request("/v1/observability/cascade?hours=1");
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toHaveProperty("window_hours", 1);
@@ -114,7 +114,7 @@ describe("GET /observability/cascade", () => {
       { layer: "fallback", tier: 3, latency: 0, conf: 0, sim: null },
     ]);
 
-    const res = await app.request("/observability/cascade?hours=1");
+    const res = await app.request("/v1/observability/cascade?hours=1");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       total_decisions: number;
@@ -154,7 +154,7 @@ describe("GET /observability/cascade", () => {
     await pool.query("DELETE FROM routing_log WHERE input_text LIKE ?", [`${TEST_INPUT_PREFIX}%`]);
     await seedRoutingLog([{ layer: "escalation", tier: 3, latency: 450, conf: 0.85, sim: 0.4 }]);
 
-    const res = await app.request("/observability/cascade?hours=1&include_text=true");
+    const res = await app.request("/v1/observability/cascade?hours=1&include_text=true");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       near_misses: Array<{ input_text_sha256: string; input_text?: string }>;
@@ -166,7 +166,7 @@ describe("GET /observability/cascade", () => {
 
   it("clamps the hours parameter to the valid range", async ({ skip }) => {
     if (!doltAvailable) skip();
-    const res = await app.request("/observability/cascade?hours=999999999");
+    const res = await app.request("/v1/observability/cascade?hours=999999999");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { window_hours: number };
     expect(body.window_hours).toBe(8760); // MAX_HOURS
@@ -176,7 +176,7 @@ describe("GET /observability/cascade", () => {
 describe("GET /observability/cascade/timeseries", () => {
   it("returns hourly buckets by default", async ({ skip }) => {
     if (!doltAvailable) skip();
-    const res = await app.request("/observability/cascade/timeseries?hours=1");
+    const res = await app.request("/v1/observability/cascade/timeseries?hours=1");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { bucket_hours: number; buckets: unknown[] };
     expect(body.bucket_hours).toBe(1);
@@ -185,7 +185,7 @@ describe("GET /observability/cascade/timeseries", () => {
 
   it("accepts bucket=day", async ({ skip }) => {
     if (!doltAvailable) skip();
-    const res = await app.request("/observability/cascade/timeseries?hours=24&bucket=day");
+    const res = await app.request("/v1/observability/cascade/timeseries?hours=24&bucket=day");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { bucket_hours: number };
     expect(body.bucket_hours).toBe(24);
@@ -193,7 +193,7 @@ describe("GET /observability/cascade/timeseries", () => {
 
   it("rejects unsupported bucket values with 400", async ({ skip }) => {
     if (!doltAvailable) skip();
-    const res = await app.request("/observability/cascade/timeseries?bucket=minute");
+    const res = await app.request("/v1/observability/cascade/timeseries?bucket=minute");
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/bucket/);

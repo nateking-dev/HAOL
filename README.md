@@ -350,7 +350,7 @@ When a task includes an `expected_format` spec, the pipeline programmatically ve
 To use Tier 1, include `expected_format` in your task submission:
 
 ```bash
-curl -X POST http://localhost:3000/tasks \
+curl -X POST http://localhost:3000/v1/tasks \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "Return a JSON object with title, summary, and tags",
@@ -377,7 +377,7 @@ Ground-truth signals from systems or humans that consume HAOL's output. These ar
 
 ```bash
 # Report a positive outcome
-curl -X POST http://localhost:3000/tasks/<task_id>/outcome \
+curl -X POST http://localhost:3000/v1/tasks/<task_id>/outcome \
   -H "Content-Type: application/json" \
   -d '{
     "signal_type": "user_satisfied",
@@ -387,7 +387,7 @@ curl -X POST http://localhost:3000/tasks/<task_id>/outcome \
   }'
 
 # Report a negative outcome
-curl -X POST http://localhost:3000/tasks/<task_id>/outcome \
+curl -X POST http://localhost:3000/v1/tasks/<task_id>/outcome \
   -H "Content-Type: application/json" \
   -d '{
     "signal_type": "output_rejected",
@@ -401,13 +401,13 @@ curl -X POST http://localhost:3000/tasks/<task_id>/outcome \
 
 ```bash
 # All outcomes for a task
-curl http://localhost:3000/tasks/<task_id>/outcomes
+curl http://localhost:3000/v1/tasks/<task_id>/outcomes
 
 # Filter by tier
-curl http://localhost:3000/tasks/<task_id>/outcomes?tier=0
+curl http://localhost:3000/v1/tasks/<task_id>/outcomes?tier=0
 
 # Aggregated summary
-curl http://localhost:3000/tasks/<task_id>/outcomes/summary
+curl http://localhost:3000/v1/tasks/<task_id>/outcomes/summary
 ```
 
 The summary endpoint returns signal counts broken down by tier:
@@ -451,10 +451,10 @@ Two observability endpoints aggregate outcome data across all tasks:
 
 ```bash
 # Signal pass/fail rates by type (last 24 hours)
-curl http://localhost:3000/stats/outcomes?hours=24
+curl http://localhost:3000/v1/observability/stats/outcomes?hours=24
 
 # Per-agent routing accuracy from Tier 2+3 signals
-curl http://localhost:3000/stats/routing-accuracy?hours=24
+curl http://localhost:3000/v1/observability/stats/routing-accuracy?hours=24
 ```
 
 ### Cascade router observability
@@ -467,17 +467,17 @@ Two endpoints aggregate `routing_log` so you can see how the cascade is performi
 # (decisions where the semantic layer was consulted but did not resolve,
 # sorted by similarity_score DESC — these are the most informative for
 # tuning similarity_threshold).
-curl http://localhost:3000/observability/cascade?hours=24
+curl http://localhost:3000/v1/observability/cascade?hours=24
 
 # Time-series: bucketed escalation_rate, fallback_rate, total volume,
 # and avg_latency_ms over time. bucket=hour (default) or bucket=day.
-curl http://localhost:3000/observability/cascade/timeseries?hours=72&bucket=hour
+curl http://localhost:3000/v1/observability/cascade/timeseries?hours=72&bucket=hour
 
 # Near-misses include only a SHA-256 hash of the input prompt by default,
 # so observability access (which is auth-gated) doesn't double as a PII
 # firehose for whoever holds the API key. Pass include_text=true to opt
 # into raw prompt content for ad-hoc debugging.
-curl http://localhost:3000/observability/cascade?hours=24&include_text=true
+curl http://localhost:3000/v1/observability/cascade?hours=24&include_text=true
 ```
 
 Snapshot response shape:
@@ -583,13 +583,13 @@ Via API:
 
 ```bash
 # Dry run
-curl -X POST "http://localhost:3000/observability/tune?hours=72&dry_run=true"
+curl -X POST "http://localhost:3000/v1/observability/tune?hours=72&dry_run=true"
 
 # Live run
-curl -X POST "http://localhost:3000/observability/tune?hours=72"
+curl -X POST "http://localhost:3000/v1/observability/tune?hours=72"
 
 # Tuning history
-curl "http://localhost:3000/observability/tune/history?limit=10"
+curl "http://localhost:3000/v1/observability/tune/history?limit=10"
 ```
 
 ### Configuration
@@ -767,30 +767,30 @@ Tests skip gracefully when Dolt is unavailable. The cascade router has full unit
 
 ```bash
 # Submit a task
-curl -X POST http://localhost:3000/tasks \
+curl -X POST http://localhost:3000/v1/tasks \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Summarize the key points of this article..."}'
 
 # Submit with tier override
-curl -X POST http://localhost:3000/tasks \
+curl -X POST http://localhost:3000/v1/tasks \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Hello", "metadata": {"tier": 4}}'
 
 # Check task status
-curl http://localhost:3000/tasks/<task_id>
+curl http://localhost:3000/v1/tasks/<task_id>
 ```
 
 ### Agent Management
 
 ```bash
 # List agents
-curl http://localhost:3000/agents
+curl http://localhost:3000/v1/agents
 
 # Filter by capability
-curl http://localhost:3000/agents?capability=code_generation
+curl http://localhost:3000/v1/agents?capability=code_generation
 
 # Register an agent
-curl -X POST http://localhost:3000/agents \
+curl -X POST http://localhost:3000/v1/agents \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "claude-sonnet",
@@ -807,27 +807,27 @@ curl -X POST http://localhost:3000/agents \
 
 ```bash
 # Dashboard overview
-curl http://localhost:3000/stats
+curl http://localhost:3000/v1/observability/stats
 
 # Cost, latency, failures, tiers, breaches
-curl http://localhost:3000/stats/cost?hours=24
-curl http://localhost:3000/stats/latency?hours=24
-curl http://localhost:3000/stats/failures?hours=24
-curl http://localhost:3000/stats/tiers?hours=24
-curl http://localhost:3000/stats/breaches
+curl http://localhost:3000/v1/observability/stats/cost?hours=24
+curl http://localhost:3000/v1/observability/stats/latency?hours=24
+curl http://localhost:3000/v1/observability/stats/failures?hours=24
+curl http://localhost:3000/v1/observability/stats/tiers?hours=24
+curl http://localhost:3000/v1/observability/stats/breaches
 
 # Outcome signals and routing accuracy
-curl http://localhost:3000/stats/outcomes?hours=24
-curl http://localhost:3000/stats/routing-accuracy?hours=24
+curl http://localhost:3000/v1/observability/stats/outcomes?hours=24
+curl http://localhost:3000/v1/observability/stats/routing-accuracy?hours=24
 
 # Routing tuner
-curl -X POST "http://localhost:3000/observability/tune?hours=72"
-curl -X POST "http://localhost:3000/observability/tune?dry_run=true"
-curl http://localhost:3000/observability/tune/history?limit=10
+curl -X POST "http://localhost:3000/v1/observability/tune?hours=72"
+curl -X POST "http://localhost:3000/v1/observability/tune?dry_run=true"
+curl http://localhost:3000/v1/observability/tune/history?limit=10
 
 # Audit trail
-curl http://localhost:3000/audit/commits?limit=50
-curl http://localhost:3000/audit/agents?since=7d
+curl http://localhost:3000/v1/observability/audit/commits?limit=50
+curl http://localhost:3000/v1/observability/audit/agents?since=7d
 ```
 
 ### Health Check

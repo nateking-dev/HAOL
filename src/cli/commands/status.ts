@@ -7,7 +7,7 @@ export interface StatusCommandOptions {
 }
 
 export async function statusCommand(opts: StatusCommandOptions): Promise<string> {
-  const res = await fetch(`${opts.baseUrl}/tasks/${opts.taskId}`);
+  const res = await fetch(`${opts.baseUrl}/v1/tasks/${opts.taskId}`);
   const data = await res.json();
 
   if (!res.ok && opts.format !== "json") {

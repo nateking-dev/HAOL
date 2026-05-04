@@ -31,7 +31,7 @@ async function pollTask(baseUrl: string, taskId: string, timeoutMs: number): Pro
   while (Date.now() < deadline) {
     let res: Response;
     try {
-      res = await fetch(`${baseUrl}/tasks/${taskId}`);
+      res = await fetch(`${baseUrl}/v1/tasks/${taskId}`);
     } catch (err) {
       // Network error — surface immediately rather than spinning to deadline.
       return { task_id: taskId, error: `poll request failed: ${(err as Error).message}` };
@@ -71,7 +71,7 @@ export async function taskCommand(opts: TaskCommandOptions): Promise<string> {
       (body.metadata as Record<string, unknown>).capabilities = opts.capabilities;
   }
 
-  const res = await fetch(`${opts.baseUrl}/tasks`, {
+  const res = await fetch(`${opts.baseUrl}/v1/tasks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

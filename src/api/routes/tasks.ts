@@ -48,13 +48,13 @@ tasks.post("/tasks", async (c) => {
     return c.json({ error: "task queue unavailable, retry shortly" }, 503);
   }
 
-  c.header("Location", `/tasks/${taskId}`);
+  c.header("Location", `/v1/tasks/${taskId}`);
   c.header("Retry-After", "1");
   return c.json(
     {
       task_id: taskId,
       status: "QUEUED",
-      links: { self: `/tasks/${taskId}` },
+      links: { self: `/v1/tasks/${taskId}` },
     },
     202,
   );

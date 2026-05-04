@@ -348,7 +348,7 @@ async function fetchAgentCapabilities(): Promise<Map<string, string[]>> {
   // against the chosen agent's configured capability set. Returns an empty map
   // on any failure — capability checks are skipped, tier checks still run.
   try {
-    const resp = await fetch(`${BASE_URL}/agents`, { headers: authHeaders() });
+    const resp = await fetch(`${BASE_URL}/v1/agents`, { headers: authHeaders() });
     if (!resp.ok) return new Map();
     const body = (await resp.json()) as { agent_id: string; capabilities: string[] }[];
     return new Map(body.map((a) => [a.agent_id, a.capabilities ?? []]));
@@ -366,7 +366,7 @@ async function submitTask(scenario: Scenario): Promise<ScenarioResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), scenarioTimeout + 5_000);
   try {
-    const resp = await fetch(`${BASE_URL}/tasks`, {
+    const resp = await fetch(`${BASE_URL}/v1/tasks`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify(scenario.request),
