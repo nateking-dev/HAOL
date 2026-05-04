@@ -46,7 +46,11 @@ async function routerCommit(message: string): Promise<void> {
 // Memory layer is best-effort: a Dolt branching outage must not take down
 // task routing. Failures are logged at warn level and the session handle is
 // dropped — subsequent memory steps for that task become no-ops.
-async function bestEffortMemory<T>(step: string, taskId: string, fn: () => Promise<T>): Promise<T | null> {
+async function bestEffortMemory<T>(
+  step: string,
+  taskId: string,
+  fn: () => Promise<T>,
+): Promise<T | null> {
   try {
     return await fn();
   } catch (err) {
