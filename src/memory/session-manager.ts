@@ -135,11 +135,13 @@ export async function commitSession(session: SessionHandle): Promise<void> {
     // the common (clean working set) case doesn't add a noisy "pre-merge
     // flush" entry to main's log on every successful task.
     //
-    // We deliberately check ANY row in dolt_status, not just staged=1:
-    // doltCommit passes -A, which auto-stages working-tree changes, so the
-    // commit captures un-staged residue too — and skipping it on un-staged
-    // residue is exactly the case that triggers the "stomped by merge"
-    // error the flush exists to prevent.
+    // Caveat: the working set on main is shared across connections within
+    // the branch, so residue this commit captures may be from a concurrent
+    // session — meaning the resulting commit on main may be authored under
+    // this task's id even if the residue isn't ours. We accept this rather
+    // than DOLT_RESET --hard, which would wipe legitimate not-yet-Dolt-
+    // committed writes from other connections (e.g. task_log inserts) and
+    // turn an attribution quirk into actual data loss.
     const [statusRows] = await conn.query("SELECT 1 FROM dolt_status LIMIT 1");
     if ((statusRows as unknown[]).length > 0) {
       try {

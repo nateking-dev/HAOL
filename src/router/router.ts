@@ -47,12 +47,17 @@ async function routerCommit(message: string): Promise<void> {
 // task routing. Failures are logged at warn level and the session handle is
 // dropped — subsequent memory steps for that task become no-ops.
 //
-// Each step is bounded by MEMORY_STEP_TIMEOUT_MS so a slow-but-not-failing
-// Dolt cluster can't add unbounded tail latency to the router. The timeout
-// only cancels our await — the underlying Dolt operation continues and may
-// eventually free its pool connection. That's an acceptable tradeoff: we'd
-// rather return to the caller and risk one stuck connection than block the
-// whole task pipeline behind Dolt slowness.
+// Each step is bounded by MEMORY_STEP_TIMEOUT_MS, AND total memory work for
+// a task is bounded by MEMORY_TASK_BUDGET_MS — once the per-task budget is
+// exhausted, remaining steps short-circuit to null without waiting. This
+// caps worst-case tail latency for a slow-but-not-failing Dolt cluster: the
+// pipeline has up to 5 sequential memory steps, and without a shared budget
+// a sick Dolt could otherwise add 5×MEMORY_STEP_TIMEOUT_MS to every task.
+//
+// Timeouts only cancel our await — the underlying Dolt operation continues
+// and may eventually free its pool connection. That's an acceptable
+// tradeoff: we'd rather return to the caller and risk one stuck connection
+// than block the whole task pipeline behind Dolt slowness.
 function memoryStepTimeoutMs(): number {
   const raw = process.env.MEMORY_STEP_TIMEOUT_MS;
   if (!raw) return 5_000;
@@ -60,12 +65,42 @@ function memoryStepTimeoutMs(): number {
   return Number.isFinite(ms) && ms >= 100 ? ms : 5_000;
 }
 
+function memoryTaskBudgetMs(): number {
+  const raw = process.env.MEMORY_TASK_BUDGET_MS;
+  if (!raw) return 8_000;
+  const ms = parseInt(raw, 10);
+  return Number.isFinite(ms) && ms >= 100 ? ms : 8_000;
+}
+
+interface MemoryBudget {
+  startedAt: number;
+  totalMs: number;
+}
+
+function createMemoryBudget(): MemoryBudget {
+  return { startedAt: Date.now(), totalMs: memoryTaskBudgetMs() };
+}
+
+function remainingBudgetMs(budget: MemoryBudget): number {
+  return Math.max(0, budget.totalMs - (Date.now() - budget.startedAt));
+}
+
 async function bestEffortMemory<T>(
   step: string,
   taskId: string,
+  budget: MemoryBudget,
   fn: () => Promise<T>,
 ): Promise<T | null> {
-  const timeoutMs = memoryStepTimeoutMs();
+  const remaining = remainingBudgetMs(budget);
+  if (remaining === 0) {
+    logger.warn("memory step skipped (task budget exhausted)", {
+      component: "router",
+      step,
+      task_id: taskId,
+    });
+    return null;
+  }
+  const timeoutMs = Math.min(memoryStepTimeoutMs(), remaining);
   let timer: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(
@@ -110,6 +145,7 @@ export async function routeTask(
   let cascadeTrace: CascadeTrace | undefined;
   let selectionResult: SelectionResult | undefined;
   let session: SessionHandle | null = null;
+  const memoryBudget = createMemoryBudget();
 
   try {
     // 1. Classify — try cascade router, fall back to old classifier
@@ -171,10 +207,10 @@ export async function routeTask(
     // taskId! — TypeScript can't carry the reassignment narrowing of the
     // outer `let taskId: string | null` across closure boundaries.
     const tid = taskId;
-    session = await bestEffortMemory("createSession", tid, () => createSession(tid));
+    session = await bestEffortMemory("createSession", tid, memoryBudget, () => createSession(tid));
     if (session) {
       const handle = session;
-      await bestEffortMemory("writeContext:classification", tid, () =>
+      await bestEffortMemory("writeContext:classification", tid, memoryBudget, () =>
         writeContext(handle, "classification", classification),
       );
     }
@@ -189,7 +225,7 @@ export async function routeTask(
 
     if (session) {
       const handle = session;
-      await bestEffortMemory("writeContext:selection", tid, () =>
+      await bestEffortMemory("writeContext:selection", tid, memoryBudget, () =>
         writeContext(handle, "selection", selection),
       );
     }
@@ -277,13 +313,13 @@ export async function routeTask(
     // pruneSessionBranches eventually reclaims it based on retention.
     if (session) {
       const handle = session;
-      await bestEffortMemory("writeContext:execution", tid, () =>
+      await bestEffortMemory("writeContext:execution", tid, memoryBudget, () =>
         writeContext(handle, "execution", { records: allExecRecords, final: execResult }),
       );
       if (execResult.outcome === "SUCCESS") {
-        await bestEffortMemory("commitSession", tid, () => commitSession(handle));
+        await bestEffortMemory("commitSession", tid, memoryBudget, () => commitSession(handle));
       } else {
-        await bestEffortMemory("discardSession", tid, () => discardSession(handle));
+        await bestEffortMemory("discardSession", tid, memoryBudget, () => discardSession(handle));
       }
       session = null;
     }
@@ -362,7 +398,9 @@ export async function routeTask(
         // Discard (no-op preserve) so the failed-task branch remains for
         // forensics; pruneSessionBranches reclaims it on retention expiry.
         const handle = session;
-        await bestEffortMemory("discardSession", taskId, () => discardSession(handle));
+        await bestEffortMemory("discardSession", taskId, memoryBudget, () =>
+          discardSession(handle),
+        );
       }
     }
 
