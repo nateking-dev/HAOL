@@ -46,13 +46,35 @@ async function routerCommit(message: string): Promise<void> {
 // Memory layer is best-effort: a Dolt branching outage must not take down
 // task routing. Failures are logged at warn level and the session handle is
 // dropped — subsequent memory steps for that task become no-ops.
+//
+// Each step is bounded by MEMORY_STEP_TIMEOUT_MS so a slow-but-not-failing
+// Dolt cluster can't add unbounded tail latency to the router. The timeout
+// only cancels our await — the underlying Dolt operation continues and may
+// eventually free its pool connection. That's an acceptable tradeoff: we'd
+// rather return to the caller and risk one stuck connection than block the
+// whole task pipeline behind Dolt slowness.
+function memoryStepTimeoutMs(): number {
+  const raw = process.env.MEMORY_STEP_TIMEOUT_MS;
+  if (!raw) return 5_000;
+  const ms = parseInt(raw, 10);
+  return Number.isFinite(ms) && ms >= 100 ? ms : 5_000;
+}
+
 async function bestEffortMemory<T>(
   step: string,
   taskId: string,
   fn: () => Promise<T>,
 ): Promise<T | null> {
+  const timeoutMs = memoryStepTimeoutMs();
+  let timer: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`memory ${step} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
   try {
-    return await fn();
+    return await Promise.race([fn(), timeoutPromise]);
   } catch (err) {
     logger.warn("memory step failed", {
       component: "router",
@@ -61,6 +83,8 @@ async function bestEffortMemory<T>(
       error: (err as Error).message,
     });
     return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

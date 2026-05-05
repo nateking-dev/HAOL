@@ -130,17 +130,20 @@ export async function commitSession(session: SessionHandle): Promise<void> {
     // Pool connections under --no-auto-commit can carry an uncommitted
     // working set on main from earlier writeContext callers (whose branch
     // checkout leaks staged changes back onto main). DOLT_MERGE refuses to
-    // run with "local changes would be stomped by merge". Make a stash-style
-    // commit of whatever's pending so the merge has a clean base —
-    // allowEmpty: true makes this a no-op when the working set is clean.
-    await doltCommit(
-      {
-        message: `session:${session.taskId} | pre-merge flush`,
-        author: "haol-memory <haol@system>",
-        allowEmpty: true,
-      },
-      conn,
-    );
+    // run with "local changes would be stomped by merge", so flush whatever
+    // is pending into a Dolt commit before merging. Gate on dolt_status so
+    // the common (clean working set) case doesn't add a noisy "pre-merge
+    // flush" entry to main's log on every successful task.
+    const [statusRows] = await conn.query("SELECT 1 FROM dolt_status LIMIT 1");
+    if ((statusRows as unknown[]).length > 0) {
+      await doltCommit(
+        {
+          message: `session:${session.taskId} | pre-merge flush`,
+          author: "haol-memory <haol@system>",
+        },
+        conn,
+      );
+    }
     const mergeResult = await doltMerge(session.branch, conn);
     if (mergeResult.conflicts > 0) {
       // Resolve with --ours strategy by committing as-is
