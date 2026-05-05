@@ -134,15 +134,31 @@ export async function commitSession(session: SessionHandle): Promise<void> {
     // is pending into a Dolt commit before merging. Gate on dolt_status so
     // the common (clean working set) case doesn't add a noisy "pre-merge
     // flush" entry to main's log on every successful task.
+    //
+    // We deliberately check ANY row in dolt_status, not just staged=1:
+    // doltCommit passes -A, which auto-stages working-tree changes, so the
+    // commit captures un-staged residue too — and skipping it on un-staged
+    // residue is exactly the case that triggers the "stomped by merge"
+    // error the flush exists to prevent.
     const [statusRows] = await conn.query("SELECT 1 FROM dolt_status LIMIT 1");
     if ((statusRows as unknown[]).length > 0) {
-      await doltCommit(
-        {
-          message: `session:${session.taskId} | pre-merge flush`,
-          author: "haol-memory <haol@system>",
-        },
-        conn,
-      );
+      try {
+        await doltCommit(
+          {
+            message: `session:${session.taskId} | pre-merge flush`,
+            author: "haol-memory <haol@system>",
+          },
+          conn,
+        );
+      } catch (err) {
+        // dolt_status can show rows that -A can't stage (e.g. unresolved
+        // merge conflicts, schema-only changes). Swallow "nothing to
+        // commit" so the merge attempt below proceeds and surfaces the
+        // real error if it can't be performed.
+        if (!(err as Error).message?.includes("nothing to commit")) {
+          throw err;
+        }
+      }
     }
     const mergeResult = await doltMerge(session.branch, conn);
     if (mergeResult.conflicts > 0) {
