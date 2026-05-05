@@ -58,10 +58,18 @@ export async function writeContext(
   value: unknown,
 ): Promise<void> {
   await withBranchConnection(async (conn) => {
+    // Force autocommit on at entry to flush any inherited transaction state
+    // from a prior pool holder. Same defense as createSession/commitSession:
+    // the server's --no-auto-commit default means a connection can arrive
+    // in autocommit=0 with pending writes that would otherwise contaminate
+    // ours, and our writes would be discarded on release.
+    await conn.query("SET @@autocommit = 1");
     await doltCheckout(session.branch, conn);
     try {
-      // Disable autocommit so the upsert stays in the working set
-      // until our explicit DOLT_COMMIT captures it with a message.
+      // Drop to autocommit=0 so the upsert stays in the working set and
+      // our explicit DOLT_COMMIT below captures it as a single Dolt commit
+      // with a descriptive message — instead of the per-statement implicit
+      // commit producing an anonymous one.
       await conn.query("SET @@autocommit = 0");
       await sessionRepo.upsert(session.taskId, key, value, conn);
       await doltCommit(
@@ -71,6 +79,11 @@ export async function writeContext(
         },
         conn,
       );
+      // Explicit COMMIT so the DOLT_COMMIT is durable before the connection
+      // returns to the pool. We do not rely on the implicit commit from
+      // SET @@autocommit=1 in the finally — that's a real MySQL semantic
+      // but obscure, and a future reader should not have to chase it.
+      await conn.query("COMMIT");
     } catch (err) {
       await conn.query("ROLLBACK");
       throw err;
