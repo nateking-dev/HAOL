@@ -22,6 +22,13 @@ import {
 import { loadConfig } from "../cascade-router/reference-store.js";
 import type { CascadeTrace } from "../cascade-router/types.js";
 import { logger } from "../logging/logger.js";
+import {
+  createSession,
+  writeContext,
+  commitSession,
+  discardSession,
+  type SessionHandle,
+} from "../memory/session-manager.js";
 
 export const DEFAULT_TIMEOUT_MS: Record<ComplexityTier, number> = {
   1: 15_000,
@@ -34,6 +41,86 @@ async function routerCommit(message: string): Promise<void> {
   // allowEmpty: true ensures every task gets a Dolt commit for the audit trail,
   // even when the working set is clean (e.g., read-only classification).
   await commitSafely(message, "haol-router <haol@system>", true);
+}
+
+// Memory layer is best-effort: a Dolt branching outage must not take down
+// task routing. Failures are logged at warn level and the session handle is
+// dropped — subsequent memory steps for that task become no-ops.
+//
+// Each step is bounded by MEMORY_STEP_TIMEOUT_MS, AND total memory work for
+// a task is bounded by MEMORY_TASK_BUDGET_MS — once the per-task budget is
+// exhausted, remaining steps short-circuit to null without waiting. This
+// caps worst-case tail latency for a slow-but-not-failing Dolt cluster: the
+// pipeline has up to 5 sequential memory steps, and without a shared budget
+// a sick Dolt could otherwise add 5×MEMORY_STEP_TIMEOUT_MS to every task.
+//
+// Timeouts only cancel our await — the underlying Dolt operation continues
+// and may eventually free its pool connection. That's an acceptable
+// tradeoff: we'd rather return to the caller and risk one stuck connection
+// than block the whole task pipeline behind Dolt slowness.
+function memoryStepTimeoutMs(): number {
+  const raw = process.env.MEMORY_STEP_TIMEOUT_MS;
+  if (!raw) return 5_000;
+  const ms = parseInt(raw, 10);
+  return Number.isFinite(ms) && ms >= 100 ? ms : 5_000;
+}
+
+function memoryTaskBudgetMs(): number {
+  const raw = process.env.MEMORY_TASK_BUDGET_MS;
+  if (!raw) return 8_000;
+  const ms = parseInt(raw, 10);
+  return Number.isFinite(ms) && ms >= 100 ? ms : 8_000;
+}
+
+interface MemoryBudget {
+  startedAt: number;
+  totalMs: number;
+}
+
+function createMemoryBudget(): MemoryBudget {
+  return { startedAt: Date.now(), totalMs: memoryTaskBudgetMs() };
+}
+
+function remainingBudgetMs(budget: MemoryBudget): number {
+  return Math.max(0, budget.totalMs - (Date.now() - budget.startedAt));
+}
+
+async function bestEffortMemory<T>(
+  step: string,
+  taskId: string,
+  budget: MemoryBudget,
+  fn: () => Promise<T>,
+): Promise<T | null> {
+  const remaining = remainingBudgetMs(budget);
+  if (remaining === 0) {
+    logger.warn("memory step skipped (task budget exhausted)", {
+      component: "router",
+      step,
+      task_id: taskId,
+    });
+    return null;
+  }
+  const timeoutMs = Math.min(memoryStepTimeoutMs(), remaining);
+  let timer: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`memory ${step} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([fn(), timeoutPromise]);
+  } catch (err) {
+    logger.warn("memory step failed", {
+      component: "router",
+      step,
+      task_id: taskId,
+      error: (err as Error).message,
+    });
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export interface RouteTaskOptions {
@@ -57,6 +144,8 @@ export async function routeTask(
   let status: TaskResult["status"] = "RECEIVED";
   let cascadeTrace: CascadeTrace | undefined;
   let selectionResult: SelectionResult | undefined;
+  let session: SessionHandle | null = null;
+  const memoryBudget = createMemoryBudget();
 
   try {
     // 1. Classify — try cascade router, fall back to old classifier
@@ -111,6 +200,21 @@ export async function routeTask(
     );
     status = "CLASSIFIED";
 
+    // 3b. Open per-task memory branch. Failures here drop the handle so all
+    // subsequent memory writes/commits become no-ops, but task execution
+    // proceeds normally.
+    // Capture taskId into a non-null const so the lambdas below don't need
+    // taskId! — TypeScript can't carry the reassignment narrowing of the
+    // outer `let taskId: string | null` across closure boundaries.
+    const tid = taskId;
+    session = await bestEffortMemory("createSession", tid, memoryBudget, () => createSession(tid));
+    if (session) {
+      const handle = session;
+      await bestEffortMemory("writeContext:classification", tid, memoryBudget, () =>
+        writeContext(handle, "classification", classification),
+      );
+    }
+
     // 4. Select agent
     const policy = await getActivePolicy();
     const selection = await select(classification, policy ?? undefined);
@@ -118,6 +222,13 @@ export async function routeTask(
 
     await taskLog.updateSelection(taskId, selection.selected_agent_id, selection.rationale);
     status = "DISPATCHED";
+
+    if (session) {
+      const handle = session;
+      await bestEffortMemory("writeContext:selection", tid, memoryBudget, () =>
+        writeContext(handle, "selection", selection),
+      );
+    }
 
     // 5. Execute
     const agentRequest: AgentRequest = {
@@ -197,6 +308,22 @@ export async function routeTask(
       status = "FAILED";
     }
 
+    // 7a. Memory finalization. On SUCCESS we merge the session branch into
+    // main and delete it; on FAILED we keep the branch around for forensics —
+    // pruneSessionBranches eventually reclaims it based on retention.
+    if (session) {
+      const handle = session;
+      await bestEffortMemory("writeContext:execution", tid, memoryBudget, () =>
+        writeContext(handle, "execution", { records: allExecRecords, final: execResult }),
+      );
+      if (execResult.outcome === "SUCCESS") {
+        await bestEffortMemory("commitSession", tid, memoryBudget, () => commitSession(handle));
+      } else {
+        await bestEffortMemory("discardSession", tid, memoryBudget, () => discardSession(handle));
+      }
+      session = null;
+    }
+
     // 7b. Best-effort outcome collection
     try {
       const taskRecord = await taskLog.findById(taskId);
@@ -266,6 +393,14 @@ export async function routeTask(
         await routerCommit(`task:${taskId} | FAILED | ${(err as Error).message}`);
       } catch {
         // best-effort commit
+      }
+      if (session) {
+        // Discard (no-op preserve) so the failed-task branch remains for
+        // forensics; pruneSessionBranches reclaims it on retention expiry.
+        const handle = session;
+        await bestEffortMemory("discardSession", taskId, memoryBudget, () =>
+          discardSession(handle),
+        );
       }
     }
 

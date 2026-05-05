@@ -40,6 +40,12 @@ async function ensureOnMain(conn: Queryable): Promise<void> {
 export async function createSession(taskId: string): Promise<SessionHandle> {
   const branch = branchName(taskId);
   await withBranchConnection(async (conn) => {
+    // The Dolt server runs with --no-auto-commit, so pool connections may
+    // start with autocommit=0. Branch and metadata procedure calls under
+    // autocommit=0 do not persist when the connection is released without
+    // an explicit COMMIT — force autocommit on for the lifetime of this
+    // call so DOLT_BRANCH actually creates the branch.
+    await conn.query("SET @@autocommit = 1");
     await ensureOnMain(conn);
     await doltBranch({ name: branch }, conn);
   });
@@ -52,10 +58,18 @@ export async function writeContext(
   value: unknown,
 ): Promise<void> {
   await withBranchConnection(async (conn) => {
+    // Force autocommit on at entry to flush any inherited transaction state
+    // from a prior pool holder. Same defense as createSession/commitSession:
+    // the server's --no-auto-commit default means a connection can arrive
+    // in autocommit=0 with pending writes that would otherwise contaminate
+    // ours, and our writes would be discarded on release.
+    await conn.query("SET @@autocommit = 1");
     await doltCheckout(session.branch, conn);
     try {
-      // Disable autocommit so the upsert stays in the working set
-      // until our explicit DOLT_COMMIT captures it with a message.
+      // Drop to autocommit=0 so the upsert stays in the working set and
+      // our explicit DOLT_COMMIT below captures it as a single Dolt commit
+      // with a descriptive message — instead of the per-statement implicit
+      // commit producing an anonymous one.
       await conn.query("SET @@autocommit = 0");
       await sessionRepo.upsert(session.taskId, key, value, conn);
       await doltCommit(
@@ -65,6 +79,11 @@ export async function writeContext(
         },
         conn,
       );
+      // Explicit COMMIT so the DOLT_COMMIT is durable before the connection
+      // returns to the pool. We do not rely on the implicit commit from
+      // SET @@autocommit=1 in the finally — that's a real MySQL semantic
+      // but obscure, and a future reader should not have to chase it.
+      await conn.query("COMMIT");
     } catch (err) {
       await conn.query("ROLLBACK");
       throw err;
@@ -102,7 +121,47 @@ export async function readContext(session: SessionHandle, key?: string): Promise
 
 export async function commitSession(session: SessionHandle): Promise<void> {
   await withBranchConnection(async (conn) => {
+    // Force autocommit on so DOLT_MERGE and DOLT_BRANCH('-d') persist when
+    // the connection is released. The server's --no-auto-commit default
+    // otherwise leaves these procedure calls in an uncommitted state and
+    // Dolt rolls them back on release, leaving the session branch behind.
+    await conn.query("SET @@autocommit = 1");
     await ensureOnMain(conn);
+    // Pool connections under --no-auto-commit can carry an uncommitted
+    // working set on main from earlier writeContext callers (whose branch
+    // checkout leaks staged changes back onto main). DOLT_MERGE refuses to
+    // run with "local changes would be stomped by merge", so flush whatever
+    // is pending into a Dolt commit before merging. Gate on dolt_status so
+    // the common (clean working set) case doesn't add a noisy "pre-merge
+    // flush" entry to main's log on every successful task.
+    //
+    // Caveat: the working set on main is shared across connections within
+    // the branch, so residue this commit captures may be from a concurrent
+    // session — meaning the resulting commit on main may be authored under
+    // this task's id even if the residue isn't ours. We accept this rather
+    // than DOLT_RESET --hard, which would wipe legitimate not-yet-Dolt-
+    // committed writes from other connections (e.g. task_log inserts) and
+    // turn an attribution quirk into actual data loss.
+    const [statusRows] = await conn.query("SELECT 1 FROM dolt_status LIMIT 1");
+    if ((statusRows as unknown[]).length > 0) {
+      try {
+        await doltCommit(
+          {
+            message: `session:${session.taskId} | pre-merge flush`,
+            author: "haol-memory <haol@system>",
+          },
+          conn,
+        );
+      } catch (err) {
+        // dolt_status can show rows that -A can't stage (e.g. unresolved
+        // merge conflicts, schema-only changes). Swallow "nothing to
+        // commit" so the merge attempt below proceeds and surfaces the
+        // real error if it can't be performed.
+        if (!(err as Error).message?.includes("nothing to commit")) {
+          throw err;
+        }
+      }
+    }
     const mergeResult = await doltMerge(session.branch, conn);
     if (mergeResult.conflicts > 0) {
       // Resolve with --ours strategy by committing as-is
@@ -115,7 +174,6 @@ export async function commitSession(session: SessionHandle): Promise<void> {
         conn,
       );
     }
-    // Clean up the branch
     await doltDeleteBranch(session.branch, conn);
   });
 }

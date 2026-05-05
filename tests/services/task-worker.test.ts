@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import type { RowDataPacket } from "mysql2/promise";
 import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { uuidv7, sha256 } from "../../src/types/task.js";
 import { loadConfig } from "../../src/config.js";
@@ -94,6 +95,21 @@ afterAll(async () => {
   globalThis.fetch = originalFetch;
   if (doltAvailable) {
     const pool = getPool();
+    // Collect task_ids for any session-side cleanup before deleting task_log
+    // rows — pruneSessionBranches and the row deletes both key off task_id.
+    const [taskRows] = await pool.query<RowDataPacket[]>(
+      "SELECT task_id FROM task_log WHERE prompt LIKE ?",
+      [`${TEST_PROMPT_PREFIX}%`],
+    );
+    for (const r of taskRows) {
+      const id = r.task_id as string;
+      try {
+        await pool.query("CALL DOLT_BRANCH('-D', ?)", [`session/${id}`]);
+      } catch {
+        // branch may not exist (router skipped memory or already pruned)
+      }
+      await pool.query("DELETE FROM session_context WHERE session_id = ?", [id]);
+    }
     await pool.query("DELETE FROM execution_log WHERE agent_id LIKE 'wrk-test-%'");
     await pool.query("DELETE FROM task_log WHERE prompt LIKE ?", [`${TEST_PROMPT_PREFIX}%`]);
     // Re-enable everything we disabled in beforeAll. Using the inverse of
@@ -210,5 +226,40 @@ describe("task-reaper", () => {
     const row = await taskLog.findById(taskId);
     expect(row?.status).toBe("FAILED");
     expect(row?.worker_error).toBe("worker_crashed");
+  });
+
+  it("preserves session branch when reaping a stale row", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const taskId = uuidv7();
+    const prompt = `${TEST_PROMPT_PREFIX}reaper preserves branch`;
+    await taskLog.createQueued(taskId, sha256(prompt), { prompt });
+
+    const pool = getPool();
+    // Pre-create the session branch as the router would have, then backdate
+    // the task row so the reaper marks it FAILED.
+    await pool.query("CALL DOLT_BRANCH(?)", [`session/${taskId}`]);
+    await pool.query(
+      `UPDATE task_log
+         SET status = 'DISPATCHED',
+             selected_agent_id = 'wrk-test-haiku',
+             created_at = NOW() - INTERVAL 1 DAY
+       WHERE task_id = ?`,
+      [taskId],
+    );
+
+    await runReaperOnce();
+
+    const row = await taskLog.findById(taskId);
+    expect(row?.status).toBe("FAILED");
+
+    // The branch must survive the reap — pruneSessionBranches reclaims it
+    // later, on retention expiry. Forensics on a freshly-failed task
+    // depends on this.
+    const [branches] = await pool.query<RowDataPacket[]>(
+      "SELECT name FROM dolt_branches WHERE name = ?",
+      [`session/${taskId}`],
+    );
+    expect(branches.length).toBe(1);
   });
 });

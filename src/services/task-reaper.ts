@@ -1,6 +1,6 @@
 import * as taskLog from "../repositories/task-log.js";
 import * as worker from "./task-worker.js";
-import { doltDeleteBranch } from "../db/dolt.js";
+import { pruneSessionBranches } from "../memory/branch-cleanup.js";
 import type { RouterTaskInput } from "../types/router.js";
 import { logger } from "../logging/logger.js";
 import { runWithContext } from "../logging/context.js";
@@ -13,8 +13,11 @@ import { runWithContext } from "../logging/context.js";
  *    are marked FAILED. We deliberately do NOT retry these: an LLM call may
  *    have partially completed and been billed, and double-charging on a
  *    transient crash is worse than surfacing a clean failure to the caller.
- *  - On reap-to-FAILED, best-effort delete the per-task Dolt session branch
- *    so it doesn't accumulate on disk.
+ *  - On each sweep, prune session branches older than
+ *    SESSION_BRANCH_RETENTION_DAYS. We deliberately do NOT delete the branch
+ *    when reaping a stale row: the router's memory layer leaves the branch
+ *    around on FAILED so its working set is available for forensics until
+ *    retention expires.
  *
  * The recovery threshold is intentionally well above the longest tier-4
  * timeout (120s) — a healthy worker may legitimately hold a row in
@@ -45,6 +48,16 @@ function reaperIntervalMs(): number {
   return Number.isFinite(ms) && ms >= 1000 ? ms : 60_000;
 }
 
+// Default 7 days. We require >= 1 to prevent a misconfigured 0 from wiping
+// in-flight session branches whose working sets have not yet been merged.
+function sessionRetentionDays(): number {
+  const raw = process.env.SESSION_BRANCH_RETENTION_DAYS;
+  if (!raw) return 7;
+  const days = parseInt(raw, 10);
+  if (!Number.isFinite(days) || days < 1) return 7;
+  return days;
+}
+
 function reconstructInput(record: taskLog.TaskLogRecord): RouterTaskInput | null {
   if (!record.prompt) return null;
   // DB columns return null for absent JSON; the Zod schema requires
@@ -62,18 +75,10 @@ function reconstructInput(record: taskLog.TaskLogRecord): RouterTaskInput | null
   return input;
 }
 
-async function deleteSessionBranchSafely(taskId: string): Promise<void> {
-  try {
-    await doltDeleteBranch(`session/${taskId}`);
-  } catch {
-    // Branch may not exist (task crashed before memory step) or may already
-    // have been merged. Either way, nothing to recover.
-  }
-}
-
 export async function runReaperOnce(): Promise<{
   reEnqueued: number;
   failed: number;
+  branchesPruned: number;
 }> {
   return runWithContext({ component: "reaper" }, () => runReaperOnceInner());
 }
@@ -81,10 +86,12 @@ export async function runReaperOnce(): Promise<{
 async function runReaperOnceInner(): Promise<{
   reEnqueued: number;
   failed: number;
+  branchesPruned: number;
 }> {
   const ageSec = recoveryAgeSeconds();
   let reEnqueued = 0;
   let failed = 0;
+  let branchesPruned = 0;
 
   // 1. Re-enqueue any QUEUED row regardless of age — the in-memory queue is
   // empty at startup, so anything that survived a restart needs a kick. At
@@ -124,7 +131,10 @@ async function runReaperOnceInner(): Promise<{
   for (const taskId of staleIds) {
     try {
       await taskLog.recordWorkerError(taskId, STUCK_REASON);
-      await deleteSessionBranchSafely(taskId);
+      // Intentionally do NOT delete session/${taskId}: the router's memory
+      // layer keeps the branch around on FAILED so the working set is
+      // available for forensics. pruneSessionBranches reclaims it once the
+      // retention window expires.
       failed++;
     } catch (err) {
       logger.warn("failed to mark task FAILED", {
@@ -134,10 +144,23 @@ async function runReaperOnceInner(): Promise<{
     }
   }
 
-  if (reEnqueued > 0 || failed > 0) {
-    logger.info("reaper sweep summary", { re_enqueued: reEnqueued, failed });
+  // 3. Prune aged-out session branches. Best-effort — a Dolt issue here
+  // must not stop the reaper from re-enqueuing tasks on the next sweep.
+  try {
+    const pruned = await pruneSessionBranches(sessionRetentionDays());
+    branchesPruned = pruned.length;
+  } catch (err) {
+    logger.warn("pruneSessionBranches failed", { error: (err as Error).message });
   }
-  return { reEnqueued, failed };
+
+  if (reEnqueued > 0 || failed > 0 || branchesPruned > 0) {
+    logger.info("reaper sweep summary", {
+      re_enqueued: reEnqueued,
+      failed,
+      branches_pruned: branchesPruned,
+    });
+  }
+  return { reEnqueued, failed, branchesPruned };
 }
 
 export function startReaper(): void {
