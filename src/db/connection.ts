@@ -73,10 +73,12 @@ export async function withConnection<T>(fn: (conn: PoolConnection) => Promise<T>
 
 /**
  * Acquire a dedicated connection with branch-safety guarantees.
- * The finally block resets the connection to the default branch before
- * returning it to the pool, preventing branch-corruption bugs when the
- * callback uses doltCheckout/doltMerge. Use this instead of
- * withConnection when the callback may switch branches.
+ * The finally block restores the connection to a known clean state — back
+ * on the default branch and with autocommit=1 — before returning it to
+ * the pool, preventing branch-corruption and silent-rollback bugs when
+ * the callback uses doltCheckout/doltMerge or toggles autocommit for a
+ * grouped DOLT_COMMIT. Use this instead of withConnection when the
+ * callback may switch branches or run multi-statement Dolt commits.
  */
 export async function withBranchConnection<T>(
   fn: (conn: PoolConnection) => Promise<T>,
@@ -86,11 +88,20 @@ export async function withBranchConnection<T>(
   try {
     return await fn(conn);
   } finally {
+    // Centralized invariant: every connection released by this helper is
+    // returned to the pool with autocommit=1. Callers that drop autocommit
+    // for a grouped Dolt commit (e.g. writeContext) no longer have to
+    // remember to restore it themselves, and a future caller that forgets
+    // can't silently leak autocommit=0 to the next pool consumer.
+    try {
+      await conn.query("SET @@autocommit = 1");
+    } catch {
+      // Connection may be broken; release it anyway.
+    }
     try {
       await conn.query("CALL DOLT_CHECKOUT(?)", [DEFAULT_BRANCH]);
     } catch {
-      // The connection may already be on the default branch, or broken.
-      // Either way we still release it.
+      // Already on default or connection broken.
     }
     conn.release();
   }

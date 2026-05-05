@@ -143,10 +143,15 @@ export async function routeTask(
     // 3b. Open per-task memory branch. Failures here drop the handle so all
     // subsequent memory writes/commits become no-ops, but task execution
     // proceeds normally.
-    session = await bestEffortMemory("createSession", taskId, () => createSession(taskId!));
+    // Capture taskId into a non-null const so the lambdas below don't need
+    // taskId! — TypeScript can't carry the reassignment narrowing of the
+    // outer `let taskId: string | null` across closure boundaries.
+    const tid = taskId;
+    session = await bestEffortMemory("createSession", tid, () => createSession(tid));
     if (session) {
-      await bestEffortMemory("writeContext:classification", taskId, () =>
-        writeContext(session!, "classification", classification),
+      const handle = session;
+      await bestEffortMemory("writeContext:classification", tid, () =>
+        writeContext(handle, "classification", classification),
       );
     }
 
@@ -159,8 +164,9 @@ export async function routeTask(
     status = "DISPATCHED";
 
     if (session) {
-      await bestEffortMemory("writeContext:selection", taskId, () =>
-        writeContext(session!, "selection", selection),
+      const handle = session;
+      await bestEffortMemory("writeContext:selection", tid, () =>
+        writeContext(handle, "selection", selection),
       );
     }
 
@@ -246,13 +252,14 @@ export async function routeTask(
     // main and delete it; on FAILED we keep the branch around for forensics —
     // pruneSessionBranches eventually reclaims it based on retention.
     if (session) {
-      await bestEffortMemory("writeContext:execution", taskId, () =>
-        writeContext(session!, "execution", { records: allExecRecords, final: execResult }),
+      const handle = session;
+      await bestEffortMemory("writeContext:execution", tid, () =>
+        writeContext(handle, "execution", { records: allExecRecords, final: execResult }),
       );
       if (execResult.outcome === "SUCCESS") {
-        await bestEffortMemory("commitSession", taskId, () => commitSession(session!));
+        await bestEffortMemory("commitSession", tid, () => commitSession(handle));
       } else {
-        await bestEffortMemory("discardSession", taskId, () => discardSession(session!));
+        await bestEffortMemory("discardSession", tid, () => discardSession(handle));
       }
       session = null;
     }
@@ -330,7 +337,8 @@ export async function routeTask(
       if (session) {
         // Discard (no-op preserve) so the failed-task branch remains for
         // forensics; pruneSessionBranches reclaims it on retention expiry.
-        await bestEffortMemory("discardSession", taskId, () => discardSession(session!));
+        const handle = session;
+        await bestEffortMemory("discardSession", taskId, () => discardSession(handle));
       }
     }
 
