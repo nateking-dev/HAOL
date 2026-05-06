@@ -54,10 +54,14 @@ async function routerCommit(message: string): Promise<void> {
 // pipeline has up to 5 sequential memory steps, and without a shared budget
 // a sick Dolt could otherwise add 5×MEMORY_STEP_TIMEOUT_MS to every task.
 //
-// Timeouts only cancel our await — the underlying Dolt operation continues
-// and may eventually free its pool connection. That's an acceptable
-// tradeoff: we'd rather return to the caller and risk one stuck connection
-// than block the whole task pipeline behind Dolt slowness.
+// Pool-exhaustion guard: when a step's timeout fires, the underlying Dolt
+// query keeps its pool connection until the server eventually returns or
+// the connection is killed. Under sustained Dolt slowness this would drain
+// the entire pool. A process-wide semaphore caps how many pool connections
+// memory work can ever monopolize at once — calls past the cap short-
+// circuit to null rather than queue, leaving the rest of the pipeline
+// (HTTP handlers, classifier, agent selection) with guaranteed connection
+// headroom even in the degraded-Dolt case.
 function memoryStepTimeoutMs(): number {
   const raw = process.env.MEMORY_STEP_TIMEOUT_MS;
   if (!raw) return 5_000;
@@ -71,6 +75,19 @@ function memoryTaskBudgetMs(): number {
   const ms = parseInt(raw, 10);
   return Number.isFinite(ms) && ms >= 100 ? ms : 8_000;
 }
+
+// Maximum concurrent memory operations across the whole process. Defaults
+// to 2 — a tiny fraction of typical pool sizes (DOLT_POOL_SIZE default 5)
+// so even a fully-saturated stuck-memory scenario leaves connections free
+// for non-memory work. Tune via MEMORY_MAX_CONCURRENT.
+function memoryMaxConcurrent(): number {
+  const raw = process.env.MEMORY_MAX_CONCURRENT;
+  if (!raw) return 2;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 2;
+}
+
+let memoryInflight = 0;
 
 interface MemoryBudget {
   startedAt: number;
@@ -100,6 +117,24 @@ async function bestEffortMemory<T>(
     });
     return null;
   }
+
+  // Semaphore: refuse to schedule a new memory operation when the cap is
+  // already saturated. We don't queue (which would just shift the latency
+  // from "took 5s and timed out" to "waited 5s for a slot then took 5s and
+  // timed out"). Memory is best-effort — under contention we'd rather skip
+  // the step than back-pressure the task pipeline.
+  if (memoryInflight >= memoryMaxConcurrent()) {
+    logger.warn("memory step skipped (concurrency cap reached)", {
+      component: "router",
+      step,
+      task_id: taskId,
+      inflight: memoryInflight,
+      cap: memoryMaxConcurrent(),
+    });
+    return null;
+  }
+
+  memoryInflight++;
   const timeoutMs = Math.min(memoryStepTimeoutMs(), remaining);
   let timer: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -108,8 +143,25 @@ async function bestEffortMemory<T>(
       timeoutMs,
     );
   });
+
+  // The work promise has to keep running until Dolt eventually returns or
+  // the connection is killed — that's the only way the pool connection
+  // releases. Decrement memoryInflight when it actually settles, not when
+  // Promise.race returns. A dangling .catch swallows late rejections so
+  // they don't surface as unhandled-rejection warnings after the race has
+  // already resolved via timeoutPromise.
+  const work = fn();
+  work
+    .finally(() => {
+      memoryInflight--;
+    })
+    .catch(() => {
+      // Already observed by the race below (or intentionally ignored if the
+      // timeout won). Swallow to avoid unhandledRejection.
+    });
+
   try {
-    return await Promise.race([fn(), timeoutPromise]);
+    return await Promise.race([work, timeoutPromise]);
   } catch (err) {
     logger.warn("memory step failed", {
       component: "router",
@@ -122,6 +174,15 @@ async function bestEffortMemory<T>(
     if (timer) clearTimeout(timer);
   }
 }
+
+/** Test/observability hook. */
+export function _memoryInflightForTests(): number {
+  return memoryInflight;
+}
+
+/** Test hook — exposes the internal helper without changing its access shape. */
+export const _bestEffortMemoryForTests = bestEffortMemory;
+export const _createMemoryBudgetForTests = createMemoryBudget;
 
 export interface RouteTaskOptions {
   /**
