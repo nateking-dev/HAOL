@@ -228,6 +228,38 @@ describe("task-reaper", () => {
     expect(row?.worker_error).toBe("worker_crashed");
   });
 
+  it("does not reap rows whose worker_started_at is recent, even with old created_at", async ({
+    skip,
+  }) => {
+    if (!doltAvailable) skip();
+
+    // Regression: previously findStale filtered on created_at, which is set
+    // at intake. A task that sat in QUEUED for hours before a worker claimed
+    // it would be killed seconds after pickup. The fix moves the age check
+    // to worker_started_at (falling back to created_at for legacy rows).
+
+    const taskId = uuidv7();
+    const prompt = `${TEST_PROMPT_PREFIX}reaper respects worker_started_at`;
+    await taskLog.createQueued(taskId, sha256(prompt), { prompt });
+
+    const pool = getPool();
+    await pool.query(
+      `UPDATE task_log
+         SET status = 'DISPATCHED',
+             selected_agent_id = 'wrk-test-haiku',
+             created_at = NOW() - INTERVAL 1 DAY,
+             worker_started_at = NOW() - INTERVAL 5 SECOND
+       WHERE task_id = ?`,
+      [taskId],
+    );
+
+    await runReaperOnce();
+
+    const row = await taskLog.findById(taskId);
+    expect(row?.status).toBe("DISPATCHED");
+    expect(row?.worker_error).toBeNull();
+  });
+
   it("preserves session branch when reaping a stale row", async ({ skip }) => {
     if (!doltAvailable) skip();
 

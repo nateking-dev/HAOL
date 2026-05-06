@@ -238,6 +238,12 @@ interface StaleTaskRow extends RowDataPacket {
  * states longer than maxAgeSeconds. QUEUED is excluded — it's handled
  * separately by findQueued() since it's safe to retry.
  *
+ * Age is measured from worker pickup (`worker_started_at`), not intake
+ * (`created_at`). A row that sat in QUEUED for an hour before a worker
+ * claimed it is healthy work, not a crashed worker. COALESCE falls back
+ * to created_at for any row that predates migration 019 or somehow
+ * reached an in-flight state without claimQueued() stamping the column.
+ *
  * Returns only task_ids — the reaper does not need prompt/metadata/etc.
  * for these rows (it just marks them FAILED + deletes the session branch),
  * and SELECT * would pull the LONGTEXT prompt for every stale row.
@@ -246,8 +252,8 @@ export async function findStale(maxAgeSeconds: number): Promise<string[]> {
   const rows = await query<StaleTaskRow[]>(
     `SELECT task_id FROM task_log
        WHERE status IN ('RECEIVED','CLASSIFIED','DISPATCHED')
-         AND created_at < (NOW() - INTERVAL ? SECOND)
-       ORDER BY created_at ASC`,
+         AND COALESCE(worker_started_at, created_at) < (NOW() - INTERVAL ? SECOND)
+       ORDER BY COALESCE(worker_started_at, created_at) ASC`,
     [maxAgeSeconds],
   );
   return rows.map((r) => r.task_id);
