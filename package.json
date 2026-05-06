@@ -18,7 +18,8 @@
     "demo:setup": "tsx scripts/demo-setup.ts",
     "load-test": "tsx scripts/load-test.ts",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "audit": "npm audit --audit-level=moderate --omit=dev"
   },
   "engines": {
     "node": ">=20.0.0"
