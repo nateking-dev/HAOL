@@ -109,6 +109,23 @@ export async function doltActiveBranch(conn?: Queryable): Promise<string> {
 }
 
 /**
+ * True when an error from DOLT_COMMIT indicates the staged set was empty.
+ *
+ * Dolt currently surfaces this as "nothing to commit" (mirroring git), but
+ * "nothing staged" / "nothing added" appear in adjacent Dolt error paths
+ * and could plausibly replace the canonical phrasing in a future release.
+ * This predicate matches all three forms so a Dolt upgrade doesn't silently
+ * convert a no-op into a hard failure on best-effort commit paths. If Dolt
+ * adds a stable error code for this condition, prefer matching the code.
+ *
+ * Tested against Dolt 1.43+. Re-verify on major version bumps.
+ */
+export function isNothingToCommitError(err: unknown): boolean {
+  const msg = (err as Error | undefined)?.message ?? "";
+  return /nothing (to commit|staged|added)/i.test(msg);
+}
+
+/**
  * Best-effort Dolt commit on a dedicated connection.
  * Acquires its own connection from the pool so the commit targets the
  * correct (main) branch regardless of pool connection state.
@@ -123,7 +140,7 @@ export async function commitSafely(
     try {
       await doltCommit({ message, author, allowEmpty }, conn);
     } catch (err) {
-      if (!(err as Error).message?.includes("nothing to commit")) {
+      if (!isNothingToCommitError(err)) {
         throw err;
       }
     }

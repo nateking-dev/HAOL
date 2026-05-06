@@ -175,6 +175,58 @@ describe("session manager", () => {
     await commitSession(sessionB);
   });
 
+  it("commitSession surfaces a clear error when the merge lock is held elsewhere", async ({
+    skip,
+  }) => {
+    if (!doltAvailable) skip();
+
+    // Hold the advisory lock from a side connection so the commitSession
+    // call below times out trying to acquire it. The lock name and 5s
+    // timeout are coupled to the constants in session-manager.ts; if those
+    // change, this test will either need updating or will hang for longer.
+    const pool = getPool();
+    const sideConn = await pool.getConnection();
+    let session: { taskId: string; branch: string } | null = null;
+    try {
+      const [holdRows] = await sideConn.query<RowDataPacket[]>(
+        "SELECT GET_LOCK('haol_merge_main', 0) AS acquired",
+      );
+      // GET_LOCK with 0s timeout returns 1 immediately if free.
+      expect(holdRows[0]?.acquired).toBe(1);
+
+      const lockedTaskId = `mem-locked-${Date.now()}`;
+      session = await createSession(lockedTaskId);
+      await writeContext(session, "k", "v");
+
+      // commitSession should throw after waiting MAIN_MERGE_LOCK_TIMEOUT_SECONDS.
+      await expect(commitSession(session)).rejects.toThrow(/could not acquire/i);
+
+      // Branch must remain — data is on the session branch, recoverable
+      // by branch-cleanup retention or a follow-up commitSession once the
+      // lock is free.
+      const [branches] = await pool.query<RowDataPacket[]>(
+        "SELECT name FROM dolt_branches WHERE name = ?",
+        [session.branch],
+      );
+      expect(branches.length).toBe(1);
+    } finally {
+      try {
+        await sideConn.query("SELECT RELEASE_LOCK('haol_merge_main')");
+      } catch {
+        // best-effort cleanup
+      }
+      sideConn.release();
+      // Drop the leftover session branch so other tests aren't surprised.
+      if (session) {
+        try {
+          await pool.query("CALL DOLT_BRANCH('-D', ?)", [session.branch]);
+        } catch {
+          // best-effort
+        }
+      }
+    }
+  });
+
   it("parallel commitSession calls all succeed under the merge lock", async ({ skip }) => {
     if (!doltAvailable) skip();
 

@@ -7,9 +7,11 @@ import {
   doltMerge,
   doltDeleteBranch,
   doltActiveBranch,
+  isNothingToCommitError,
 } from "../db/dolt.js";
 import * as sessionRepo from "../repositories/session-context.js";
 import * as handoffRepo from "../repositories/handoff-summary.js";
+import { logger } from "../logging/logger.js";
 
 // Tables that the memory layer is authoritative for. The pre-merge flush in
 // commitSession stages only these so attribution can never accidentally
@@ -41,7 +43,17 @@ async function withMainMergeLock<T>(conn: PoolConnection, fn: () => Promise<T>):
   ]);
   const acquired = rows[0]?.acquired;
   if (acquired !== 1) {
-    // 0 = timeout, NULL = error. Either way, leave main alone.
+    // 0 = timeout, NULL = error. Either way, leave main alone — but log at
+    // the failure site so contention is visible in structured logs without
+    // depending on the caller to wrap and re-log. Data on the session
+    // branch is not lost (branch-cleanup retains it) but it is not merged
+    // to main, which warrants visibility above debug.
+    logger.warn("could not acquire main merge lock", {
+      component: "memory",
+      lock_name: MAIN_MERGE_LOCK,
+      get_lock_result: acquired,
+      timeout_seconds: MAIN_MERGE_LOCK_TIMEOUT_SECONDS,
+    });
     return null;
   }
   try {
@@ -208,7 +220,7 @@ export async function commitSession(session: SessionHandle): Promise<void> {
           // tables outside MEMORY_TABLES (which we deliberately don't
           // stage) so the staged set may be empty. Real failures still
           // surface from the merge attempt below.
-          if (!(err as Error).message?.includes("nothing to commit")) {
+          if (!isNothingToCommitError(err)) {
             throw err;
           }
         }

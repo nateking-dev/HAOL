@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../config.js";
 import { createPool, getPool, destroy } from "./connection.js";
-import { doltCommit } from "./dolt.js";
+import { doltCommit, isNothingToCommitError } from "./dolt.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, "migrations");
@@ -158,7 +158,7 @@ async function main() {
     });
     console.log("Dolt commit created.");
   } catch (err) {
-    if ((err as Error).message?.includes("nothing to commit")) {
+    if (isNothingToCommitError(err)) {
       console.log("No changes to commit (already up to date).");
     } else {
       throw err;
