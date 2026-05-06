@@ -34,12 +34,28 @@ export function createApp(): Hono {
   // Middleware
   app.use("*", requestId);
 
-  // Demo UI — static files and API proxy, unauthenticated
-  app.use(
-    "/demo/*",
-    serveStatic({ root: "./public/", rewriteRequestPath: (p) => p.replace(/^\/demo/, "") }),
-  );
-  app.route("/", demo);
+  // Demo UI is opt-in. It exposes an unauthenticated path to the router
+  // (paid LLM calls) and is intended for live demos / local dev only.
+  // Production deployments must explicitly set HAOL_ENABLE_DEMO=1.
+  //
+  // Demo write bucket is allocated per-app so multiple app instances (tests,
+  // hot reload) don't share state. Tight, process-wide (global: true): the
+  // route is unauthenticated, so per-IP would let an attacker spread spend
+  // across rotating addresses. 5/min globally bounds worst-case LLM spend.
+  if (process.env.HAOL_ENABLE_DEMO === "1") {
+    const demoWriteLimit = rateLimit({ limit: 5, windowMs: 60_000, global: true });
+    // serveStatic is bound to GET only. app.use("/demo/*", ...) would run
+    // the static handler on POST as well — a POST /demo/api/task with a
+    // matching ./public/api/task file would be served statically and never
+    // reach the rate limiter, defeating the spend cap.
+    app.get(
+      "/demo/*",
+      serveStatic({ root: "./public/", rewriteRequestPath: (p) => p.replace(/^\/demo/, "") }),
+    );
+    app.post("/demo/api/task", demoWriteLimit);
+    app.get("/demo/api/savings", readLimit);
+    app.route("/", demo);
+  }
 
   // Health check is unversioned (load balancers, K8s probes) and unauthenticated.
   // Reserved unversioned root for cross-version concerns (health, future

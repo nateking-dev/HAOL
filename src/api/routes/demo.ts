@@ -5,6 +5,14 @@ import { costSavings } from "../../observability/queries.js";
 
 const demo = new Hono();
 
+// Anonymous-callable demo caps. Tightly bounds worst-case spend per request:
+// prompt is truncated (input tokens are billed even when output is clamped),
+// and caller-supplied constraints are clamped down (never expanded) so a
+// public demo can't request 4M-token completions or hours-long timeouts.
+const DEMO_MAX_PROMPT_CHARS = 4_000; // ~1k input tokens at ~4 chars/token
+const DEMO_MAX_TOKENS = 1024;
+const DEMO_TIMEOUT_MS = 15_000;
+
 demo.post("/demo/api/task", async (c) => {
   const body = await c.req.json();
   const parsed = RouterTaskInput.safeParse(body);
@@ -12,7 +20,18 @@ demo.post("/demo/api/task", async (c) => {
     return c.json({ error: parsed.error.message }, 400);
   }
 
-  const result = await routeTask(parsed.data);
+  const input = parsed.data;
+  const clamped: RouterTaskInput = {
+    ...input,
+    prompt: input.prompt.slice(0, DEMO_MAX_PROMPT_CHARS),
+    constraints: {
+      ...input.constraints,
+      max_tokens: Math.min(input.constraints?.max_tokens ?? DEMO_MAX_TOKENS, DEMO_MAX_TOKENS),
+      timeout_ms: Math.min(input.constraints?.timeout_ms ?? DEMO_TIMEOUT_MS, DEMO_TIMEOUT_MS),
+    },
+  };
+
+  const result = await routeTask(clamped);
   return c.json(result, result.status === "FAILED" ? 500 : 201);
 });
 
