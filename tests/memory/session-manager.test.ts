@@ -45,7 +45,8 @@ afterAll(async () => {
       await pool.query("CALL DOLT_CHECKOUT('main')");
     }
 
-    // Clean up any leftover branches
+    // Clean up any leftover branches (session/mem-... covers all test ids in
+    // this file; the parallel test uses mem-parallel-... prefixes too).
     const [branches] = await pool.query<RowDataPacket[]>(
       "SELECT name FROM dolt_branches WHERE name LIKE 'session/mem-%'",
     );
@@ -172,6 +173,45 @@ describe("session manager", () => {
     // Commit both
     await commitSession(sessionA);
     await commitSession(sessionB);
+  });
+
+  it("parallel commitSession calls all succeed under the merge lock", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    // Regression: two concurrent commitSession calls used to share main's
+    // working set, so X's pre-merge flush could attribute Y's staged changes
+    // to X. The advisory lock around the flush+merge sequence serializes
+    // the dangerous section. Verify both calls complete and both branches
+    // are deleted (i.e. neither task wedged the other).
+
+    const ids = [
+      `mem-parallel-a-${Date.now()}`,
+      `mem-parallel-b-${Date.now()}`,
+      `mem-parallel-c-${Date.now()}`,
+    ];
+    const sessions = await Promise.all(ids.map((id) => createSession(id)));
+    await Promise.all(sessions.map((s, i) => writeContext(s, "k", `v-${i}`)));
+
+    // Run the commits in parallel — the lock should serialize the main
+    // operations without anyone failing.
+    await Promise.all(sessions.map((s) => commitSession(s)));
+
+    // All session branches should be cleaned up.
+    const pool = getPool();
+    const [branches] = await pool.query<RowDataPacket[]>(
+      `SELECT name FROM dolt_branches WHERE name IN (?, ?, ?)`,
+      sessions.map((s) => s.branch),
+    );
+    expect(branches.length).toBe(0);
+
+    // Each session's data is on main.
+    for (let i = 0; i < ids.length; i++) {
+      const [rows] = await pool.query<RowDataPacket[]>(
+        "SELECT value FROM session_context WHERE session_id = ? AND `key` = 'k'",
+        [ids[i]],
+      );
+      expect(rows.length).toBe(1);
+    }
   });
 });
 

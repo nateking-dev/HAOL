@@ -4,6 +4,20 @@ export interface DoltCommitOptions {
   message: string;
   author?: string;
   allowEmpty?: boolean;
+  /**
+   * Restrict the commit to a specific set of tables. When provided, the helper
+   * stages exactly those tables (via DOLT_ADD) before committing — residue
+   * from other tables in the working set is left untouched. When omitted,
+   * the commit auto-stages all changes (-A), which is the right default for
+   * most callers but corrupts attribution when the working set is shared
+   * across pool connections (see commitSession in src/memory/session-manager.ts).
+   *
+   * Table names are passed as procedure args (string literals to DOLT_ADD),
+   * not identifiers, so they are not vulnerable to SQL injection — but they
+   * are interpreted as table names by Dolt, so callers must provide trusted
+   * names from a fixed allow-list.
+   */
+  tables?: string[];
 }
 
 export async function doltCommit(opts: DoltCommitOptions, conn?: Queryable): Promise<string> {
@@ -16,7 +30,19 @@ export async function doltCommit(opts: DoltCommitOptions, conn?: Queryable): Pro
     args.push("--allow-empty");
   }
 
-  // DOLT_COMMIT with -A flag to auto-stage all changes
+  if (opts.tables && opts.tables.length > 0) {
+    // Stage only the specified tables, then commit without -A so residue
+    // from other tables in the shared working set isn't authored under this
+    // commit. DOLT_ADD takes table names as positional args.
+    const addPlaceholders = opts.tables.map(() => "?").join(", ");
+    await db.query(`CALL DOLT_ADD(${addPlaceholders})`, opts.tables);
+    const placeholders = args.map(() => "?").join(", ");
+    const [rows] = await db.query(`CALL DOLT_COMMIT(${placeholders})`, args);
+    const result = rows as Record<string, string>[];
+    return result[0]?.hash ?? "";
+  }
+
+  // Default: DOLT_COMMIT with -A flag to auto-stage all changes
   const placeholders = args.map(() => "?").join(", ");
   const [rows] = await db.query(`CALL DOLT_COMMIT('-A', ${placeholders})`, args);
   const result = rows as Record<string, string>[];

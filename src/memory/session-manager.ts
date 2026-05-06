@@ -1,4 +1,10 @@
-import { getPool, withBranchConnection, DEFAULT_BRANCH, type Queryable } from "../db/connection.js";
+import {
+  getPool,
+  withBranchConnection,
+  DEFAULT_BRANCH,
+  type Queryable,
+} from "../db/connection.js";
+import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import {
   doltBranch,
   doltCheckout,
@@ -9,6 +15,55 @@ import {
 } from "../db/dolt.js";
 import * as sessionRepo from "../repositories/session-context.js";
 import * as handoffRepo from "../repositories/handoff-summary.js";
+
+// Tables that the memory layer is authoritative for. The pre-merge flush in
+// commitSession stages only these so attribution can never accidentally
+// capture residue from task_log/execution_log etc. left in the shared
+// working set on main by another connection.
+const MEMORY_TABLES = ["session_context", "handoff_summary"];
+
+// Advisory lock name for serializing main-branch operations across
+// concurrent commitSession calls. Connection-scoped, so it auto-releases
+// if the holding connection dies (process crash, network blip).
+const MAIN_MERGE_LOCK = "haol_merge_main";
+const MAIN_MERGE_LOCK_TIMEOUT_SECONDS = 5;
+
+interface LockRow extends RowDataPacket {
+  acquired: number | null;
+}
+
+/**
+ * Run `fn` while holding a connection-scoped advisory lock on main. Returns
+ * `null` if the lock can't be acquired in MAIN_MERGE_LOCK_TIMEOUT_SECONDS —
+ * memory work is best-effort, and waiting longer than that under contention
+ * indicates something pathological is happening that warrants surfacing
+ * upstream rather than blocking the task pipeline.
+ */
+async function withMainMergeLock<T>(
+  conn: PoolConnection,
+  fn: () => Promise<T>,
+): Promise<T | null> {
+  const [rows] = await conn.query<LockRow[]>(
+    "SELECT GET_LOCK(?, ?) AS acquired",
+    [MAIN_MERGE_LOCK, MAIN_MERGE_LOCK_TIMEOUT_SECONDS],
+  );
+  const acquired = rows[0]?.acquired;
+  if (acquired !== 1) {
+    // 0 = timeout, NULL = error. Either way, leave main alone.
+    return null;
+  }
+  try {
+    return await fn();
+  } finally {
+    try {
+      await conn.query("SELECT RELEASE_LOCK(?)", [MAIN_MERGE_LOCK]);
+    } catch {
+      // RELEASE_LOCK on a connection that's already lost the lock returns
+      // NULL — not an error we can act on. The lock auto-releases on
+      // connection close, so swallowing here is safe.
+    }
+  }
+}
 
 function parseJsonValue(val: unknown): unknown {
   if (typeof val === "string") {
@@ -127,54 +182,70 @@ export async function commitSession(session: SessionHandle): Promise<void> {
     // Dolt rolls them back on release, leaving the session branch behind.
     await conn.query("SET @@autocommit = 1");
     await ensureOnMain(conn);
-    // Pool connections under --no-auto-commit can carry an uncommitted
-    // working set on main from earlier writeContext callers (whose branch
-    // checkout leaks staged changes back onto main). DOLT_MERGE refuses to
-    // run with "local changes would be stomped by merge", so flush whatever
-    // is pending into a Dolt commit before merging. Gate on dolt_status so
-    // the common (clean working set) case doesn't add a noisy "pre-merge
-    // flush" entry to main's log on every successful task.
-    //
-    // Caveat: the working set on main is shared across connections within
-    // the branch, so residue this commit captures may be from a concurrent
-    // session — meaning the resulting commit on main may be authored under
-    // this task's id even if the residue isn't ours. We accept this rather
-    // than DOLT_RESET --hard, which would wipe legitimate not-yet-Dolt-
-    // committed writes from other connections (e.g. task_log inserts) and
-    // turn an attribution quirk into actual data loss.
-    const [statusRows] = await conn.query("SELECT 1 FROM dolt_status LIMIT 1");
-    if ((statusRows as unknown[]).length > 0) {
-      try {
+
+    // Serialize main-branch operations across concurrent tasks. The working
+    // set on main is shared across pool connections within the branch — two
+    // commitSession calls overlapping could otherwise have task X's flush
+    // capture task Y's staged changes, attributing them under X's identity
+    // and breaking the audit-trail guarantee. The lock ensures only one
+    // task at a time runs the flush+merge+branch-delete sequence on main.
+    const ran = await withMainMergeLock(conn, async () => {
+      // DOLT_MERGE refuses to run with "local changes would be stomped by
+      // merge", so flush whatever is pending into a Dolt commit before
+      // merging. Gate on dolt_status so the common (clean working set)
+      // case doesn't add a noisy "pre-merge flush" entry on every task.
+      //
+      // Stage only memory tables, not -A: even with the lock held, residue
+      // in task_log / execution_log etc. (written under autocommit=0 by
+      // other code paths and not yet Dolt-committed) must not be authored
+      // under this session. The lock + table list together guarantee
+      // attribution is correct.
+      const [statusRows] = await conn.query("SELECT 1 FROM dolt_status LIMIT 1");
+      if ((statusRows as unknown[]).length > 0) {
+        try {
+          await doltCommit(
+            {
+              message: `session:${session.taskId} | pre-merge flush`,
+              author: "haol-memory <haol@system>",
+              tables: MEMORY_TABLES,
+            },
+            conn,
+          );
+        } catch (err) {
+          // Swallow "nothing to commit" — dolt_status can show rows in
+          // tables outside MEMORY_TABLES (which we deliberately don't
+          // stage) so the staged set may be empty. Real failures still
+          // surface from the merge attempt below.
+          if (!(err as Error).message?.includes("nothing to commit")) {
+            throw err;
+          }
+        }
+      }
+      const mergeResult = await doltMerge(session.branch, conn);
+      if (mergeResult.conflicts > 0) {
+        // Resolve with --ours strategy by committing as-is
         await doltCommit(
           {
-            message: `session:${session.taskId} | pre-merge flush`,
+            message: `session:${session.taskId} | merge (conflicts resolved with --ours)`,
             author: "haol-memory <haol@system>",
+            allowEmpty: true,
+            tables: MEMORY_TABLES,
           },
           conn,
         );
-      } catch (err) {
-        // dolt_status can show rows that -A can't stage (e.g. unresolved
-        // merge conflicts, schema-only changes). Swallow "nothing to
-        // commit" so the merge attempt below proceeds and surfaces the
-        // real error if it can't be performed.
-        if (!(err as Error).message?.includes("nothing to commit")) {
-          throw err;
-        }
       }
-    }
-    const mergeResult = await doltMerge(session.branch, conn);
-    if (mergeResult.conflicts > 0) {
-      // Resolve with --ours strategy by committing as-is
-      await doltCommit(
-        {
-          message: `session:${session.taskId} | merge (conflicts resolved with --ours)`,
-          author: "haol-memory <haol@system>",
-          allowEmpty: true,
-        },
-        conn,
+      await doltDeleteBranch(session.branch, conn);
+      return true;
+    });
+
+    if (ran === null) {
+      // Lock contention — leave the session branch in place. Memory work
+      // is best-effort: branch-cleanup will reclaim it on retention expiry,
+      // and a future commitSession call won't be affected.
+      throw new Error(
+        `commitSession: could not acquire ${MAIN_MERGE_LOCK} within ${MAIN_MERGE_LOCK_TIMEOUT_SECONDS}s`,
       );
     }
-    await doltDeleteBranch(session.branch, conn);
   });
 }
 

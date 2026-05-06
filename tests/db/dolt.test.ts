@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import type { RowDataPacket } from "mysql2/promise";
 import { createPool, getPool, destroy, withBranchConnection } from "../../src/db/connection.js";
 import {
   doltCommit,
@@ -9,6 +10,7 @@ import {
   doltActiveBranch,
 } from "../../src/db/dolt.js";
 import { loadConfig } from "../../src/config.js";
+import { runMigrations } from "../../src/db/migrate.js";
 
 let doltAvailable = false;
 
@@ -23,6 +25,7 @@ beforeAll(async () => {
     const pool = getPool();
     await pool.query("SELECT 1");
     doltAvailable = true;
+    await runMigrations();
   } catch (err) {
     console.warn("Dolt not available — skipping dolt integration tests");
     console.warn("Error:", (err as Error).message);
@@ -49,6 +52,72 @@ describe("dolt helpers", () => {
     });
     expect(hash).toBeTruthy();
     expect(typeof hash).toBe("string");
+  });
+
+  it("doltCommit with tables[] stages only the listed tables", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    // Use an isolated branch so we don't fight with the rest of the suite
+    // for working-set state on main.
+    const testBranch = `test/dolt-tables-${Date.now()}`;
+    const taskId = `dolt-tables-${Date.now()}`;
+
+    await withBranchConnection(async (conn) => {
+      await doltBranch({ name: testBranch }, conn);
+      await doltCheckout(testBranch, conn);
+
+      // Dirty two tables: session_context and handoff_summary.
+      await conn.query(
+        "INSERT INTO session_context (session_id, `key`, value) VALUES (?, 'k', JSON_OBJECT())",
+        [taskId],
+      );
+      await conn.query(
+        "INSERT INTO handoff_summary (task_id, from_agent_id, summary) VALUES (?, 'agent-x', 's')",
+        [taskId],
+      );
+
+      // Commit only session_context.
+      await doltCommit(
+        {
+          message: "test: commit only session_context",
+          author: "haol-test <test@haol>",
+          tables: ["session_context"],
+        },
+        conn,
+      );
+
+      // dolt_status should still show handoff_summary as dirty.
+      const [statusRows] = await conn.query<RowDataPacket[]>(
+        "SELECT table_name FROM dolt_status",
+      );
+      const dirtyTables = statusRows.map((r) => r.table_name as string);
+      expect(dirtyTables).toContain("handoff_summary");
+      expect(dirtyTables).not.toContain("session_context");
+
+      // Cleanup: stage and commit the rest, return to main, drop branch.
+      await doltCommit(
+        {
+          message: "test: cleanup",
+          author: "haol-test <test@haol>",
+          allowEmpty: true,
+        },
+        conn,
+      );
+      await conn.query("DELETE FROM session_context WHERE session_id = ?", [taskId]);
+      await conn.query("DELETE FROM handoff_summary WHERE task_id = ?", [taskId]);
+      await doltCommit(
+        {
+          message: "test: clear test rows",
+          author: "haol-test <test@haol>",
+          allowEmpty: true,
+        },
+        conn,
+      );
+      await doltCheckout("main", conn);
+      // Force-delete: this branch was deliberately not merged into main, so
+      // the safe `-d` form would refuse.
+      await conn.query("CALL DOLT_BRANCH('-D', ?)", [testBranch]);
+    });
   });
 
   it("doltBranch + doltCheckout + doltMerge lifecycle", async ({ skip }) => {
