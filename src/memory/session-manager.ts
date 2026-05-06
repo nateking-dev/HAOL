@@ -1,9 +1,4 @@
-import {
-  getPool,
-  withBranchConnection,
-  DEFAULT_BRANCH,
-  type Queryable,
-} from "../db/connection.js";
+import { getPool, withBranchConnection, DEFAULT_BRANCH, type Queryable } from "../db/connection.js";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import {
   doltBranch,
@@ -39,14 +34,11 @@ interface LockRow extends RowDataPacket {
  * indicates something pathological is happening that warrants surfacing
  * upstream rather than blocking the task pipeline.
  */
-async function withMainMergeLock<T>(
-  conn: PoolConnection,
-  fn: () => Promise<T>,
-): Promise<T | null> {
-  const [rows] = await conn.query<LockRow[]>(
-    "SELECT GET_LOCK(?, ?) AS acquired",
-    [MAIN_MERGE_LOCK, MAIN_MERGE_LOCK_TIMEOUT_SECONDS],
-  );
+async function withMainMergeLock<T>(conn: PoolConnection, fn: () => Promise<T>): Promise<T | null> {
+  const [rows] = await conn.query<LockRow[]>("SELECT GET_LOCK(?, ?) AS acquired", [
+    MAIN_MERGE_LOCK,
+    MAIN_MERGE_LOCK_TIMEOUT_SECONDS,
+  ]);
   const acquired = rows[0]?.acquired;
   if (acquired !== 1) {
     // 0 = timeout, NULL = error. Either way, leave main alone.

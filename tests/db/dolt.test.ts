@@ -87,9 +87,7 @@ describe("dolt helpers", () => {
       );
 
       // dolt_status should still show handoff_summary as dirty.
-      const [statusRows] = await conn.query<RowDataPacket[]>(
-        "SELECT table_name FROM dolt_status",
-      );
+      const [statusRows] = await conn.query<RowDataPacket[]>("SELECT table_name FROM dolt_status");
       const dirtyTables = statusRows.map((r) => r.table_name as string);
       expect(dirtyTables).toContain("handoff_summary");
       expect(dirtyTables).not.toContain("session_context");
