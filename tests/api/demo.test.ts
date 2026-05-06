@@ -136,4 +136,59 @@ describe("/demo gating", () => {
     expect(passedInput.constraints.max_tokens).toBe(1024);
     expect(passedInput.constraints.timeout_ms).toBe(15_000);
   });
+
+  it("truncates oversized prompts to bound input-token spend", async () => {
+    process.env.HAOL_ENABLE_DEMO = "1";
+    buildSuccessfulRouterResponse();
+    const app = createApp();
+
+    // Zod's RouterTaskInput allows up to 100k chars; demo clamps to 4k.
+    const oversized = "a".repeat(50_000);
+    const res = await app.request("/demo/api/task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: oversized }),
+    });
+
+    expect(res.status).toBe(201);
+    const passedInput = routeTaskMock.mock.calls[0][0] as { prompt: string };
+    expect(passedInput.prompt.length).toBe(4_000);
+  });
+
+  it("leaves prompts within the cap unchanged", async () => {
+    process.env.HAOL_ENABLE_DEMO = "1";
+    buildSuccessfulRouterResponse();
+    const app = createApp();
+
+    const original = "short prompt";
+    const res = await app.request("/demo/api/task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: original }),
+    });
+
+    expect(res.status).toBe(201);
+    const passedInput = routeTaskMock.mock.calls[0][0] as { prompt: string };
+    expect(passedInput.prompt).toBe(original);
+  });
+
+  it("does not let serveStatic intercept POST /demo/api/task", async () => {
+    // Regression: if /demo/* were mounted with app.use() rather than
+    // app.get(), serveStatic would run on POST and could serve a matching
+    // file from ./public/, bypassing the rate limiter and the handler.
+    // We can't create files inside ./public/ from a test, but we can verify
+    // the POST reaches our handler by asserting routeTask was invoked.
+    process.env.HAOL_ENABLE_DEMO = "1";
+    buildSuccessfulRouterResponse();
+    const app = createApp();
+
+    const res = await app.request("/demo/api/task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "hi" }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(routeTaskMock).toHaveBeenCalledTimes(1);
+  });
 });

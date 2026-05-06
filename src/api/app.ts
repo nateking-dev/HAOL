@@ -44,7 +44,11 @@ export function createApp(): Hono {
   // across rotating addresses. 5/min globally bounds worst-case LLM spend.
   if (process.env.HAOL_ENABLE_DEMO === "1") {
     const demoWriteLimit = rateLimit({ limit: 5, windowMs: 60_000, global: true });
-    app.use(
+    // serveStatic is bound to GET only. app.use("/demo/*", ...) would run
+    // the static handler on POST as well — a POST /demo/api/task with a
+    // matching ./public/api/task file would be served statically and never
+    // reach the rate limiter, defeating the spend cap.
+    app.get(
       "/demo/*",
       serveStatic({ root: "./public/", rewriteRequestPath: (p) => p.replace(/^\/demo/, "") }),
     );
