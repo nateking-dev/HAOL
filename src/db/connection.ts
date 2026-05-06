@@ -23,6 +23,40 @@ export function createPool(config: DoltConfig): Pool {
     waitForConnections: true,
   };
   pool = mysql.createPool(opts);
+  // Dolt's SQL server runs with --no-auto-commit, so every new connection
+  // arrives with autocommit=0. Under autocommit=0 each connection holds an
+  // implicit transaction with REPEATABLE READ semantics — a SELECT on
+  // connection B started before connection A's COMMIT will never see A's
+  // writes, even after A commits. That breaks every cross-connection
+  // workflow (HTTP handler INSERT → worker SELECT, reaper UPDATE → worker
+  // SELECT, etc.) which is why test runs that span pool connections look
+  // intermittently broken.
+  //
+  // Force autocommit=1 on every new physical connection so each statement
+  // is its own transaction and reads always see the latest committed
+  // state. Code paths that need grouped Dolt commits (writeContext,
+  // commitSession) explicitly toggle autocommit themselves and reset it
+  // to 1 in their finally block via withBranchConnection's cleanup.
+  // mysql2's 'connection' event hands us the underlying callback-style
+  // Connection (not the promise-wrapped one), so we use the cb form here.
+  // The promise interface would throw "tried to call .then() on a non-
+  // promise" — exactly what surfaced when this was first written with
+  // .catch(). The callback form is documented in mysql2's pool example
+  // at https://sidorares.github.io/node-mysql2/docs#using-connection-pools.
+  pool.on("connection", (conn) => {
+    (conn as unknown as { query(sql: string, cb: (err: Error | null) => void): void }).query(
+      "SET SESSION autocommit = 1",
+      (err) => {
+        if (err) {
+          // Logging is the best we can do — throwing from an event handler
+          // crashes the process. Subsequent uses of this connection will
+          // resurface the underlying issue.
+          // eslint-disable-next-line no-console
+          console.error("[db] failed to SET autocommit=1 on new connection:", err.message);
+        }
+      },
+    );
+  });
   return pool;
 }
 
