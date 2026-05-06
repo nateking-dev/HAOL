@@ -4,6 +4,20 @@ export interface DoltCommitOptions {
   message: string;
   author?: string;
   allowEmpty?: boolean;
+  /**
+   * Restrict the commit to a specific set of tables. When provided, the helper
+   * stages exactly those tables (via DOLT_ADD) before committing — residue
+   * from other tables in the working set is left untouched. When omitted,
+   * the commit auto-stages all changes (-A), which is the right default for
+   * most callers but corrupts attribution when the working set is shared
+   * across pool connections (see commitSession in src/memory/session-manager.ts).
+   *
+   * Table names are passed as procedure args (string literals to DOLT_ADD),
+   * not identifiers, so they are not vulnerable to SQL injection — but they
+   * are interpreted as table names by Dolt, so callers must provide trusted
+   * names from a fixed allow-list.
+   */
+  tables?: string[];
 }
 
 export async function doltCommit(opts: DoltCommitOptions, conn?: Queryable): Promise<string> {
@@ -16,7 +30,19 @@ export async function doltCommit(opts: DoltCommitOptions, conn?: Queryable): Pro
     args.push("--allow-empty");
   }
 
-  // DOLT_COMMIT with -A flag to auto-stage all changes
+  if (opts.tables && opts.tables.length > 0) {
+    // Stage only the specified tables, then commit without -A so residue
+    // from other tables in the shared working set isn't authored under this
+    // commit. DOLT_ADD takes table names as positional args.
+    const addPlaceholders = opts.tables.map(() => "?").join(", ");
+    await db.query(`CALL DOLT_ADD(${addPlaceholders})`, opts.tables);
+    const placeholders = args.map(() => "?").join(", ");
+    const [rows] = await db.query(`CALL DOLT_COMMIT(${placeholders})`, args);
+    const result = rows as Record<string, string>[];
+    return result[0]?.hash ?? "";
+  }
+
+  // Default: DOLT_COMMIT with -A flag to auto-stage all changes
   const placeholders = args.map(() => "?").join(", ");
   const [rows] = await db.query(`CALL DOLT_COMMIT('-A', ${placeholders})`, args);
   const result = rows as Record<string, string>[];
@@ -83,6 +109,23 @@ export async function doltActiveBranch(conn?: Queryable): Promise<string> {
 }
 
 /**
+ * True when an error from DOLT_COMMIT indicates the staged set was empty.
+ *
+ * Dolt currently surfaces this as "nothing to commit" (mirroring git), but
+ * "nothing staged" / "nothing added" appear in adjacent Dolt error paths
+ * and could plausibly replace the canonical phrasing in a future release.
+ * This predicate matches all three forms so a Dolt upgrade doesn't silently
+ * convert a no-op into a hard failure on best-effort commit paths. If Dolt
+ * adds a stable error code for this condition, prefer matching the code.
+ *
+ * Tested against Dolt 1.43+. Re-verify on major version bumps.
+ */
+export function isNothingToCommitError(err: unknown): boolean {
+  const msg = (err as Error | undefined)?.message ?? "";
+  return /nothing (to commit|staged|added)/i.test(msg);
+}
+
+/**
  * Best-effort Dolt commit on a dedicated connection.
  * Acquires its own connection from the pool so the commit targets the
  * correct (main) branch regardless of pool connection state.
@@ -97,7 +140,7 @@ export async function commitSafely(
     try {
       await doltCommit({ message, author, allowEmpty }, conn);
     } catch (err) {
-      if (!(err as Error).message?.includes("nothing to commit")) {
+      if (!isNothingToCommitError(err)) {
         throw err;
       }
     }
