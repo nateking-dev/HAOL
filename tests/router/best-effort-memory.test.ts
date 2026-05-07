@@ -3,6 +3,7 @@ import {
   _bestEffortMemoryForTests as bestEffortMemory,
   _createMemoryBudgetForTests as createMemoryBudget,
   _memoryInflightForTests,
+  _resetMemoryInflightForTests,
 } from "../../src/router/router.js";
 
 const ORIGINAL_CAP = process.env.MEMORY_MAX_CONCURRENT;
@@ -25,15 +26,13 @@ function deferred<T = void>(): {
 
 describe("bestEffortMemory semaphore", () => {
   beforeEach(() => {
-    // Tight cap and short step timeout keep tests fast and the contention
-    // path observable. The budget is generous so we're testing the
-    // concurrency cap, not the per-task budget.
+    // Tight cap and short step timeout keep tests fast.
     process.env.MEMORY_MAX_CONCURRENT = "2";
     process.env.MEMORY_STEP_TIMEOUT_MS = "200";
     process.env.MEMORY_TASK_BUDGET_MS = "10000";
-    // Reasoning: prior test runs may leave inflight stuck above zero if
-    // they didn't await the work promise; assert clean baseline.
-    expect(_memoryInflightForTests()).toBe(0);
+    // memoryInflight is module-level state — a leaked promise from a prior
+    // test (or test file) would poison this one. Reset unconditionally.
+    _resetMemoryInflightForTests();
   });
 
   afterEach(() => {
@@ -43,6 +42,7 @@ describe("bestEffortMemory semaphore", () => {
     else process.env.MEMORY_STEP_TIMEOUT_MS = ORIGINAL_TIMEOUT;
     if (ORIGINAL_BUDGET === undefined) delete process.env.MEMORY_TASK_BUDGET_MS;
     else process.env.MEMORY_TASK_BUDGET_MS = ORIGINAL_BUDGET;
+    _resetMemoryInflightForTests();
     vi.useRealTimers();
   });
 
@@ -137,8 +137,7 @@ describe("bestEffortMemory semaphore", () => {
   });
 
   it("returns null with no fn invocation when the per-task budget is exhausted", async () => {
-    // Budget = 100ms (router.ts floors any sub-100 value back to the
-    // default), sleep past it before scheduling anything.
+    // 100ms is the minimum budget router.ts accepts; sleep past it.
     process.env.MEMORY_TASK_BUDGET_MS = "100";
     const budget = createMemoryBudget();
     await new Promise((r) => setTimeout(r, 150));

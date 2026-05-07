@@ -43,25 +43,9 @@ async function routerCommit(message: string): Promise<void> {
   await commitSafely(message, "haol-router <haol@system>", true);
 }
 
-// Memory layer is best-effort: a Dolt branching outage must not take down
-// task routing. Failures are logged at warn level and the session handle is
-// dropped — subsequent memory steps for that task become no-ops.
-//
-// Each step is bounded by MEMORY_STEP_TIMEOUT_MS, AND total memory work for
-// a task is bounded by MEMORY_TASK_BUDGET_MS — once the per-task budget is
-// exhausted, remaining steps short-circuit to null without waiting. This
-// caps worst-case tail latency for a slow-but-not-failing Dolt cluster: the
-// pipeline has up to 5 sequential memory steps, and without a shared budget
-// a sick Dolt could otherwise add 5×MEMORY_STEP_TIMEOUT_MS to every task.
-//
-// Pool-exhaustion guard: when a step's timeout fires, the underlying Dolt
-// query keeps its pool connection until the server eventually returns or
-// the connection is killed. Under sustained Dolt slowness this would drain
-// the entire pool. A process-wide semaphore caps how many pool connections
-// memory work can ever monopolize at once — calls past the cap short-
-// circuit to null rather than queue, leaving the rest of the pipeline
-// (HTTP handlers, classifier, agent selection) with guaranteed connection
-// headroom even in the degraded-Dolt case.
+// Memory layer is best-effort: each step is bounded by MEMORY_STEP_TIMEOUT_MS,
+// total per-task work by MEMORY_TASK_BUDGET_MS, and concurrent in-flight ops
+// across the process by MEMORY_MAX_CONCURRENT (semaphore guards pool exhaustion).
 function memoryStepTimeoutMs(): number {
   const raw = process.env.MEMORY_STEP_TIMEOUT_MS;
   if (!raw) return 5_000;
@@ -76,10 +60,8 @@ function memoryTaskBudgetMs(): number {
   return Number.isFinite(ms) && ms >= 100 ? ms : 8_000;
 }
 
-// Maximum concurrent memory operations across the whole process. Defaults
-// to 2 — a tiny fraction of typical pool sizes (DOLT_POOL_SIZE default 5)
-// so even a fully-saturated stuck-memory scenario leaves connections free
-// for non-memory work. Tune via MEMORY_MAX_CONCURRENT.
+// Default 2; should stay well below DOLT_POOL_SIZE so non-memory work always
+// has connection headroom even when memory is saturated on a degraded Dolt.
 function memoryMaxConcurrent(): number {
   const raw = process.env.MEMORY_MAX_CONCURRENT;
   if (!raw) return 2;
@@ -118,18 +100,16 @@ async function bestEffortMemory<T>(
     return null;
   }
 
-  // Semaphore: refuse to schedule a new memory operation when the cap is
-  // already saturated. We don't queue (which would just shift the latency
-  // from "took 5s and timed out" to "waited 5s for a slot then took 5s and
-  // timed out"). Memory is best-effort — under contention we'd rather skip
-  // the step than back-pressure the task pipeline.
-  if (memoryInflight >= memoryMaxConcurrent()) {
+  // Short-circuit rather than queue: queuing just shifts a 5s timeout to
+  // 10s wait + 5s timeout under sustained Dolt slowness.
+  const cap = memoryMaxConcurrent();
+  if (memoryInflight >= cap) {
     logger.warn("memory step skipped (concurrency cap reached)", {
       component: "router",
       step,
       task_id: taskId,
       inflight: memoryInflight,
-      cap: memoryMaxConcurrent(),
+      cap,
     });
     return null;
   }
@@ -144,21 +124,11 @@ async function bestEffortMemory<T>(
     );
   });
 
-  // The work promise has to keep running until Dolt eventually returns or
-  // the connection is killed — that's the only way the pool connection
-  // releases. Decrement memoryInflight when it actually settles, not when
-  // Promise.race returns. A dangling .catch swallows late rejections so
-  // they don't surface as unhandled-rejection warnings after the race has
-  // already resolved via timeoutPromise.
+  // Slot releases when fn() actually settles, not when the race returns,
+  // so a timed-out step still holds its slot until Dolt frees the conn.
+  // The dangling .catch swallows late rejections to avoid unhandledRejection.
   const work = fn();
-  work
-    .finally(() => {
-      memoryInflight--;
-    })
-    .catch(() => {
-      // Already observed by the race below (or intentionally ignored if the
-      // timeout won). Swallow to avoid unhandledRejection.
-    });
+  work.finally(() => memoryInflight--).catch(() => {});
 
   try {
     return await Promise.race([work, timeoutPromise]);
@@ -180,7 +150,11 @@ export function _memoryInflightForTests(): number {
   return memoryInflight;
 }
 
-/** Test hook — exposes the internal helper without changing its access shape. */
+/** Test hook — zero the counter so a leaked promise from one test can't poison the next. */
+export function _resetMemoryInflightForTests(): void {
+  memoryInflight = 0;
+}
+
 export const _bestEffortMemoryForTests = bestEffortMemory;
 export const _createMemoryBudgetForTests = createMemoryBudget;
 
