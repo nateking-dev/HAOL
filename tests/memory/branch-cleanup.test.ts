@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
@@ -154,5 +154,44 @@ describe("branch cleanup", () => {
 
     const pruned = await pruneSessionBranches(0);
     expect(pruned).toContain(branchName);
+  });
+
+  it("fails safe: when the active-task lookup throws, no branch is pruned", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    // Regression: a transient Dolt failure during the active-task guard
+    // query should never cascade into deleting live branches. The
+    // implementation treats every candidate as active in that case so the
+    // sweep is a no-op; the reaper retries on its next interval.
+    const pool = getPool();
+    const taskId = `cleanup-failsafe-${Date.now()}`;
+    const branchName = `session/${taskId}`;
+    await doltBranch({ name: branchName });
+
+    // Stub the second pool.query call (the task_log lookup) to throw,
+    // letting the first call (dolt_branches list) go through unchanged.
+    const realQuery = pool.query.bind(pool);
+    let calls = 0;
+    const spy = vi.spyOn(pool, "query").mockImplementation(((sql: string, params?: unknown) => {
+      calls++;
+      if (calls === 2) {
+        return Promise.reject(new Error("simulated dolt timeout"));
+      }
+      return realQuery(sql, params as never);
+    }) as unknown as typeof pool.query);
+
+    try {
+      const pruned = await pruneSessionBranches(0);
+      expect(pruned).not.toContain(branchName);
+    } finally {
+      spy.mockRestore();
+    }
+
+    // Branch must still exist after the failed sweep.
+    const [after] = await pool.query<RowDataPacket[]>(
+      "SELECT name FROM dolt_branches WHERE name = ?",
+      [branchName],
+    );
+    expect(after.length).toBe(1);
   });
 });

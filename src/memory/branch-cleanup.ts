@@ -67,15 +67,26 @@ async function findActiveTaskIds(taskIds: string[]): Promise<Set<string>> {
   const placeholders = taskIds.map(() => "?").join(", ");
   // Rows with no task_log entry (orphans) and rows in terminal states are
   // both safe to prune; only non-terminal rows protect a branch.
-  const [rows] = await pool.query<TaskStatusRow[]>(
-    `SELECT task_id, status FROM task_log WHERE task_id IN (${placeholders})`,
-    taskIds,
-  );
-  const active = new Set<string>();
-  for (const row of rows) {
-    if (!TERMINAL_STATUSES.has(row.status)) {
-      active.add(row.task_id);
+  // Fail-safe on query error: treat every candidate as active so a transient
+  // Dolt blip can never cause us to delete a live-task branch. The reaper
+  // retries on its next interval, so missed pruning is just deferred.
+  try {
+    const [rows] = await pool.query<TaskStatusRow[]>(
+      `SELECT task_id, status FROM task_log WHERE task_id IN (${placeholders})`,
+      taskIds,
+    );
+    const active = new Set<string>();
+    for (const row of rows) {
+      if (!TERMINAL_STATUSES.has(row.status)) {
+        active.add(row.task_id);
+      }
     }
+    return active;
+  } catch (err) {
+    logger.warn("active-task guard query failed; skipping prune this sweep", {
+      component: "memory",
+      error: (err as Error).message,
+    });
+    return new Set(taskIds);
   }
-  return active;
 }
