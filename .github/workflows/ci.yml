@@ -62,3 +62,7 @@ jobs:
           DOLT_USER: root
           DOLT_PASSWORD: ""
           DOLT_DATABASE: haol
+          # Provider constructors require API keys (audit #12). Tests mock
+          # fetch so these never reach the wire — dummy values are fine.
+          ANTHROPIC_API_KEY: dummy-for-tests
+          OPENAI_API_KEY: dummy-for-tests

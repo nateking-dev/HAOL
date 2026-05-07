@@ -5,13 +5,16 @@ import type {
   HealthStatus,
 } from "../types/execution.js";
 import { formatProviderError } from "./error-sanitizer.js";
+import { MissingApiKeyError } from "./errors.js";
 
 export class OpenAIProvider implements AgentProvider {
   private apiKey: string;
   private modelId: string;
 
   constructor(modelId: string) {
-    this.apiKey = process.env.OPENAI_API_KEY || "";
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) throw new MissingApiKeyError("OpenAI", "OPENAI_API_KEY");
+    this.apiKey = key;
     this.modelId = modelId;
   }
 
