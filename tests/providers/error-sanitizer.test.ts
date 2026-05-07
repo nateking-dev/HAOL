@@ -60,4 +60,14 @@ describe("formatProviderError", () => {
   it("handles empty body", () => {
     expect(formatProviderError("Anthropic", 504, "")).toBe("Anthropic API error 504");
   });
+
+  it("caps extracted type/code at 64 chars (defends against prompt-stuffed fields)", () => {
+    // An upstream that misbehaves and dumps prompt content into the type
+    // field should still be bounded.
+    const longType = "x".repeat(200) + "_SECRET_PROMPT_FRAGMENT";
+    const body = JSON.stringify({ error: { type: longType } });
+    const formatted = formatProviderError("Anthropic", 400, body);
+    expect(formatted).toBe(`Anthropic API error 400 (${"x".repeat(64)})`);
+    expect(formatted).not.toContain("SECRET");
+  });
 });
