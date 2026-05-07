@@ -4,6 +4,7 @@ import type {
   AgentResponse,
   HealthStatus,
 } from "../types/execution.js";
+import { formatProviderError } from "./error-sanitizer.js";
 
 export class LocalProvider implements AgentProvider {
   private modelId: string;
@@ -47,7 +48,7 @@ export class LocalProvider implements AgentProvider {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Ollama API error ${response.status}: ${errorText}`);
+        throw new Error(formatProviderError("Ollama", response.status, errorText));
       }
 
       const data = (await response.json()) as {
