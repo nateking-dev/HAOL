@@ -38,9 +38,10 @@ export const DEFAULT_TIMEOUT_MS: Record<ComplexityTier, number> = {
 };
 
 async function routerCommit(message: string): Promise<void> {
-  // allowEmpty: true ensures every task gets a Dolt commit for the audit trail,
-  // even when the working set is clean (e.g., read-only classification).
-  await commitSafely(message, "haol-router <haol@system>", true);
+  // No allowEmpty: a task with no row changes (read-only classification,
+  // pipeline aborted before any write) shouldn't add a commit-message-only
+  // entry to dolt_log. commitSafely silently swallows "nothing to commit".
+  await commitSafely(message, "haol-router <haol@system>");
 }
 
 // Memory layer is best-effort: each step is bounded by MEMORY_STEP_TIMEOUT_MS,
