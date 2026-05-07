@@ -127,8 +127,10 @@ async function bestEffortMemory<T>(
   // Slot releases when fn() actually settles, not when the race returns,
   // so a timed-out step still holds its slot until Dolt frees the conn.
   // The dangling .catch swallows late rejections to avoid unhandledRejection.
+  // Math.max(0, ...) guards against undershoot if a test reset the counter
+  // while this promise was still pending.
   const work = fn();
-  work.finally(() => memoryInflight--).catch(() => {});
+  work.finally(() => (memoryInflight = Math.max(0, memoryInflight - 1))).catch(() => {});
 
   try {
     return await Promise.race([work, timeoutPromise]);

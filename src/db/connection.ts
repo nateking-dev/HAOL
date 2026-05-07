@@ -9,6 +9,7 @@ import mysql, {
 // non-promise entry point.
 import type { Connection as CallbackConnection } from "mysql2";
 import { type DoltConfig } from "../config.js";
+import { logger } from "../logging/logger.js";
 
 export type Queryable = Pool | PoolConnection;
 
@@ -41,8 +42,14 @@ export function createPool(config: DoltConfig): Pool {
   onConn("connection", (conn) => {
     conn.query("SET SESSION autocommit = 1", (err: Error | null) => {
       if (err) {
-        // eslint-disable-next-line no-console
-        console.error("[db] failed to SET autocommit=1 on new connection:", err.message);
+        // Destroy the connection so it never enters the pool with autocommit=0
+        // — a poisoned connection would silently reintroduce the cross-conn
+        // visibility bug. mysql2 will create a fresh one on next acquire.
+        logger.error("failed to SET autocommit=1 on new connection", {
+          component: "db",
+          error: err.message,
+        });
+        conn.destroy();
       }
     });
   });
