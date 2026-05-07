@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { _tryFallbackAgentForTests } from "../../src/router/router.js";
 import * as agentSelection from "../../src/services/agent-selection.js";
+import { logger } from "../../src/logging/logger.js";
 import type { TaskClassification } from "../../src/types/task.js";
 import type { RoutingPolicy, SelectionResult, ScoredCandidate } from "../../src/types/selection.js";
 
@@ -49,6 +50,21 @@ const policy = (strategy: "NEXT_BEST" | "TIER_UP" | "ABORT"): RoutingPolicy => (
 describe("tryFallbackAgent — policy-aware behavior", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("ABORT: returns null without consulting scored_candidates or select()", async () => {
+    const selectSpy = vi.spyOn(agentSelection, "select");
+    const sel = selectionResult("agent-a", ["agent-a", "agent-b", "agent-c"]);
+
+    const result = await _tryFallbackAgentForTests(
+      classification(2),
+      sel,
+      "agent-a",
+      policy("ABORT"),
+    );
+
+    expect(result).toBeNull();
+    expect(selectSpy).not.toHaveBeenCalled();
   });
 
   it("NEXT_BEST: consumes existing scored_candidates without re-running select()", async () => {
@@ -103,8 +119,9 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
     expect(escalated.cost_ceiling_usd).toBe(0.5);
   });
 
-  it("TIER_UP at T4: skips escalation and falls through to NEXT_BEST", async () => {
+  it("TIER_UP at T4: skips escalation, logs a warning, and falls through to NEXT_BEST", async () => {
     const selectSpy = vi.spyOn(agentSelection, "select");
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
     const sel = selectionResult("agent-a", ["agent-a", "agent-b"]);
 
     const result = await _tryFallbackAgentForTests(
@@ -116,12 +133,17 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
 
     expect(result).toEqual({ agent_id: "agent-b" });
     expect(selectSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("TIER_UP requested but task already at top tier"),
+      expect.objectContaining({ complexity_tier: 4 }),
+    );
   });
 
-  it("TIER_UP: when escalated select() throws, falls through to NEXT_BEST", async () => {
+  it("TIER_UP: when escalated select() throws, logs a warning and falls through to NEXT_BEST", async () => {
     const selectSpy = vi
       .spyOn(agentSelection, "select")
       .mockRejectedValueOnce(new Error("no agent at T3"));
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
     const sel = selectionResult("agent-a", ["agent-a", "agent-b"]);
 
     const result = await _tryFallbackAgentForTests(
@@ -133,9 +155,17 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
 
     expect(result).toEqual({ agent_id: "agent-b" });
     expect(selectSpy).toHaveBeenCalledOnce();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("TIER_UP escalation failed"),
+      expect.objectContaining({
+        from_tier: 2,
+        to_tier: 3,
+        error: "no agent at T3",
+      }),
+    );
   });
 
-  it("TIER_UP: when higher-tier select() returns only the excluded agent and no alternatives, falls through", async () => {
+  it("TIER_UP: when higher-tier select() returns only the excluded agent, logs a warning and falls through", async () => {
     const sel = selectionResult("agent-a", ["agent-a", "agent-b"]);
     vi.spyOn(agentSelection, "select").mockResolvedValueOnce({
       selected_agent_id: "agent-a",
@@ -143,6 +173,7 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
       rationale: { capability_score: 1, cost_score: 1, latency_score: 1, total_score: 1 },
       fallback_applied: "NONE",
     });
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
 
     const result = await _tryFallbackAgentForTests(
       classification(2),
@@ -152,6 +183,10 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
     );
 
     expect(result).toEqual({ agent_id: "agent-b" });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("TIER_UP escalation produced no alternative"),
+      expect.objectContaining({ from_tier: 2, to_tier: 3 }),
+    );
   });
 
   it("TIER_UP: when higher-tier returns a different second-best (excluded primary still leads at higher tier)", async () => {
