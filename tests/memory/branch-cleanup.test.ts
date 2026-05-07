@@ -43,6 +43,8 @@ afterAll(async () => {
         // ignore
       }
     }
+    // Clean up any task_log rows seeded by the active-task-guard tests.
+    await pool.query("DELETE FROM task_log WHERE task_id LIKE 'cleanup-%'");
   }
   await destroy();
 });
@@ -92,5 +94,65 @@ describe("branch cleanup", () => {
     } catch {
       // ignore
     }
+  });
+
+  it("never prunes a branch whose task is still in flight (active-task guard)", async ({
+    skip,
+  }) => {
+    if (!doltAvailable) skip();
+
+    // Regression: previously the sweep deleted any session/% branch older
+    // than the cutoff regardless of task state, so a long-running tier-4
+    // task whose memory branch happened to be older than the retention
+    // window would surface a cryptic Dolt "branch not found" on its next
+    // memory step.
+
+    const pool = getPool();
+    const taskId = `cleanup-active-${Date.now()}`;
+    const branchName = `session/${taskId}`;
+    await doltBranch({ name: branchName });
+    // Seed a non-terminal task_log row. status=DISPATCHED is the most
+    // representative in-flight state.
+    await pool.query(
+      `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'DISPATCHED', ?)`,
+      [taskId, "deadbeef"],
+    );
+
+    const pruned = await pruneSessionBranches(0);
+    expect(pruned).not.toContain(branchName);
+
+    const [after] = await pool.query<RowDataPacket[]>(
+      "SELECT name FROM dolt_branches WHERE name = ?",
+      [branchName],
+    );
+    expect(after.length).toBe(1);
+  });
+
+  it("prunes a branch whose task has reached a terminal state", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const pool = getPool();
+    const taskId = `cleanup-terminal-${Date.now()}`;
+    const branchName = `session/${taskId}`;
+    await doltBranch({ name: branchName });
+    await pool.query(
+      `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'COMPLETED', ?)`,
+      [taskId, "deadbeef"],
+    );
+
+    const pruned = await pruneSessionBranches(0);
+    expect(pruned).toContain(branchName);
+  });
+
+  it("prunes orphan branches (no matching task_log row)", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    // Branch with no corresponding task_log row — safe to reclaim.
+    const taskId = `cleanup-orphan-${Date.now()}`;
+    const branchName = `session/${taskId}`;
+    await doltBranch({ name: branchName });
+
+    const pruned = await pruneSessionBranches(0);
+    expect(pruned).toContain(branchName);
   });
 });
