@@ -4,6 +4,7 @@ import type {
   AgentResponse,
   HealthStatus,
 } from "../types/execution.js";
+import { formatProviderError } from "./error-sanitizer.js";
 
 export class AnthropicProvider implements AgentProvider {
   private apiKey: string;
@@ -45,7 +46,7 @@ export class AnthropicProvider implements AgentProvider {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Anthropic API error ${response.status}: ${errorText}`);
+        throw new Error(formatProviderError("Anthropic", response.status, errorText));
       }
 
       const data = (await response.json()) as {
