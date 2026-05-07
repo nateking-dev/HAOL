@@ -8,6 +8,7 @@ import {
   doltDeleteBranch,
   doltMerge,
   doltActiveBranch,
+  commitSafely,
 } from "../../src/db/dolt.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
@@ -52,6 +53,36 @@ describe("dolt helpers", () => {
     });
     expect(hash).toBeTruthy();
     expect(typeof hash).toBe("string");
+  });
+
+  it("commitSafely (no allowEmpty) is a no-op when working set is clean", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    // Regression for audit #15: routerCommit dropped allowEmpty so a task
+    // with no row changes shouldn't add a message-only entry to dolt_log.
+    // commitSafely's responsibility is to swallow "nothing to commit"
+    // silently; verify dolt_log doesn't grow when the working set is clean.
+    const pool = getPool();
+
+    // Ensure a clean baseline: flush whatever is staged so the next attempt
+    // is genuinely empty.
+    await commitSafely("test: baseline flush before empty-commit assertion", "test <t@t>", true);
+
+    const [beforeRows] = (await pool.query("SELECT COUNT(*) AS n FROM dolt_log")) as [
+      Array<{ n: number }>,
+    ];
+    const before = Number(beforeRows[0].n);
+
+    await commitSafely(
+      "test: this commit should NOT appear in dolt_log",
+      "test <t@t>",
+      // allowEmpty defaults to false
+    );
+
+    const [afterRows] = (await pool.query("SELECT COUNT(*) AS n FROM dolt_log")) as [
+      Array<{ n: number }>,
+    ];
+    expect(Number(afterRows[0].n)).toBe(before);
   });
 
   it("doltCommit with tables[] stages only the listed tables", async ({ skip }) => {
