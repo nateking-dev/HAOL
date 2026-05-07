@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { AnthropicProvider } from "../../src/providers/anthropic.js";
 import { OpenAIProvider } from "../../src/providers/openai.js";
 import { MissingApiKeyError } from "../../src/providers/errors.js";
