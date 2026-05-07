@@ -43,21 +43,9 @@ async function routerCommit(message: string): Promise<void> {
   await commitSafely(message, "haol-router <haol@system>", true);
 }
 
-// Memory layer is best-effort: a Dolt branching outage must not take down
-// task routing. Failures are logged at warn level and the session handle is
-// dropped — subsequent memory steps for that task become no-ops.
-//
-// Each step is bounded by MEMORY_STEP_TIMEOUT_MS, AND total memory work for
-// a task is bounded by MEMORY_TASK_BUDGET_MS — once the per-task budget is
-// exhausted, remaining steps short-circuit to null without waiting. This
-// caps worst-case tail latency for a slow-but-not-failing Dolt cluster: the
-// pipeline has up to 5 sequential memory steps, and without a shared budget
-// a sick Dolt could otherwise add 5×MEMORY_STEP_TIMEOUT_MS to every task.
-//
-// Timeouts only cancel our await — the underlying Dolt operation continues
-// and may eventually free its pool connection. That's an acceptable
-// tradeoff: we'd rather return to the caller and risk one stuck connection
-// than block the whole task pipeline behind Dolt slowness.
+// Memory layer is best-effort: each step is bounded by MEMORY_STEP_TIMEOUT_MS,
+// total per-task work by MEMORY_TASK_BUDGET_MS, and concurrent in-flight ops
+// across the process by MEMORY_MAX_CONCURRENT (semaphore guards pool exhaustion).
 function memoryStepTimeoutMs(): number {
   const raw = process.env.MEMORY_STEP_TIMEOUT_MS;
   if (!raw) return 5_000;
@@ -71,6 +59,17 @@ function memoryTaskBudgetMs(): number {
   const ms = parseInt(raw, 10);
   return Number.isFinite(ms) && ms >= 100 ? ms : 8_000;
 }
+
+// Default 2; should stay well below DOLT_POOL_SIZE so non-memory work always
+// has connection headroom even when memory is saturated on a degraded Dolt.
+function memoryMaxConcurrent(): number {
+  const raw = process.env.MEMORY_MAX_CONCURRENT;
+  if (!raw) return 2;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 2;
+}
+
+let memoryInflight = 0;
 
 interface MemoryBudget {
   startedAt: number;
@@ -100,6 +99,22 @@ async function bestEffortMemory<T>(
     });
     return null;
   }
+
+  // Short-circuit rather than queue: queuing just shifts a 5s timeout to
+  // 10s wait + 5s timeout under sustained Dolt slowness.
+  const cap = memoryMaxConcurrent();
+  if (memoryInflight >= cap) {
+    logger.warn("memory step skipped (concurrency cap reached)", {
+      component: "router",
+      step,
+      task_id: taskId,
+      inflight: memoryInflight,
+      cap,
+    });
+    return null;
+  }
+
+  memoryInflight++;
   const timeoutMs = Math.min(memoryStepTimeoutMs(), remaining);
   let timer: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -108,8 +123,17 @@ async function bestEffortMemory<T>(
       timeoutMs,
     );
   });
+
+  // Slot releases when fn() actually settles, not when the race returns,
+  // so a timed-out step still holds its slot until Dolt frees the conn.
+  // The dangling .catch swallows late rejections to avoid unhandledRejection.
+  // Math.max(0, ...) guards against undershoot if a test reset the counter
+  // while this promise was still pending.
+  const work = fn();
+  work.finally(() => (memoryInflight = Math.max(0, memoryInflight - 1))).catch(() => {});
+
   try {
-    return await Promise.race([fn(), timeoutPromise]);
+    return await Promise.race([work, timeoutPromise]);
   } catch (err) {
     logger.warn("memory step failed", {
       component: "router",
@@ -122,6 +146,19 @@ async function bestEffortMemory<T>(
     if (timer) clearTimeout(timer);
   }
 }
+
+/** Test/observability hook. */
+export function _memoryInflightForTests(): number {
+  return memoryInflight;
+}
+
+/** Test hook — zero the counter so a leaked promise from one test can't poison the next. */
+export function _resetMemoryInflightForTests(): void {
+  memoryInflight = 0;
+}
+
+export const _bestEffortMemoryForTests = bestEffortMemory;
+export const _createMemoryBudgetForTests = createMemoryBudget;
 
 export interface RouteTaskOptions {
   /**

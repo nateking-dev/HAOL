@@ -4,7 +4,12 @@ import mysql, {
   type PoolOptions,
   type RowDataPacket,
 } from "mysql2/promise";
+// The pool's 'connection' event hands us the underlying callback-style
+// Connection (not the promise-wrapped one), so we import its type from the
+// non-promise entry point.
+import type { Connection as CallbackConnection } from "mysql2";
 import { type DoltConfig } from "../config.js";
+import { logger } from "../logging/logger.js";
 
 export type Queryable = Pool | PoolConnection;
 
@@ -23,6 +28,31 @@ export function createPool(config: DoltConfig): Pool {
     waitForConnections: true,
   };
   pool = mysql.createPool(opts);
+  // Dolt runs with --no-auto-commit, so new connections start at
+  // autocommit=0 and each holds a frozen REPEATABLE READ snapshot — cross-
+  // connection writes are invisible until the snapshot is reset. Force
+  // autocommit=1 here so each statement is its own transaction.
+  // The cast: mysql2/promise's Pool type only declares the 'enqueue' event,
+  // but the underlying callback pool also emits 'connection'. The conn it
+  // hands us is the callback-style Connection (not the promise wrapper).
+  const onConn = pool.on.bind(pool) as unknown as (
+    event: "connection",
+    cb: (conn: CallbackConnection) => void,
+  ) => Pool;
+  onConn("connection", (conn) => {
+    conn.query("SET SESSION autocommit = 1", (err: Error | null) => {
+      if (err) {
+        // Destroy the connection so it never enters the pool with autocommit=0
+        // — a poisoned connection would silently reintroduce the cross-conn
+        // visibility bug. mysql2 will create a fresh one on next acquire.
+        logger.error("failed to SET autocommit=1 on new connection", {
+          component: "db",
+          error: err.message,
+        });
+        conn.destroy();
+      }
+    });
+  });
   return pool;
 }
 
