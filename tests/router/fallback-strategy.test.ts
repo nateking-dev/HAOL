@@ -247,5 +247,4 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
       expect.objectContaining({ from_tier: 2, to_tier: 3 }),
     );
   });
-
 });
