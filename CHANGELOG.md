@@ -2,6 +2,48 @@
 
 All notable changes to the HAOL (Heterogeneous Agent Orchestration Layer) project are documented in this file.
 
+## [v0.6.0] — 2026-05-07
+
+Async task execution, versioned API, live memory layer, and structured logging — plus a long tail of audit-driven correctness fixes.
+
+### Breaking changes
+
+- **`POST /tasks` is now asynchronous** (#50) — Returns `202 Accepted` with `{ task_id, status: "QUEUED", links.self }` and a `Location` header instead of blocking until completion. Clients must poll `GET /tasks/:id` until `done: true`. The previous synchronous response shape is gone.
+- **All API routes mount under `/v1`** (#52) — Existing paths (`/tasks`, `/agents`, `/observability/*`, `/health`) move to `/v1/tasks`, `/v1/agents`, `/v1/observability/*`, `/v1/health`. Unversioned URLs no longer resolve. Future breaking changes will get their own version prefix rather than mutating `/v1`.
+
+### Added
+
+- **Async task execution pipeline** (#50) — `POST /tasks` validates input, inserts a `task_log` row in `QUEUED` status, hands the job to an in-process worker (`src/services/task-worker.ts`), and returns `202` immediately. The worker drains the queue with bounded concurrency controlled by `WORKER_CONCURRENCY`. New reaper (`src/services/task-reaper.ts`) re-enqueues stranded `QUEUED` rows on crash and marks rows stuck in `RECEIVED/CLASSIFIED/DISPATCHED` past `WORKER_RECOVERY_AGE_MS` as `FAILED` with `worker_error="worker_crashed"`. Includes in-process enqueue dedup (DB gate alone races on Dolt), atomic terminal-status writes so a partial crash can't leave half-written rows, queue cap with backpressure, error propagation through the poll endpoint, and shutdown await for in-flight work. New migrations: `019_async_task_pipeline.sql` (adds queue/worker columns to `task_log`) and `020_fix_signal_value_nullable.sql`.
+- **Memory layer wired into the router lifecycle** (#54) — The architecture documented in CLAUDE.md is now live. After classification, the router opens a `session/{taskId}` Dolt branch, writes structural context (classification, selection, execution records) to `session_context` on that branch, and merges to main on `SUCCESS`. On `FAILED` the branch is preserved for forensics and pruned by the reaper after `SESSION_BRANCH_RETENTION_DAYS` (default 7). All memory work is bounded by an aggregate budget and remains best-effort — Dolt branching outages log a warning but never fail the task. Includes durability semantics made explicit (rather than implicit), pre-merge flush gated on `dolt_status` (no-op when nothing to commit), and centralized autocommit reset.
+- **API versioning under `/v1`** (#52) — Stable contract for downstream consumers; the unversioned root is no longer mounted.
+- **Structured logging with request correlation** (#53) — JSON logger in `src/logging/` with `request_id` propagated through Hono context. Hono `Variables` are now typed so `c.get` is no longer an unsafe cast. Shared `tests/helpers/capture-stream.ts` for log assertions.
+- **Migration tracking with SHA pinning** (#51) — Applied migrations are recorded in `schema_migrations` with a SHA-256 of their content; renamed or edited migration files are detected on next startup. Atomic backfill path for existing deployments, deduped SHA computation, and a warning (not an error) when a tracked migration is missing on disk. The atomicity gap between recording and applying is documented inline.
+- **Demo route gating** (#55) — `HAOL_ENABLE_DEMO=true` is now required to mount `/demo` and the static frontend. `serveStatic` is GET-scoped and prompt length is clamped at the demo route boundary.
+
+### Fixed
+
+- **Idempotent / crash-recoverable migrations** (#64) — Migration runner now tolerates partial application (a crash mid-statement no longer wedges the database). Replaced the naïve `split(';')` with a quote-aware splitter that handles single quotes, double quotes, and backticks correctly, so SQL containing semicolons inside string literals or quoted identifiers no longer gets mangled. Companion test file `tests/db/migrate-idempotent.test.ts` covers the recovery path.
+- **Fallback now honors `fallback_strategy`** (#63) — `tryFallbackAgent` previously selected the next agent unconditionally regardless of the configured policy. It now respects `NEXT_BEST` (next scored candidate), `TIER_UP` (escalate one tier with explicit telemetry on success and on fallthrough when no higher tier exists), and `ABORT` (explicit guard, no further attempts). Field names aligned across warning logs; `scored_candidates` ordering is documented; coverage added for undefined-policy and T4-with-no-alternative.
+- **Fast-fail providers on missing API keys** (#62) — Anthropic and OpenAI provider constructors throw immediately when `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` is missing, instead of producing cryptic 401s mid-task once a real request is dispatched (audit #12). Local provider remains key-free.
+- **No empty router commits** (#61) — Dropped `allowEmpty` from `routerCommit` (audit #15). Empty Dolt commits no longer pollute the audit log when the router has nothing to record.
+- **Active-task branch guard in cleanup** (#60) — Branch cleanup queries `task_log` for in-flight tasks before pruning; session branches belonging to active tasks are now retained even if older than the retention threshold. On active-task lookup failure, the cleanup is fail-safe (preserves rather than prunes) so a transient query error can't destroy live session state.
+- **Provider error sanitization** (#59) — New `src/providers/error-sanitizer.ts` scrubs auth headers, bearer tokens, and other sensitive fields out of provider error bodies before they're written to `execution_log` and committed to Dolt. Prevents secrets and PII from bleeding into commit history (which, by design, is permanent and auditable).
+- **Memory pool stability and flaky-test root cause** (#58) — Forces `autocommit=1` on every new pool connection, closing the `--no-auto-commit` + `REPEATABLE READ` interaction that caused tests to see stale rows depending on connection reuse. Caps memory-layer concurrency to bound pool exhaustion when Dolt is slow (the memory wiring can otherwise hold many connections during long branch operations).
+- **Dolt commit attribution** (#57) — Main-branch merges from session branches are now serialized via `GET_LOCK` advisory lock so concurrent merges don't interleave and produce ambiguous commit graphs. Memory commits stage only memory tables (`session_context`, etc.) so unrelated working-tree changes can't leak into a memory commit and confuse the audit trail.
+- **Reaper aging from `worker_started_at`** (#56) — Stale-task age is now computed from when the worker actually picked up the task, not when it was queued. Backlogged-but-not-yet-started rows are no longer falsely marked `FAILED` when the queue depth grows past `WORKER_RECOVERY_AGE_MS`.
+- **Demo dependencies** (#55) — Patched moderate CVEs in transitive demo dependencies.
+
+### Migration guide (0.5.x → 0.6.0)
+
+1. **Update API base URL** to include `/v1` (e.g., `https://haol.example.com/tasks` → `https://haol.example.com/v1/tasks`).
+2. **Update task submission flow** for async semantics: read `task_id` from the `202` body or `Location` header, then poll `GET /v1/tasks/:id` until the response includes `done: true`.
+3. **Run `npm run migrate`** to apply migrations 019 and 020 and backfill `schema_migrations` SHAs for existing migrations.
+4. **Optional new env vars**:
+   - `WORKER_CONCURRENCY` — bounded concurrency for the in-process worker
+   - `WORKER_RECOVERY_AGE_MS` — age at which stranded `RECEIVED/CLASSIFIED/DISPATCHED` rows are marked failed
+   - `SESSION_BRANCH_RETENTION_DAYS` — how long failed-task session branches are kept (default 7)
+   - `HAOL_ENABLE_DEMO` — must be `true` to mount the demo routes
+
 ## [v0.5.0] — 2026-05-02
 
 Routing-brain observability, security middleware coverage, synthetic regression gating, and a meaningful reduction in T3 over-escalation.
