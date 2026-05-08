@@ -52,6 +52,16 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
     vi.restoreAllMocks();
   });
 
+  it("undefined policy: implicit NEXT_BEST — consumes ranking without calling select()", async () => {
+    const selectSpy = vi.spyOn(agentSelection, "select");
+    const sel = selectionResult("agent-a", ["agent-a", "agent-b"]);
+
+    const result = await _tryFallbackAgentForTests(classification(2), sel, "agent-a", undefined);
+
+    expect(result).toEqual({ agent_id: "agent-b" });
+    expect(selectSpy).not.toHaveBeenCalled();
+  });
+
   it("ABORT: returns null without consulting scored_candidates or select()", async () => {
     const selectSpy = vi.spyOn(agentSelection, "select");
     const sel = selectionResult("agent-a", ["agent-a", "agent-b", "agent-c"]);
@@ -117,6 +127,26 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
     expect(escalated.complexity_tier).toBe(3);
     // T3 ceiling per costCeilingForTier
     expect(escalated.cost_ceiling_usd).toBe(0.5);
+  });
+
+  it("TIER_UP at T4 with no other ranked candidate: logs a warning and returns null", async () => {
+    const selectSpy = vi.spyOn(agentSelection, "select");
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const sel = selectionResult("agent-a", ["agent-a"]);
+
+    const result = await _tryFallbackAgentForTests(
+      classification(4),
+      sel,
+      "agent-a",
+      policy("TIER_UP"),
+    );
+
+    expect(result).toBeNull();
+    expect(selectSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("TIER_UP requested but task already at top tier"),
+      expect.objectContaining({ complexity_tier: 4 }),
+    );
   });
 
   it("TIER_UP at T4: skips escalation, logs a warning, and falls through to NEXT_BEST", async () => {
