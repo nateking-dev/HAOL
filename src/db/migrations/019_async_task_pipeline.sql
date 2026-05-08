@@ -29,4 +29,4 @@ ALTER TABLE task_log ADD COLUMN worker_error TEXT DEFAULT NULL;
 -- needs a persistent place to read it from.
 ALTER TABLE task_log ADD COLUMN response_content LONGTEXT DEFAULT NULL;
 
-CREATE INDEX idx_task_log_status_created ON task_log (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_task_log_status_created ON task_log (status, created_at);

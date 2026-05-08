@@ -17,6 +17,43 @@ const TRACKING_DDL = `
   )
 `;
 
+// MySQL error codes that are recoverable when a previous migration run
+// partially applied a file before crashing — re-running picks up where
+// it left off without operator intervention. See execStatementsIdempotent.
+const RECOVERABLE_DDL_ERRNOS = new Set<number>([
+  1050, // ER_TABLE_EXISTS_ERROR — CREATE TABLE re-run
+  1060, // ER_DUP_FIELDNAME    — ADD COLUMN re-run
+  1061, // ER_DUP_KEYNAME      — CREATE INDEX / ADD INDEX re-run
+]);
+
+// Dolt collapses these into errno 1105 (ER_UNKNOWN_ERROR), preserving the
+// message text. Match the message so re-runs against Dolt also recover.
+const RECOVERABLE_DDL_MESSAGE_PATTERNS: RegExp[] = [
+  /column ".+" already exists/i, // dup ADD COLUMN
+  /duplicate column name/i, // alt phrasing
+  /duplicate key name/i, // dup CREATE INDEX / ADD INDEX
+  /table .+ already exists/i, // dup CREATE TABLE without IF NOT EXISTS
+];
+
+// Known-safe edits to previously-applied migrations: filename → set of
+// pre-edit SHAs the drift detector should auto-upgrade instead of throwing.
+// Each entry is a deliberate operator-facing decision: the SHA drift check
+// exists to catch silent edits, so we only allowlist edits that are
+// semantically equivalent on a fully-applied schema.
+//
+// Current entries: PR for finding #8 added `IF NOT EXISTS` to `CREATE INDEX`
+// in migrations 017 and 019 so that a crash mid-migration recovers cleanly.
+const TOLERATED_DRIFT: Map<string, ReadonlySet<string>> = new Map([
+  [
+    "017_add_missing_indexes.sql",
+    new Set(["873803b5e9adc248f51fae4d4fb2e0b98a625a966040178fb3e3fd5eff40d8cd"]),
+  ],
+  [
+    "019_async_task_pipeline.sql",
+    new Set(["515e44eb8ab8d77501bc11c823a70b410107fb92b62d52b036e7475be7b9ea2e"]),
+  ],
+]);
+
 interface AppliedRow {
   filename: string;
   sha256: string;
@@ -24,6 +61,108 @@ interface AppliedRow {
 
 export function sha256(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+/**
+ * Split a SQL file into individual statements. Quote- and comment-aware so
+ * a `;` inside a string literal or `/* ... *\/` block doesn't fragment a
+ * statement (the historical naive `split(";")` did exactly that).
+ *
+ * Not a full SQL parser — does not handle DELIMITER changes (stored procs)
+ * or backslash-escaped quotes. Sufficient for the schema migrations this
+ * file applies; document the limitation if a future migration needs more.
+ */
+export function splitStatements(sql: string): string[] {
+  const out: string[] = [];
+  let buf = "";
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const c = sql[i];
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      buf += c;
+      if (c === "\n") inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      buf += c;
+      if (c === "*" && next === "/") {
+        buf += next;
+        i++;
+        inBlockComment = false;
+      }
+      continue;
+    }
+    if (inSingle) {
+      buf += c;
+      if (c === "'" && next === "'") {
+        // SQL '' escape inside a single-quoted literal — consume both.
+        buf += next;
+        i++;
+        continue;
+      }
+      if (c === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      buf += c;
+      if (c === '"' && next === '"') {
+        buf += next;
+        i++;
+        continue;
+      }
+      if (c === '"') inDouble = false;
+      continue;
+    }
+    if (inBacktick) {
+      buf += c;
+      if (c === "`") inBacktick = false;
+      continue;
+    }
+
+    if (c === "-" && next === "-") {
+      inLineComment = true;
+      buf += c;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      inBlockComment = true;
+      buf += c + next;
+      i++;
+      continue;
+    }
+    if (c === "'") {
+      inSingle = true;
+      buf += c;
+      continue;
+    }
+    if (c === '"') {
+      inDouble = true;
+      buf += c;
+      continue;
+    }
+    if (c === "`") {
+      inBacktick = true;
+      buf += c;
+      continue;
+    }
+    if (c === ";") {
+      const s = buf.trim();
+      if (s.length > 0) out.push(s);
+      buf = "";
+      continue;
+    }
+    buf += c;
+  }
+  const tail = buf.trim();
+  if (tail.length > 0) out.push(tail);
+  return out;
 }
 
 async function loadAppliedRows(): Promise<Map<string, string>> {
@@ -96,6 +235,22 @@ export async function runMigrations(): Promise<string[]> {
 
     if (recordedHash) {
       if (recordedHash !== hash) {
+        const tolerated = TOLERATED_DRIFT.get(file);
+        if (tolerated && tolerated.has(recordedHash)) {
+          // Known-safe edit (e.g., added `IF NOT EXISTS` for crash-recovery).
+          // Upgrade the tracking row instead of throwing.
+          console.log(
+            "[migrate] tolerated drift on %s: rehashing %s… → %s…",
+            file,
+            recordedHash.slice(0, 12),
+            hash.slice(0, 12),
+          );
+          await pool.query("UPDATE migrations_applied SET sha256 = ? WHERE filename = ?", [
+            hash,
+            file,
+          ]);
+          continue;
+        }
         throw new Error(
           `Migration ${file} has drifted: applied SHA ${recordedHash.slice(0, 12)}… ` +
             `does not match disk SHA ${hash.slice(0, 12)}…. ` +
@@ -105,22 +260,14 @@ export async function runMigrations(): Promise<string[]> {
       continue;
     }
 
-    const statements = sql
-      .split(";")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-
-    // Residual atomicity gap: DDL auto-commits in MySQL/Dolt, so a crash
-    // between the last statement here and the tracking INSERT below leaves
-    // the schema mutated but unrecorded. The next run will treat this file
-    // as new and re-execute it, which fails loudly (e.g. "Duplicate column"
-    // on ALTER TABLE ADD COLUMN) — the operator must then either revert
-    // the schema change or manually INSERT the tracking row. Acceptable
-    // because the failure is loud, not silent, and current migrations are
-    // DDL-only or use idempotent INSERT IGNORE / ON DUPLICATE KEY UPDATE.
-    for (const statement of statements) {
-      await pool.query(statement);
-    }
+    // Atomicity: DDL auto-commits in MySQL/Dolt, so a crash between the
+    // last statement and the tracking INSERT below leaves the schema
+    // mutated but unrecorded. On the next run the file is treated as new
+    // and re-executed; execStatementsIdempotent catches the recoverable
+    // duplicate-* errors so re-execution succeeds without operator
+    // intervention. Migrations that introduce non-DDL writes should still
+    // be designed idempotently (INSERT IGNORE / ON DUPLICATE KEY UPDATE).
+    await execStatementsIdempotent(file, splitStatements(sql));
 
     await pool.query("INSERT INTO migrations_applied (filename, sha256) VALUES (?, ?)", [
       file,
@@ -130,6 +277,43 @@ export async function runMigrations(): Promise<string[]> {
   }
 
   return ran;
+}
+
+interface MysqlError extends Error {
+  errno?: number;
+}
+
+async function execStatementsIdempotent(file: string, statements: string[]): Promise<void> {
+  const pool = getPool();
+  for (const statement of statements) {
+    try {
+      await pool.query(statement);
+    } catch (err) {
+      const e = err as MysqlError;
+      if (isRecoverableDuplicateDdl(e)) {
+        console.warn(
+          "[migrate] %s: skipping already-applied statement (errno=%d): %s",
+          file,
+          e.errno,
+          firstLine(statement),
+        );
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+function isRecoverableDuplicateDdl(err: MysqlError): boolean {
+  if (err.errno != null && RECOVERABLE_DDL_ERRNOS.has(err.errno)) return true;
+  // Dolt path: errno 1105 with the duplicate-* message preserved.
+  const msg = err.message ?? "";
+  return RECOVERABLE_DDL_MESSAGE_PATTERNS.some((re) => re.test(msg));
+}
+
+function firstLine(sql: string): string {
+  const line = sql.split("\n", 1)[0].trim();
+  return line.length > 120 ? line.slice(0, 117) + "..." : line;
 }
 
 // CLI entry point
