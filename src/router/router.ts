@@ -486,7 +486,8 @@ async function tryFallbackAgent(
       logger.warn("TIER_UP requested but task already at top tier; falling through to NEXT_BEST", {
         component: "router",
         task_id: classification.task_id,
-        complexity_tier: classification.complexity_tier,
+        from_tier: classification.complexity_tier,
+        to_tier: null,
       });
     } else {
       // Re-rank against the next-higher tier with its higher cost ceiling.
@@ -521,12 +522,15 @@ async function tryFallbackAgent(
           });
           return { agent_id: next.agent_id };
         }
-        logger.warn("TIER_UP escalation produced no alternative; falling through to NEXT_BEST", {
-          component: "router",
-          task_id: classification.task_id,
-          from_tier: classification.complexity_tier,
-          to_tier: higherTier,
-        });
+        logger.warn(
+          "TIER_UP escalation returned no new agent; using NEXT_BEST from original tier",
+          {
+            component: "router",
+            task_id: classification.task_id,
+            from_tier: classification.complexity_tier,
+            to_tier: higherTier,
+          },
+        );
       } catch (err) {
         logger.warn("TIER_UP escalation failed; falling through to NEXT_BEST", {
           component: "router",

@@ -174,7 +174,7 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
     expect(selectSpy).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("TIER_UP requested but task already at top tier"),
-      expect.objectContaining({ complexity_tier: 4 }),
+      expect.objectContaining({ from_tier: 4, to_tier: null }),
     );
   });
 
@@ -194,7 +194,7 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
     expect(selectSpy).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("TIER_UP requested but task already at top tier"),
-      expect.objectContaining({ complexity_tier: 4 }),
+      expect.objectContaining({ from_tier: 4, to_tier: null }),
     );
   });
 
@@ -243,7 +243,7 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
 
     expect(result).toEqual({ agent_id: "agent-b" });
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("TIER_UP escalation produced no alternative"),
+      expect.stringContaining("TIER_UP escalation returned no new agent"),
       expect.objectContaining({ from_tier: 2, to_tier: 3 }),
     );
   });
