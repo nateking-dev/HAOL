@@ -5,6 +5,7 @@ import { execute } from "../services/execution.js";
 import * as taskLog from "../repositories/task-log.js";
 import { getActivePolicy } from "../repositories/routing-policy.js";
 import { commitSafely } from "../db/dolt.js";
+import { costCeilingForTier } from "../classifier/scoring.js";
 import type { AgentRequest, ExecutionRecord } from "../types/execution.js";
 import type { ComplexityTier, TaskClassification } from "../types/task.js";
 import { uuidv7 } from "../types/task.js";
@@ -160,6 +161,7 @@ export function _resetMemoryInflightForTests(): void {
 
 export const _bestEffortMemoryForTests = bestEffortMemory;
 export const _createMemoryBudgetForTests = createMemoryBudget;
+export const _tryFallbackAgentForTests = tryFallbackAgent;
 
 export interface RouteTaskOptions {
   /**
@@ -292,6 +294,7 @@ export async function routeTask(
       // Try next-best agent if available
       const fallbackSelection = await tryFallbackAgent(
         classification,
+        selection,
         selection.selected_agent_id,
         policy ?? undefined,
       );
@@ -469,19 +472,79 @@ export async function routeTask(
 
 async function tryFallbackAgent(
   classification: TaskClassification,
+  selection: SelectionResult,
   excludeAgentId: string,
   policy?: RoutingPolicy,
 ): Promise<{ agent_id: string } | null> {
-  try {
-    const result = await select(classification, policy);
-    // If the same agent is selected, no point retrying
-    if (result.selected_agent_id === excludeAgentId) {
-      // Try the second-best if available
-      const secondBest = result.scored_candidates.find((c) => c.agent_id !== excludeAgentId);
-      return secondBest ? { agent_id: secondBest.agent_id } : null;
+  // ABORT is filtered at the call site, but enforce it at the function
+  // boundary too so the contract doesn't depend on an invisible precondition.
+  if (policy?.fallback_strategy === "ABORT") return null;
+
+  if (policy?.fallback_strategy === "TIER_UP") {
+    // At T4 there's no higher tier — TIER_UP semantics can't apply.
+    if (classification.complexity_tier >= 4) {
+      logger.warn("TIER_UP requested but task already at top tier; falling through to NEXT_BEST", {
+        component: "router",
+        task_id: classification.task_id,
+        from_tier: classification.complexity_tier,
+        to_tier: null,
+      });
+    } else {
+      // Re-rank against the next-higher tier with its higher cost ceiling.
+      // This is a different candidate set than the original ranking, so we
+      // have to call select() again.
+      const higherTier = (classification.complexity_tier + 1) as ComplexityTier;
+      const escalated: TaskClassification = {
+        ...classification,
+        complexity_tier: higherTier,
+        cost_ceiling_usd: costCeilingForTier(higherTier),
+      };
+      try {
+        const result = await select(escalated, policy);
+        if (result.selected_agent_id !== excludeAgentId) {
+          logger.info("TIER_UP escalation succeeded", {
+            component: "router",
+            task_id: classification.task_id,
+            from_tier: classification.complexity_tier,
+            to_tier: higherTier,
+            agent_id: result.selected_agent_id,
+          });
+          return { agent_id: result.selected_agent_id };
+        }
+        const next = result.scored_candidates.find((c) => c.agent_id !== excludeAgentId);
+        if (next) {
+          logger.info("TIER_UP escalation succeeded (second-best at higher tier)", {
+            component: "router",
+            task_id: classification.task_id,
+            from_tier: classification.complexity_tier,
+            to_tier: higherTier,
+            agent_id: next.agent_id,
+          });
+          return { agent_id: next.agent_id };
+        }
+        logger.warn(
+          "TIER_UP escalation returned no new agent; using NEXT_BEST from original tier",
+          {
+            component: "router",
+            task_id: classification.task_id,
+            from_tier: classification.complexity_tier,
+            to_tier: higherTier,
+          },
+        );
+      } catch (err) {
+        logger.warn("TIER_UP escalation failed; falling through to NEXT_BEST", {
+          component: "router",
+          task_id: classification.task_id,
+          from_tier: classification.complexity_tier,
+          to_tier: higherTier,
+          error: (err as Error).message,
+        });
+      }
     }
-    return { agent_id: result.selected_agent_id };
-  } catch {
-    return null;
   }
+
+  // NEXT_BEST (and TIER_UP fall-through): consume the already-ranked candidates
+  // from the original selection. No DB round-trip.
+  const next = selection.scored_candidates.find((c) => c.agent_id !== excludeAgentId);
+  return next ? { agent_id: next.agent_id } : null;
 }

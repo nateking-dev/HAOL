@@ -208,6 +208,9 @@ export async function select(
 
   const winner = sorted[0];
 
+  // SelectionResult.scored_candidates documents that this list is sorted
+  // descending by total_score — `sorted` carries that contract from
+  // sortCandidates() above. Don't reorder before returning.
   return {
     selected_agent_id: winner.agent_id,
     scored_candidates: sorted,

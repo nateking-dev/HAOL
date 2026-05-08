@@ -11,6 +11,11 @@ export type ScoredCandidate = z.infer<typeof ScoredCandidate>;
 
 export const SelectionResult = z.object({
   selected_agent_id: z.string(),
+  /**
+   * All candidates that passed the filter, sorted descending by `total_score`
+   * with `agent_id` ascending as the tiebreak. Consumers (e.g. router fallback)
+   * rely on this ordering to pick the next-best agent without re-ranking.
+   */
   scored_candidates: z.array(ScoredCandidate),
   rationale: z.object({
     capability_score: z.number(),
