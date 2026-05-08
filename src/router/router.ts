@@ -501,10 +501,26 @@ async function tryFallbackAgent(
       try {
         const result = await select(escalated, policy);
         if (result.selected_agent_id !== excludeAgentId) {
+          logger.info("TIER_UP escalation succeeded", {
+            component: "router",
+            task_id: classification.task_id,
+            from_tier: classification.complexity_tier,
+            to_tier: higherTier,
+            agent_id: result.selected_agent_id,
+          });
           return { agent_id: result.selected_agent_id };
         }
         const next = result.scored_candidates.find((c) => c.agent_id !== excludeAgentId);
-        if (next) return { agent_id: next.agent_id };
+        if (next) {
+          logger.info("TIER_UP escalation succeeded (second-best at higher tier)", {
+            component: "router",
+            task_id: classification.task_id,
+            from_tier: classification.complexity_tier,
+            to_tier: higherTier,
+            agent_id: next.agent_id,
+          });
+          return { agent_id: next.agent_id };
+        }
         logger.warn("TIER_UP escalation produced no alternative; falling through to NEXT_BEST", {
           component: "router",
           task_id: classification.task_id,

@@ -105,7 +105,7 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
     expect(result).toBeNull();
   });
 
-  it("TIER_UP: re-runs select() against complexity_tier+1 with bumped cost ceiling", async () => {
+  it("TIER_UP: re-runs select() against complexity_tier+1 with bumped cost ceiling and logs success", async () => {
     const sel = selectionResult("agent-haiku", ["agent-haiku"]);
     const selectSpy = vi.spyOn(agentSelection, "select").mockResolvedValueOnce({
       selected_agent_id: "agent-sonnet",
@@ -113,6 +113,7 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
       rationale: { capability_score: 1, cost_score: 1, latency_score: 1, total_score: 1 },
       fallback_applied: "NONE",
     });
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {});
 
     const result = await _tryFallbackAgentForTests(
       classification(2),
@@ -127,6 +128,34 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
     expect(escalated.complexity_tier).toBe(3);
     // T3 ceiling per costCeilingForTier
     expect(escalated.cost_ceiling_usd).toBe(0.5);
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("TIER_UP escalation succeeded"),
+      expect.objectContaining({ from_tier: 2, to_tier: 3, agent_id: "agent-sonnet" }),
+    );
+  });
+
+  it("TIER_UP: when higher-tier select() returns the excluded agent but a second-best exists, picks second-best and logs success", async () => {
+    const sel = selectionResult("agent-a", ["agent-a"]);
+    vi.spyOn(agentSelection, "select").mockResolvedValueOnce({
+      selected_agent_id: "agent-a",
+      scored_candidates: [candidate("agent-a"), candidate("agent-c")],
+      rationale: { capability_score: 1, cost_score: 1, latency_score: 1, total_score: 1 },
+      fallback_applied: "NONE",
+    });
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {});
+
+    const result = await _tryFallbackAgentForTests(
+      classification(2),
+      sel,
+      "agent-a",
+      policy("TIER_UP"),
+    );
+
+    expect(result).toEqual({ agent_id: "agent-c" });
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("second-best at higher tier"),
+      expect.objectContaining({ from_tier: 2, to_tier: 3, agent_id: "agent-c" }),
+    );
   });
 
   it("TIER_UP at T4 with no other ranked candidate: logs a warning and returns null", async () => {
@@ -219,22 +248,4 @@ describe("tryFallbackAgent — policy-aware behavior", () => {
     );
   });
 
-  it("TIER_UP: when higher-tier returns a different second-best (excluded primary still leads at higher tier)", async () => {
-    const sel = selectionResult("agent-a", ["agent-a"]);
-    vi.spyOn(agentSelection, "select").mockResolvedValueOnce({
-      selected_agent_id: "agent-a",
-      scored_candidates: [candidate("agent-a"), candidate("agent-c")],
-      rationale: { capability_score: 1, cost_score: 1, latency_score: 1, total_score: 1 },
-      fallback_applied: "NONE",
-    });
-
-    const result = await _tryFallbackAgentForTests(
-      classification(2),
-      sel,
-      "agent-a",
-      policy("TIER_UP"),
-    );
-
-    expect(result).toEqual({ agent_id: "agent-c" });
-  });
 });
