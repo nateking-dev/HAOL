@@ -11,7 +11,7 @@ const testPrefix = `test-svc-${Date.now()}`;
 function makeAgent(suffix: string, overrides?: Partial<CreateAgentInput>): CreateAgentInput {
   return {
     agent_id: `${testPrefix}-${suffix}`,
-    provider: "test-provider",
+    provider: "local",
     model_id: "test-model-v1",
     capabilities: ["summarization", "classification"],
     cost_per_1k_input: 0.001,

@@ -6,6 +6,7 @@ import { RouterTaskInput } from "../../types/router.js";
 import { uuidv7, sha256 } from "../../types/task.js";
 import * as worker from "../../services/task-worker.js";
 import { NotFoundError, ValidationError } from "../middleware/error-handler.js";
+import { parseJsonBody } from "../request-body.js";
 import type { HonoEnv } from "../types.js";
 
 const tasks = new Hono<HonoEnv>();
@@ -18,7 +19,7 @@ const tasks = new Hono<HonoEnv>();
  * GET /tasks/:id for status.
  */
 tasks.post("/tasks", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   const parsed = RouterTaskInput.safeParse(body);
   if (!parsed.success) {
     throw new ValidationError(parsed.error.message);
@@ -29,7 +30,7 @@ tasks.post("/tasks", async (c) => {
   // instead of silently piling up rows the reaper has to clean later.
   if (!worker.canAccept()) {
     c.header("Retry-After", "5");
-    return c.json({ error: "task queue full, retry shortly" }, 503);
+    return c.json({ error: "task queue full, retry shortly" }, 429);
   }
 
   const taskId = uuidv7();
@@ -43,10 +44,19 @@ tasks.post("/tasks", async (c) => {
   });
   const enqueueResult = worker.enqueue(taskId, parsed.data, c.get("requestId"));
   if (enqueueResult !== "ok") {
-    // Lost the race against another concurrent intake or shutdown — leave
-    // the row QUEUED for the reaper rather than orphaning the caller.
+    // Do not leave hidden recoverable work behind an error response. If the
+    // caller retries after this response, the original row must not execute
+    // later and double-spend provider calls.
+    await taskLog.recordWorkerError(taskId, `enqueue_failed:${enqueueResult}`);
     c.header("Retry-After", "5");
-    return c.json({ error: "task queue unavailable, retry shortly" }, 503);
+    return c.json(
+      {
+        error: "task queue unavailable, retry shortly",
+        task_id: taskId,
+        status: "FAILED",
+      },
+      enqueueResult === "queue_full" ? 429 : 503,
+    );
   }
 
   c.header("Location", `/v1/tasks/${taskId}`);

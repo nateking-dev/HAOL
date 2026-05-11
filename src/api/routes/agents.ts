@@ -8,6 +8,7 @@ import {
 } from "../../services/agent-registry.js";
 import { CreateAgentInput, UpdateAgentInput } from "../../types/agent.js";
 import { NotFoundError, ValidationError } from "../middleware/error-handler.js";
+import { parseJsonBody } from "../request-body.js";
 
 const agents = new Hono();
 
@@ -23,7 +24,7 @@ agents.get("/agents", async (c) => {
 });
 
 agents.post("/agents", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   const parsed = CreateAgentInput.safeParse(body);
   if (!parsed.success) {
     throw new ValidationError(parsed.error.message);
@@ -35,7 +36,7 @@ agents.post("/agents", async (c) => {
 
 agents.put("/agents/:id", async (c) => {
   const agentId = c.req.param("id");
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   const parsed = UpdateAgentInput.safeParse(body);
   if (!parsed.success) {
     throw new ValidationError(parsed.error.message);

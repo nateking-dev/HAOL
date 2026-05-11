@@ -1,6 +1,11 @@
 import { query, getPool } from "../db/connection.js";
 import type { RowDataPacket } from "mysql2/promise";
-import type { AgentRegistration, CreateAgentInput, UpdateAgentInput } from "../types/agent.js";
+import {
+  AgentProvider,
+  type AgentRegistration,
+  type CreateAgentInput,
+  type UpdateAgentInput,
+} from "../types/agent.js";
 
 interface AgentRow extends RowDataPacket {
   agent_id: string;
@@ -25,7 +30,7 @@ export function parseAgentRow(row: AgentRow): AgentRegistration {
 
   return {
     agent_id: row.agent_id,
-    provider: row.provider,
+    provider: AgentProvider.parse(row.provider),
     model_id: row.model_id,
     capabilities,
     cost_per_1k_input:

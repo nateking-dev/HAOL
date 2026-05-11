@@ -4,13 +4,14 @@ import { recordDownstreamOutcome } from "../../services/outcome-collector.js";
 import * as outcomeRepo from "../../repositories/task-outcome.js";
 import * as taskLog from "../../repositories/task-log.js";
 import type { OutcomeSummary } from "../../types/outcome.js";
+import { parseJsonBody } from "../request-body.js";
 
 const outcomes = new Hono();
 
 // POST /tasks/:id/outcome — Tier 3 downstream signal
 outcomes.post("/tasks/:id/outcome", async (c) => {
   const taskId = c.req.param("id");
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
 
   const result = DownstreamOutcomeInput.safeParse(body);
   if (!result.success) {

@@ -11,7 +11,7 @@ const testPrefix = `test-repo-${Date.now()}`;
 function makeAgent(suffix: string, overrides?: Partial<CreateAgentInput>): CreateAgentInput {
   return {
     agent_id: `${testPrefix}-${suffix}`,
-    provider: "test-provider",
+    provider: "local",
     model_id: "test-model-v1",
     capabilities: ["summarization", "classification"],
     cost_per_1k_input: 0.001,
@@ -58,7 +58,7 @@ describe("agent-registry repository", () => {
     const found = await repo.findById(input.agent_id);
     expect(found).not.toBeNull();
     expect(found!.agent_id).toBe(input.agent_id);
-    expect(found!.provider).toBe("test-provider");
+    expect(found!.provider).toBe("local");
     expect(found!.capabilities).toEqual(["summarization", "classification"]);
     expect(typeof found!.cost_per_1k_input).toBe("number");
     expect(found!.cost_per_1k_input).toBeCloseTo(0.001, 5);
@@ -119,7 +119,7 @@ describe("agent-registry repository", () => {
     expect(updated!.avg_latency_ms).toBe(999);
     expect(updated!.status).toBe("degraded");
     // Unchanged fields should remain
-    expect(updated!.provider).toBe("test-provider");
+    expect(updated!.provider).toBe("local");
   });
 
   it("remove sets status to disabled", async ({ skip }) => {
