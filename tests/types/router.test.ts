@@ -33,7 +33,7 @@ describe("RouterTaskInput constraints", () => {
     expect(
       RouterTaskInput.safeParse({
         prompt: "summarize this",
-        constraints: { temperature: 99 },
+        constraints: { temperature: 1.5 },
       }).success,
     ).toBe(false);
   });

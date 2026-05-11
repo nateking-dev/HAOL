@@ -55,10 +55,13 @@ tasks.post("/tasks", async (c) => {
         component: "tasks-api",
         task_id: taskId,
         enqueue_result: enqueueResult,
+        db_status: "QUEUED",
         error: (err as Error).message,
       });
     }
-    c.header("Retry-After", "5");
+    if (enqueueResult === "queue_full") {
+      c.header("Retry-After", "5");
+    }
     return c.json(
       {
         error: "task queue unavailable, retry shortly",

@@ -25,7 +25,7 @@ export const RouterTaskInput = z.object({
     .object({
       max_tokens: z.number().int().min(1).max(8192).optional(),
       timeout_ms: z.number().int().min(1_000).max(120_000).optional(),
-      temperature: z.number().min(0).max(2).optional(),
+      temperature: z.number().min(0).max(1).optional(),
     })
     .optional(),
   expected_format: FormatSpec.optional(),

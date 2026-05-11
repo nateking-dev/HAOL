@@ -61,6 +61,7 @@ describe("POST /tasks intake failure handling", () => {
     const body = (await res.json()) as { task_id: string; status: string };
 
     expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("5");
     expect(body.task_id).toBeTruthy();
     expect(body.status).toBe("FAILED");
     expect(createQueuedMock).toHaveBeenCalledTimes(1);
@@ -79,11 +80,12 @@ describe("POST /tasks intake failure handling", () => {
     const body = (await res.json()) as { task_id: string; status: string };
 
     expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBeNull();
     expect(body.status).toBe("FAILED");
     expect(recordWorkerErrorMock).toHaveBeenCalledWith(body.task_id, "enqueue_failed:stopping");
   });
 
-  it("still returns retry guidance if marking the enqueue failure fails", async () => {
+  it("still returns a 503 if marking the enqueue failure fails", async () => {
     enqueueMock.mockReturnValue("stopping");
     recordWorkerErrorMock.mockRejectedValue(new Error("db unavailable"));
     const app = createApp();
@@ -96,7 +98,7 @@ describe("POST /tasks intake failure handling", () => {
     const body = (await res.json()) as { task_id: string; status: string };
 
     expect(res.status).toBe(503);
-    expect(res.headers.get("Retry-After")).toBe("5");
+    expect(res.headers.get("Retry-After")).toBeNull();
     expect(body.task_id).toBeTruthy();
     expect(body.status).toBe("FAILED");
   });

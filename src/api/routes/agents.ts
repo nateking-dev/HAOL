@@ -12,6 +12,14 @@ import { parseJsonBody } from "../request-body.js";
 
 const agents = new Hono();
 
+function mapCapabilityValidationError(err: unknown): never {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.startsWith("Unknown capabilities:")) {
+    throw new ValidationError(message);
+  }
+  throw err;
+}
+
 agents.get("/agents", async (c) => {
   const status = c.req.query("status");
   const capability = c.req.query("capability");
@@ -30,7 +38,7 @@ agents.post("/agents", async (c) => {
     throw new ValidationError(parsed.error.message);
   }
 
-  const agent = await createAgent(parsed.data);
+  const agent = await createAgent(parsed.data).catch(mapCapabilityValidationError);
   return c.json(agent, 201);
 });
 
@@ -47,7 +55,7 @@ agents.put("/agents/:id", async (c) => {
     throw new NotFoundError(`Agent not found: ${agentId}`);
   }
 
-  const updated = await updateAgent(agentId, parsed.data);
+  const updated = await updateAgent(agentId, parsed.data).catch(mapCapabilityValidationError);
   return c.json(updated, 200);
 });
 

@@ -8,6 +8,8 @@ export type AgentProvider = z.infer<typeof AgentProvider>;
 
 export const AgentRegistration = z.object({
   agent_id: z.string(),
+  // Intentionally wider than AgentProvider: existing DB rows may contain
+  // legacy providers, and read paths must preserve them instead of crashing.
   provider: z.string(),
   model_id: z.string(),
   capabilities: z.array(z.string()),
