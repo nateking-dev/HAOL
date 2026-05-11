@@ -8,6 +8,7 @@ import * as worker from "../../services/task-worker.js";
 import { NotFoundError, ValidationError } from "../middleware/error-handler.js";
 import { parseJsonBody } from "../request-body.js";
 import type { HonoEnv } from "../types.js";
+import { logger } from "../../logging/logger.js";
 
 const tasks = new Hono<HonoEnv>();
 
@@ -47,7 +48,16 @@ tasks.post("/tasks", async (c) => {
     // Do not leave hidden recoverable work behind an error response. If the
     // caller retries after this response, the original row must not execute
     // later and double-spend provider calls.
-    await taskLog.recordWorkerError(taskId, `enqueue_failed:${enqueueResult}`);
+    try {
+      await taskLog.recordWorkerError(taskId, `enqueue_failed:${enqueueResult}`);
+    } catch (err) {
+      logger.warn("failed to mark enqueue-failure row as FAILED", {
+        component: "tasks-api",
+        task_id: taskId,
+        enqueue_result: enqueueResult,
+        error: (err as Error).message,
+      });
+    }
     c.header("Retry-After", "5");
     return c.json(
       {

@@ -49,6 +49,24 @@ afterAll(async () => {
 });
 
 describe("agent-registry repository", () => {
+  it("parseAgentRow preserves unknown legacy providers instead of throwing", () => {
+    const parsed = repo.parseAgentRow({
+      agent_id: "legacy-agent",
+      provider: "legacy-provider",
+      model_id: "legacy-model",
+      capabilities: '["summarization"]',
+      cost_per_1k_input: "0.001000",
+      cost_per_1k_output: "0.002000",
+      max_context_tokens: 4096,
+      avg_latency_ms: 250,
+      status: "active",
+      tier_ceiling: 2,
+    } as any);
+
+    expect(parsed.provider).toBe("legacy-provider");
+    expect(parsed.agent_id).toBe("legacy-agent");
+  });
+
   it("create + findById round-trip", async ({ skip }) => {
     if (!doltAvailable) skip();
 

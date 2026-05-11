@@ -130,10 +130,7 @@ describe("/demo gating", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({
-      error: "Invalid JSON request body",
-      details: undefined,
-    });
+    expect(await res.json()).toEqual({ error: "Invalid JSON request body" });
     expect(routeTaskMock).not.toHaveBeenCalled();
   });
 

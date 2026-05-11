@@ -8,7 +8,7 @@ export type AgentProvider = z.infer<typeof AgentProvider>;
 
 export const AgentRegistration = z.object({
   agent_id: z.string(),
-  provider: AgentProvider,
+  provider: z.string(),
   model_id: z.string(),
   capabilities: z.array(z.string()),
   cost_per_1k_input: z.number().min(0),

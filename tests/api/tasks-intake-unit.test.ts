@@ -67,6 +67,40 @@ describe("POST /tasks intake failure handling", () => {
     expect(recordWorkerErrorMock).toHaveBeenCalledWith(body.task_id, "enqueue_failed:queue_full");
   });
 
+  it("returns 503 for non-capacity enqueue failures", async () => {
+    enqueueMock.mockReturnValue("stopping");
+    const app = createApp();
+
+    const res = await app.request("/v1/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "summarize this" }),
+    });
+    const body = (await res.json()) as { task_id: string; status: string };
+
+    expect(res.status).toBe(503);
+    expect(body.status).toBe("FAILED");
+    expect(recordWorkerErrorMock).toHaveBeenCalledWith(body.task_id, "enqueue_failed:stopping");
+  });
+
+  it("still returns retry guidance if marking the enqueue failure fails", async () => {
+    enqueueMock.mockReturnValue("stopping");
+    recordWorkerErrorMock.mockRejectedValue(new Error("db unavailable"));
+    const app = createApp();
+
+    const res = await app.request("/v1/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "summarize this" }),
+    });
+    const body = (await res.json()) as { task_id: string; status: string };
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("5");
+    expect(body.task_id).toBeTruthy();
+    expect(body.status).toBe("FAILED");
+  });
+
   it("returns 400 for malformed JSON before touching intake state", async () => {
     const app = createApp();
 
