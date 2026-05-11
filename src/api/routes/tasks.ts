@@ -45,13 +45,14 @@ tasks.post("/tasks", async (c) => {
   });
   const enqueueResult = worker.enqueue(taskId, parsed.data, c.get("requestId"));
   if (enqueueResult !== "ok") {
-    let persistedStatus: "FAILED" | "QUEUED" = "FAILED";
+    let persistedStatus: "FAILED" | "QUEUED";
     let warning: string | undefined;
     // Do not leave hidden recoverable work behind an error response. If the
     // caller retries after this response, the original row must not execute
     // later and double-spend provider calls.
     try {
       await taskLog.recordWorkerError(taskId, `enqueue_failed:${enqueueResult}`);
+      persistedStatus = "FAILED";
     } catch (err) {
       persistedStatus = "QUEUED";
       warning = "task row remains queued and may execute later; poll task_id before retrying";
@@ -63,7 +64,8 @@ tasks.post("/tasks", async (c) => {
         error: (err as Error).message,
       });
     }
-    if (enqueueResult === "queue_full") {
+    const isQueueFull = enqueueResult === "queue_full";
+    if (isQueueFull) {
       c.header("Retry-After", "5");
     }
     return c.json(
@@ -73,7 +75,7 @@ tasks.post("/tasks", async (c) => {
         status: persistedStatus,
         ...(warning ? { warning } : {}),
       },
-      enqueueResult === "queue_full" ? 429 : 503,
+      isQueueFull ? 429 : 503,
     );
   }
 
