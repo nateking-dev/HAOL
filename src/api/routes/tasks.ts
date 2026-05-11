@@ -45,12 +45,14 @@ tasks.post("/tasks", async (c) => {
   });
   const enqueueResult = worker.enqueue(taskId, parsed.data, c.get("requestId"));
   if (enqueueResult !== "ok") {
+    let persistedStatus: "FAILED" | "QUEUED" = "FAILED";
     // Do not leave hidden recoverable work behind an error response. If the
     // caller retries after this response, the original row must not execute
     // later and double-spend provider calls.
     try {
       await taskLog.recordWorkerError(taskId, `enqueue_failed:${enqueueResult}`);
     } catch (err) {
+      persistedStatus = "QUEUED";
       logger.warn("failed to mark enqueue-failure row as FAILED", {
         component: "tasks-api",
         task_id: taskId,
@@ -66,7 +68,7 @@ tasks.post("/tasks", async (c) => {
       {
         error: "task queue unavailable, retry shortly",
         task_id: taskId,
-        status: "FAILED",
+        status: persistedStatus,
       },
       enqueueResult === "queue_full" ? 429 : 503,
     );

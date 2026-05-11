@@ -101,7 +101,7 @@ describe("POST /tasks intake failure handling", () => {
     expect(res.status).toBe(503);
     expect(res.headers.get("Retry-After")).toBeNull();
     expect(body.task_id).toBeTruthy();
-    expect(body.status).toBe("FAILED");
+    expect(body.status).toBe("QUEUED");
   });
 
   it("returns 400 for malformed JSON before touching intake state", async () => {

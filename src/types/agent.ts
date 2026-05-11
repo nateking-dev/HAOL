@@ -16,7 +16,9 @@ export const AgentRegistration = z.object({
   cost_per_1k_input: z.number().min(0),
   cost_per_1k_output: z.number().min(0),
   max_context_tokens: z.number().int().positive(),
-  avg_latency_ms: z.number().int().min(0),
+  // Output/read schema is intentionally tolerant of fractional computed
+  // latencies from future aggregate reads; create/update inputs remain ints.
+  avg_latency_ms: z.number().min(0),
   status: AgentStatus,
   tier_ceiling: z.number().int().min(1).max(4),
 });
