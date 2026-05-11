@@ -59,7 +59,7 @@ describe("POST /tasks intake failure handling", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt: "summarize this" }),
     });
-    const body = (await res.json()) as { task_id: string; status: string };
+    const body = (await res.json()) as { task_id: string; status: string; warning?: string };
 
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("5");
@@ -102,6 +102,9 @@ describe("POST /tasks intake failure handling", () => {
     expect(res.headers.get("Retry-After")).toBeNull();
     expect(body.task_id).toBeTruthy();
     expect(body.status).toBe("QUEUED");
+    expect(body.warning).toBe(
+      "task row remains queued and may execute later; poll task_id before retrying",
+    );
   });
 
   it("returns 400 for malformed JSON before touching intake state", async () => {

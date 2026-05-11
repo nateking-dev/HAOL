@@ -4,7 +4,10 @@ import { ValidationError } from "./middleware/error-handler.js";
 export async function parseJsonBody(c: Context): Promise<unknown> {
   try {
     return await c.req.json();
-  } catch {
-    throw new ValidationError("Invalid JSON request body");
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      throw new ValidationError("Invalid JSON request body");
+    }
+    throw err;
   }
 }
