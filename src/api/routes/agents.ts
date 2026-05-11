@@ -5,6 +5,7 @@ import {
   deleteAgent,
   getAgent,
   listAgents,
+  CapabilityValidationError,
 } from "../../services/agent-registry.js";
 import { CreateAgentInput, UpdateAgentInput } from "../../types/agent.js";
 import { NotFoundError, ValidationError } from "../middleware/error-handler.js";
@@ -13,9 +14,8 @@ import { parseJsonBody } from "../request-body.js";
 const agents = new Hono();
 
 function mapCapabilityValidationError(err: unknown): never {
-  const message = err instanceof Error ? err.message : String(err);
-  if (message.startsWith("Unknown capabilities:")) {
-    throw new ValidationError(message);
+  if (err instanceof CapabilityValidationError) {
+    throw new ValidationError(err.message);
   }
   throw err;
 }

@@ -45,6 +45,7 @@ describe("POST /tasks intake failure handling", () => {
     });
 
     expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("5");
     expect(createQueuedMock).not.toHaveBeenCalled();
     expect(enqueueMock).not.toHaveBeenCalled();
   });

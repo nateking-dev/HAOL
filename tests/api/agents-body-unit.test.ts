@@ -1,10 +1,29 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const createAgentMock = vi.fn();
-const updateAgentMock = vi.fn();
-const deleteAgentMock = vi.fn();
-const getAgentMock = vi.fn();
-const listAgentsMock = vi.fn();
+const {
+  createAgentMock,
+  updateAgentMock,
+  deleteAgentMock,
+  getAgentMock,
+  listAgentsMock,
+  MockCapabilityValidationError,
+} = vi.hoisted(() => {
+  class MockCapabilityValidationError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "CapabilityValidationError";
+    }
+  }
+
+  return {
+    createAgentMock: vi.fn(),
+    updateAgentMock: vi.fn(),
+    deleteAgentMock: vi.fn(),
+    getAgentMock: vi.fn(),
+    listAgentsMock: vi.fn(),
+    MockCapabilityValidationError,
+  };
+});
 
 vi.mock("../../src/services/agent-registry.js", () => ({
   createAgent: (...args: unknown[]) => createAgentMock(...args),
@@ -12,6 +31,7 @@ vi.mock("../../src/services/agent-registry.js", () => ({
   deleteAgent: (...args: unknown[]) => deleteAgentMock(...args),
   getAgent: (...args: unknown[]) => getAgentMock(...args),
   listAgents: (...args: unknown[]) => listAgentsMock(...args),
+  CapabilityValidationError: MockCapabilityValidationError,
 }));
 
 import { createApp } from "../../src/api/app.js";
@@ -54,6 +74,31 @@ describe("agent API request body handling", () => {
     expect(updateAgentMock).not.toHaveBeenCalled();
   });
 
+  it("returns 400 when creating an agent with unknown capabilities", async () => {
+    createAgentMock.mockRejectedValue(
+      new MockCapabilityValidationError("Unknown capabilities: fake_capability"),
+    );
+    const app = createApp();
+
+    const res = await app.request("/v1/agents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agent_id: "agent-1",
+        provider: "local",
+        model_id: "test",
+        capabilities: ["fake_capability"],
+        cost_per_1k_input: 0,
+        cost_per_1k_output: 0,
+        max_context_tokens: 4096,
+        tier_ceiling: 1,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Unknown capabilities: fake_capability" });
+  });
+
   it("returns 400 when updating an agent to unknown capabilities", async () => {
     getAgentMock.mockResolvedValue({
       agent_id: "agent-1",
@@ -67,7 +112,9 @@ describe("agent API request body handling", () => {
       status: "active",
       tier_ceiling: 1,
     });
-    updateAgentMock.mockRejectedValue(new Error("Unknown capabilities: fake_capability"));
+    updateAgentMock.mockRejectedValue(
+      new MockCapabilityValidationError("Unknown capabilities: fake_capability"),
+    );
     const app = createApp();
 
     const res = await app.request("/v1/agents/agent-1", {

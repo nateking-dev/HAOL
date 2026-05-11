@@ -8,6 +8,13 @@ interface CapabilityRow extends RowDataPacket {
   capability_key: string;
 }
 
+export class CapabilityValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CapabilityValidationError";
+  }
+}
+
 async function serviceCommit(message: string): Promise<void> {
   await commitSafely(message, "haol-service <haol@system>");
 }
@@ -23,7 +30,7 @@ async function validateCapabilities(capabilities: string[]): Promise<void> {
     const found = new Set(rows.map((r) => r.capability_key));
     const unknown = capabilities.filter((c) => !found.has(c));
     if (unknown.length > 0) {
-      throw new Error(`Unknown capabilities: ${unknown.join(", ")}`);
+      throw new CapabilityValidationError(`Unknown capabilities: ${unknown.join(", ")}`);
     }
   }
 }
