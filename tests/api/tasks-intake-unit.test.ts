@@ -117,6 +117,7 @@ describe("POST /tasks intake failure handling", () => {
     });
 
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Invalid JSON request body" });
     expect(createQueuedMock).not.toHaveBeenCalled();
     expect(enqueueMock).not.toHaveBeenCalled();
   });

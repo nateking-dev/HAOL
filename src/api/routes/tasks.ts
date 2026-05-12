@@ -68,6 +68,10 @@ tasks.post("/tasks", async (c) => {
     if (isQueueFull) {
       c.header("Retry-After", "5");
     }
+    // Response intentionally diverges from the standard `{ error }` shape: the
+    // caller already owns a persisted row at this point, so we return task_id
+    // and the row's final status so they can poll or discard rather than
+    // blindly retry and double-spend provider calls.
     return c.json(
       {
         error: "task queue unavailable, retry shortly",
