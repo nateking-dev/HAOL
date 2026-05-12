@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { routeTask } from "../../router/router.js";
 import { RouterTaskInput } from "../../types/router.js";
 import { costSavings } from "../../observability/queries.js";
+import { parseJsonBody } from "../request-body.js";
 
 const demo = new Hono();
 
@@ -14,7 +15,7 @@ const DEMO_MAX_TOKENS = 1024;
 const DEMO_TIMEOUT_MS = 15_000;
 
 demo.post("/demo/api/task", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   const parsed = RouterTaskInput.safeParse(body);
   if (!parsed.success) {
     return c.json({ error: parsed.error.message }, 400);

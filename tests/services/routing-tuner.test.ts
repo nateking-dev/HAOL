@@ -168,7 +168,7 @@ describe("aggregateOutcomesByAgentTier", () => {
 
     await pool.query(
       `INSERT IGNORE INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling)
-       VALUES (?, 'test', 'test-model', '["code"]', 0.01, 0.02, 4096, 500, 'active', 4)`,
+       VALUES (?, 'local', 'test-model', '["code"]', 0.01, 0.02, 4096, 500, 'active', 4)`,
       [agentId],
     );
     await pool.query(

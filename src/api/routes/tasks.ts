@@ -6,7 +6,9 @@ import { RouterTaskInput } from "../../types/router.js";
 import { uuidv7, sha256 } from "../../types/task.js";
 import * as worker from "../../services/task-worker.js";
 import { NotFoundError, ValidationError } from "../middleware/error-handler.js";
+import { parseJsonBody } from "../request-body.js";
 import type { HonoEnv } from "../types.js";
+import { logger } from "../../logging/logger.js";
 
 const tasks = new Hono<HonoEnv>();
 
@@ -18,7 +20,7 @@ const tasks = new Hono<HonoEnv>();
  * GET /tasks/:id for status.
  */
 tasks.post("/tasks", async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   const parsed = RouterTaskInput.safeParse(body);
   if (!parsed.success) {
     throw new ValidationError(parsed.error.message);
@@ -29,7 +31,7 @@ tasks.post("/tasks", async (c) => {
   // instead of silently piling up rows the reaper has to clean later.
   if (!worker.canAccept()) {
     c.header("Retry-After", "5");
-    return c.json({ error: "task queue full, retry shortly" }, 503);
+    return c.json({ error: "task queue full, retry shortly" }, 429);
   }
 
   const taskId = uuidv7();
@@ -43,10 +45,42 @@ tasks.post("/tasks", async (c) => {
   });
   const enqueueResult = worker.enqueue(taskId, parsed.data, c.get("requestId"));
   if (enqueueResult !== "ok") {
-    // Lost the race against another concurrent intake or shutdown — leave
-    // the row QUEUED for the reaper rather than orphaning the caller.
-    c.header("Retry-After", "5");
-    return c.json({ error: "task queue unavailable, retry shortly" }, 503);
+    let persistedStatus: "FAILED" | "QUEUED";
+    let warning: string | undefined;
+    // Do not leave hidden recoverable work behind an error response. If the
+    // caller retries after this response, the original row must not execute
+    // later and double-spend provider calls.
+    try {
+      await taskLog.recordWorkerError(taskId, `enqueue_failed:${enqueueResult}`);
+      persistedStatus = "FAILED";
+    } catch (err) {
+      persistedStatus = "QUEUED";
+      warning = "task row remains queued and may execute later; poll task_id before retrying";
+      logger.warn("failed to mark enqueue-failure row as FAILED", {
+        component: "tasks-api",
+        task_id: taskId,
+        enqueue_result: enqueueResult,
+        db_status: "QUEUED",
+        error: (err as Error).message,
+      });
+    }
+    const isQueueFull = enqueueResult === "queue_full";
+    if (isQueueFull) {
+      c.header("Retry-After", "5");
+    }
+    // Response intentionally diverges from the standard `{ error }` shape: the
+    // caller already owns a persisted row at this point, so we return task_id
+    // and the row's final status so they can poll or discard rather than
+    // blindly retry and double-spend provider calls.
+    return c.json(
+      {
+        error: "task queue unavailable, retry shortly",
+        task_id: taskId,
+        status: persistedStatus,
+        ...(warning ? { warning } : {}),
+      },
+      isQueueFull ? 429 : 503,
+    );
   }
 
   c.header("Location", `/v1/tasks/${taskId}`);

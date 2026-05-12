@@ -103,7 +103,7 @@ describe("/demo gating", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt: "hello",
-        constraints: { max_tokens: 100_000, timeout_ms: 600_000, temperature: 0.5 },
+        constraints: { max_tokens: 8192, timeout_ms: 120_000, temperature: 0.5 },
       }),
     });
 
@@ -116,6 +116,22 @@ describe("/demo gating", () => {
     expect(passedInput.constraints.timeout_ms).toBe(15_000);
     // Non-clamped fields pass through untouched.
     expect(passedInput.constraints.temperature).toBe(0.5);
+  });
+
+  it("returns 400 for malformed JSON", async () => {
+    process.env.HAOL_ENABLE_DEMO = "1";
+    buildSuccessfulRouterResponse();
+    const app = createApp();
+
+    const res = await app.request("/demo/api/task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{bad",
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Invalid JSON request body" });
+    expect(routeTaskMock).not.toHaveBeenCalled();
   });
 
   it("applies the clamps even when caller omits constraints entirely", async () => {

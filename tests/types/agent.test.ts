@@ -69,6 +69,38 @@ describe("CreateAgentInput schema", () => {
       }),
     ).toThrow();
   });
+
+  it("fails with an unsupported provider", () => {
+    expect(() =>
+      CreateAgentInput.parse({
+        ...validInput,
+        provider: "unknown-provider",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects invalid numeric bounds", () => {
+    expect(() =>
+      CreateAgentInput.parse({
+        ...validInput,
+        cost_per_1k_input: -1,
+      }),
+    ).toThrow();
+
+    expect(() =>
+      CreateAgentInput.parse({
+        ...validInput,
+        max_context_tokens: 0,
+      }),
+    ).toThrow();
+
+    expect(() =>
+      CreateAgentInput.parse({
+        ...validInput,
+        tier_ceiling: 5,
+      }),
+    ).toThrow();
+  });
 });
 
 describe("UpdateAgentInput schema", () => {
@@ -80,6 +112,10 @@ describe("UpdateAgentInput schema", () => {
   it("allows partial updates", () => {
     const result = UpdateAgentInput.parse({ status: "degraded" });
     expect(result.status).toBe("degraded");
+  });
+
+  it("rejects unsupported provider updates", () => {
+    expect(() => UpdateAgentInput.parse({ provider: "unsupported" })).toThrow();
   });
 });
 

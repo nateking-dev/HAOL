@@ -432,8 +432,8 @@ describe("agent-selection service", () => {
     // Insert two agents with identical stats but different IDs
     await getPool().query(
       `INSERT IGNORE INTO agent_registry (agent_id, provider, model_id, capabilities, cost_per_1k_input, cost_per_1k_output, max_context_tokens, avg_latency_ms, status, tier_ceiling) VALUES
-        ('sel-tie-alpha', 'test', 'tie', '["tiebreak_test"]', 0.001000, 0.002000, 100000, 500, 'active', 2),
-        ('sel-tie-beta', 'test', 'tie', '["tiebreak_test"]', 0.001000, 0.002000, 100000, 500, 'active', 2)`,
+        ('sel-tie-alpha', 'local', 'tie', '["tiebreak_test"]', 0.001000, 0.002000, 100000, 500, 'active', 2),
+        ('sel-tie-beta', 'local', 'tie', '["tiebreak_test"]', 0.001000, 0.002000, 100000, 500, 'active', 2)`,
     );
 
     const classification: TaskClassification = {

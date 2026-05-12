@@ -11,7 +11,7 @@ const testPrefix = `test-repo-${Date.now()}`;
 function makeAgent(suffix: string, overrides?: Partial<CreateAgentInput>): CreateAgentInput {
   return {
     agent_id: `${testPrefix}-${suffix}`,
-    provider: "test-provider",
+    provider: "local",
     model_id: "test-model-v1",
     capabilities: ["summarization", "classification"],
     cost_per_1k_input: 0.001,
@@ -49,6 +49,24 @@ afterAll(async () => {
 });
 
 describe("agent-registry repository", () => {
+  it("parseAgentRow preserves unknown legacy providers instead of throwing", () => {
+    const parsed = repo.parseAgentRow({
+      agent_id: "legacy-agent",
+      provider: "legacy-provider",
+      model_id: "legacy-model",
+      capabilities: '["summarization"]',
+      cost_per_1k_input: "0.001000",
+      cost_per_1k_output: "0.002000",
+      max_context_tokens: 4096,
+      avg_latency_ms: 250,
+      status: "active",
+      tier_ceiling: 2,
+    } as any);
+
+    expect(parsed.provider).toBe("legacy-provider");
+    expect(parsed.agent_id).toBe("legacy-agent");
+  });
+
   it("create + findById round-trip", async ({ skip }) => {
     if (!doltAvailable) skip();
 
@@ -58,7 +76,7 @@ describe("agent-registry repository", () => {
     const found = await repo.findById(input.agent_id);
     expect(found).not.toBeNull();
     expect(found!.agent_id).toBe(input.agent_id);
-    expect(found!.provider).toBe("test-provider");
+    expect(found!.provider).toBe("local");
     expect(found!.capabilities).toEqual(["summarization", "classification"]);
     expect(typeof found!.cost_per_1k_input).toBe("number");
     expect(found!.cost_per_1k_input).toBeCloseTo(0.001, 5);
@@ -119,7 +137,7 @@ describe("agent-registry repository", () => {
     expect(updated!.avg_latency_ms).toBe(999);
     expect(updated!.status).toBe("degraded");
     // Unchanged fields should remain
-    expect(updated!.provider).toBe("test-provider");
+    expect(updated!.provider).toBe("local");
   });
 
   it("remove sets status to disabled", async ({ skip }) => {

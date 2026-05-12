@@ -8,25 +8,36 @@ interface CapabilityRow extends RowDataPacket {
   capability_key: string;
 }
 
+export class CapabilityValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CapabilityValidationError";
+  }
+}
+
 async function serviceCommit(message: string): Promise<void> {
   await commitSafely(message, "haol-service <haol@system>");
 }
 
-export async function createAgent(input: CreateAgentInput): Promise<AgentRegistration> {
-  // Validate all capabilities exist in the taxonomy
-  if (input.capabilities.length > 0) {
-    const placeholders = input.capabilities.map(() => "?").join(", ");
+async function validateCapabilities(capabilities: string[]): Promise<void> {
+  if (capabilities.length > 0) {
+    const placeholders = capabilities.map(() => "?").join(", ");
     const rows = await query<CapabilityRow[]>(
       `SELECT capability_key FROM capability_taxonomy WHERE capability_key IN (${placeholders})`,
-      input.capabilities,
+      capabilities,
     );
 
     const found = new Set(rows.map((r) => r.capability_key));
-    const unknown = input.capabilities.filter((c) => !found.has(c));
+    const unknown = capabilities.filter((c) => !found.has(c));
     if (unknown.length > 0) {
-      throw new Error(`Unknown capabilities: ${unknown.join(", ")}`);
+      throw new CapabilityValidationError(`Unknown capabilities: ${unknown.join(", ")}`);
     }
   }
+}
+
+export async function createAgent(input: CreateAgentInput): Promise<AgentRegistration> {
+  // Validate all capabilities exist in the taxonomy
+  await validateCapabilities(input.capabilities);
 
   await repo.create(input);
   await serviceCommit(`agent: register ${input.agent_id}`);
@@ -39,6 +50,9 @@ export async function updateAgent(
   agentId: string,
   input: UpdateAgentInput,
 ): Promise<AgentRegistration | null> {
+  if (input.capabilities) {
+    await validateCapabilities(input.capabilities);
+  }
   await repo.update(agentId, input);
   await serviceCommit(`agent: update ${agentId}`);
   return repo.findById(agentId);

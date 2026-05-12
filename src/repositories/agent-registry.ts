@@ -1,6 +1,12 @@
 import { query, getPool } from "../db/connection.js";
 import type { RowDataPacket } from "mysql2/promise";
-import type { AgentRegistration, CreateAgentInput, UpdateAgentInput } from "../types/agent.js";
+import {
+  AgentProvider,
+  type AgentRegistration,
+  type CreateAgentInput,
+  type UpdateAgentInput,
+} from "../types/agent.js";
+import { logger } from "../logging/logger.js";
 
 interface AgentRow extends RowDataPacket {
   agent_id: string;
@@ -23,9 +29,18 @@ export function parseAgentRow(row: AgentRow): AgentRegistration {
     capabilities = row.capabilities;
   }
 
+  const provider = AgentProvider.safeParse(row.provider);
+  if (!provider.success) {
+    logger.warn("agent row has unrecognized provider", {
+      component: "agent-registry",
+      agent_id: row.agent_id,
+      provider: row.provider,
+    });
+  }
+
   return {
     agent_id: row.agent_id,
-    provider: row.provider,
+    provider: provider.success ? provider.data : row.provider,
     model_id: row.model_id,
     capabilities,
     cost_per_1k_input:
