@@ -26,6 +26,16 @@ import { runWithContext } from "../logging/context.js";
 
 const STUCK_REASON = "worker_crashed";
 
+// How many QUEUED rows to pull per page when re-enqueuing at startup. Bounds
+// peak memory (each row carries its LONGTEXT prompt) without making the sweep
+// chatty. Override via WORKER_REQUEUE_PAGE_SIZE.
+function queuedPageSize(): number {
+  const raw = process.env.WORKER_REQUEUE_PAGE_SIZE;
+  if (!raw) return 100;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 100;
+}
+
 let timer: NodeJS.Timeout | null = null;
 
 // Floor the recovery threshold at 5 min so a misconfigured value can't
@@ -97,26 +107,53 @@ async function runReaperOnceInner(): Promise<{
   // empty at startup, so anything that survived a restart needs a kick. At
   // steady state during periodic sweeps, claimQueued() will harmlessly
   // refuse duplicates.
-  let queued: taskLog.TaskLogRecord[] = [];
-  try {
-    queued = await taskLog.findQueued();
-  } catch (err) {
-    logger.warn("findQueued failed", { error: (err as Error).message });
-  }
-  for (const row of queued) {
-    const input = reconstructInput(row);
-    if (!input) {
-      // Row predates the async pipeline (no stashed prompt); fail it.
-      try {
-        await taskLog.recordWorkerError(row.task_id, "queued_without_prompt");
-        failed++;
-      } catch {
-        // best-effort
-      }
-      continue;
+  //
+  // Drained page-by-page (keyset on created_at, task_id) rather than loading
+  // every QUEUED row — including its LONGTEXT prompt — at once: a boot-time
+  // backlog of large prompts would otherwise risk OOM. We stop early once the
+  // worker can't accept more, so we don't pull prompts the worker would just
+  // reject (its in-memory queue cap converts overflow into queue_full anyway).
+  const pageSize = queuedPageSize();
+  let cursor: taskLog.QueuedCursor | undefined;
+  let draining = true;
+  while (draining) {
+    let page: taskLog.TaskLogRecord[] = [];
+    try {
+      page = await taskLog.findQueuedPage(pageSize, cursor);
+    } catch (err) {
+      logger.warn("findQueuedPage failed", { error: (err as Error).message });
+      break;
     }
-    worker.enqueue(row.task_id, input);
-    reEnqueued++;
+    if (page.length === 0) break;
+
+    for (const row of page) {
+      const input = reconstructInput(row);
+      if (!input) {
+        // Row predates the async pipeline (no stashed prompt); fail it.
+        try {
+          await taskLog.recordWorkerError(row.task_id, "queued_without_prompt");
+          failed++;
+        } catch {
+          // best-effort
+        }
+        continue;
+      }
+      if (!worker.canAccept()) {
+        // Worker queue is full/stopping — leave the rest QUEUED for the next
+        // sweep instead of loading more prompts it can't take.
+        draining = false;
+        break;
+      }
+      worker.enqueue(row.task_id, input);
+      reEnqueued++;
+    }
+
+    // Stop on a short page (queue drained) or an early stop (worker full).
+    // Only advance the cursor when we'll actually fetch another page, so we
+    // never leave a cursor pointing past unprocessed rows.
+    if (!draining || page.length < pageSize) break;
+    const last = page[page.length - 1];
+    cursor = { created_at: last.created_at, task_id: last.task_id };
   }
 
   // 2. Mark stale in-flight rows FAILED. findStale returns just the

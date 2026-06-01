@@ -5,7 +5,8 @@ import type { TaskStatus } from "../types/router.js";
 
 interface TaskLogRow extends RowDataPacket {
   task_id: string;
-  created_at: string;
+  // mysql2 deserialises TIMESTAMP as a JS Date (no dateStrings on the pool).
+  created_at: string | Date;
   status: string;
   prompt_hash: string | null;
   prompt: string | null;
@@ -27,7 +28,9 @@ interface TaskLogRow extends RowDataPacket {
 
 export interface TaskLogRecord {
   task_id: string;
-  created_at: string;
+  // Date at runtime (mysql2 deserialises TIMESTAMP without dateStrings); typed
+  // as the union so consumers that page on it (see QueuedCursor) are honest.
+  created_at: string | Date;
   status: TaskStatus;
   prompt_hash: string | null;
   prompt: string | null;
@@ -236,7 +239,7 @@ interface StaleTaskRow extends RowDataPacket {
 /**
  * Reaper query: find rows that have been sitting in non-terminal in-flight
  * states longer than maxAgeSeconds. QUEUED is excluded — it's handled
- * separately by findQueued() since it's safe to retry.
+ * separately by findQueuedPage() since it's safe to retry.
  *
  * Age is measured from worker pickup (`worker_started_at`), not intake
  * (`created_at`). A row that sat in QUEUED for an hour before a worker
@@ -260,12 +263,53 @@ export async function findStale(maxAgeSeconds: number): Promise<string[]> {
 }
 
 /**
- * Returns all currently-QUEUED rows. Used at startup to re-enqueue tasks
- * that arrived while the worker was down.
+ * Keyset cursor for paging through QUEUED rows in (created_at, task_id) order.
+ * `created_at` matches TaskLogRecord.created_at (a Date at runtime) and is bound
+ * through unchanged. task_log.created_at is whole-second precision, so the Date
+ * round-trips to the exact stored value when mysql2 re-serializes it for the
+ * bound parameter.
  */
-export async function findQueued(): Promise<TaskLogRecord[]> {
+export interface QueuedCursor {
+  created_at: string | Date;
+  task_id: string;
+}
+
+/**
+ * Returns one page of currently-QUEUED rows ordered by (created_at, task_id)
+ * ascending. Used at startup to re-enqueue tasks that arrived while the worker
+ * was down.
+ *
+ * Paged (keyset, not OFFSET) so the reaper never loads the entire backlog —
+ * including every row's `prompt` LONGTEXT — into memory at once. A boot-time
+ * surge of large prompts would otherwise risk OOM. The reaper must still pull
+ * the prompt/metadata columns (it reconstructs the full job to re-enqueue), so
+ * the protection is bounding the *page*, not dropping columns.
+ *
+ * The (created_at, task_id) tuple is unique (task_id is the PK), so the keyset
+ * predicate never skips or repeats a row even when many tasks share a
+ * created_at. The `idx_task_log_status_created (status, created_at)` index
+ * from migration 019 supports the WHERE+ORDER BY prefix.
+ *
+ * Pass the last row of the previous page as `after` to fetch the next page;
+ * a page shorter than `limit` means the queue is drained.
+ */
+export async function findQueuedPage(
+  limit: number,
+  after?: QueuedCursor,
+): Promise<TaskLogRecord[]> {
+  const params: (string | number | Date)[] = [];
+  let cursorClause = "";
+  if (after) {
+    cursorClause = "AND (created_at > ? OR (created_at = ? AND task_id > ?))";
+    params.push(after.created_at, after.created_at, after.task_id);
+  }
+  params.push(limit);
   const rows = await query<TaskLogRow[]>(
-    `SELECT * FROM task_log WHERE status = 'QUEUED' ORDER BY created_at ASC`,
+    `SELECT * FROM task_log
+       WHERE status = 'QUEUED' ${cursorClause}
+       ORDER BY created_at ASC, task_id ASC
+       LIMIT ?`,
+    params,
   );
   return rows.map(parseRow);
 }
