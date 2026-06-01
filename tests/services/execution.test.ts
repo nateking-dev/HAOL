@@ -240,6 +240,24 @@ describe("execution service — unit tests", () => {
       insertSpy.mockRestore();
     }
   });
+
+  it("rejects a negative maxRetries before touching the DB (no null deref)", async () => {
+    // Guard runs before findById, so a spy lets us assert the DB is never hit.
+    const agentRegistryMod = await import("../../src/repositories/agent-registry.js");
+    const findByIdSpy = vi.spyOn(agentRegistryMod, "findById");
+
+    const request: AgentRequest = { task_id: "t-bad-retries", prompt: "x", context: {} };
+
+    await expect(execute("any-agent", request, -1)).rejects.toThrow(
+      /maxRetries must be a non-negative integer/,
+    );
+    await expect(execute("any-agent", request, 1.5)).rejects.toThrow(
+      /maxRetries must be a non-negative integer/,
+    );
+    expect(findByIdSpy).not.toHaveBeenCalled();
+
+    findByIdSpy.mockRestore();
+  });
 });
 
 // --- Integration tests (require Dolt) ---

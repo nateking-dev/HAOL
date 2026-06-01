@@ -24,11 +24,14 @@ export async function execute(
   request: AgentRequest,
   maxRetries: number = 2,
 ): Promise<ExecutionRecord> {
+  if (!Number.isInteger(maxRetries) || maxRetries < 0) {
+    throw new Error(`maxRetries must be a non-negative integer, got: ${maxRetries}`);
+  }
+
   const agent = await findById(agentId);
   if (!agent) throw new Error(`Agent not found: ${agentId}`);
 
   const provider = getProvider(agent.provider, agent.model_id);
-  let lastRecord: ExecutionRecord | null = null;
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     const executionId = uuidv7();
@@ -79,7 +82,6 @@ export async function execute(
       };
 
       await execRepo.insertExecution(record);
-      lastRecord = record;
 
       if (isLastAttempt) return record;
 
@@ -88,5 +90,9 @@ export async function execute(
     }
   }
 
-  return lastRecord!;
+  // Unreachable: maxRetries >= 0 guarantees the loop runs at least once, and
+  // the final iteration (attempt === maxRetries + 1) always returns via the
+  // success path or the isLastAttempt branch. Kept as a typed exhaustiveness
+  // guard so the function never silently returns undefined.
+  throw new Error("execute: retry loop exited without producing a record");
 }
