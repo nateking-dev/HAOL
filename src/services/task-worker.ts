@@ -87,15 +87,29 @@ function pump(): void {
   while (inflight < max && queue.length > 0) {
     const job = queue.shift()!;
     inflight++;
-    runJob(job).finally(() => {
-      inflight--;
-      tracked.delete(job.taskId);
-      if (queue.length > 0) {
-        setImmediate(pump);
-      } else {
-        maybeResolveDrain();
-      }
-    });
+    // runJob is async, so a synchronous throw in its body (e.g. from
+    // runWithContext) becomes a rejected promise — the .finally() cleanup
+    // (inflight--, tracked.delete) still runs, and the task ID never gets
+    // stranded in `tracked`. runJobInner already catches its own errors, so
+    // the .catch() here is defense-in-depth: it keeps a future regression
+    // that lets runJob reject from surfacing as an unhandled rejection (the
+    // re-raise that .finally() would otherwise propagate).
+    runJob(job)
+      .finally(() => {
+        inflight--;
+        tracked.delete(job.taskId);
+        if (queue.length > 0) {
+          setImmediate(pump);
+        } else {
+          maybeResolveDrain();
+        }
+      })
+      .catch((err) => {
+        logger.error("unexpected rejection from runJob", {
+          task_id: job.taskId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   }
 }
 
