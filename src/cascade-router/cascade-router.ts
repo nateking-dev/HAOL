@@ -32,6 +32,21 @@ interface LoadedState {
   tiers: TierDefinition[];
 }
 
+/**
+ * Result of an escalation attempt. Discriminated on `resolved` so that
+ * `tier`/`confidence` are statically known to be present when resolved —
+ * no non-null assertions needed at the call sites.
+ */
+type EscalationOutcome =
+  | {
+      resolved: true;
+      tier: TierId;
+      confidence: number;
+      attempt: LayerAttempt;
+      fallbackAttempt?: LayerAttempt;
+    }
+  | { resolved: false; attempt: LayerAttempt };
+
 export class CascadeRouter {
   private state: LoadedState | null = null;
   private embeddingProvider: EmbeddingProvider | undefined;
@@ -48,7 +63,7 @@ export class CascadeRouter {
     return router;
   }
 
-  private async load(): Promise<void> {
+  private async load(): Promise<LoadedState> {
     const [rules, utterances, config] = await Promise.all([
       store.loadRules(),
       store.loadUtterances(),
@@ -67,14 +82,13 @@ export class CascadeRouter {
       default_agent: r.default_agent,
     }));
 
-    this.state = { rules, utterances, config, tiers };
+    const state: LoadedState = { rules, utterances, config, tiers };
+    this.state = state;
+    return state;
   }
 
   async classify(input: TaskInput, preAllocatedTaskId?: string): Promise<TaskClassification> {
-    if (!this.state) {
-      await this.load();
-    }
-    const { rules, utterances, config, tiers } = this.state!;
+    const { rules, utterances, config, tiers } = this.state ?? (await this.load());
 
     const start = performance.now();
     const prompt = input.prompt;
@@ -193,9 +207,9 @@ export class CascadeRouter {
             const esc = await this.tryEscalation(prompt, config, tiers, allCapabilities);
             trace.push(esc.attempt);
             if (esc.resolved) {
-              tier = esc.tier!;
+              tier = esc.tier;
               layer = "escalation";
-              confidence = esc.confidence!;
+              confidence = esc.confidence;
               resolved = true;
               if (esc.fallbackAttempt) trace.push(esc.fallbackAttempt);
             }
@@ -210,9 +224,9 @@ export class CascadeRouter {
           const esc = await this.tryEscalation(prompt, config, tiers, allCapabilities);
           trace.push(esc.attempt);
           if (esc.resolved) {
-            tier = esc.tier!;
+            tier = esc.tier;
             layer = "escalation";
-            confidence = esc.confidence!;
+            confidence = esc.confidence;
             resolved = true;
             if (esc.fallbackAttempt) trace.push(esc.fallbackAttempt);
           }
@@ -271,13 +285,7 @@ export class CascadeRouter {
     config: RouterConfig,
     tiers: TierDefinition[],
     allCapabilities: Set<string>,
-  ): Promise<{
-    resolved: boolean;
-    tier?: TierId;
-    confidence?: number;
-    attempt: LayerAttempt;
-    fallbackAttempt?: LayerAttempt;
-  }> {
+  ): Promise<EscalationOutcome> {
     if (!config.enable_escalation || !this.escalationProvider || tiers.length === 0) {
       const reason = !config.enable_escalation
         ? "escalation disabled"
