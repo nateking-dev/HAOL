@@ -37,13 +37,47 @@ interface RateLimitOptions {
   global?: boolean;
 }
 
-const TRUSTED_PROXY_HOPS_ENV = "RATE_LIMIT_TRUSTED_PROXY_HOPS";
+export const TRUSTED_PROXY_HOPS_ENV = "RATE_LIMIT_TRUSTED_PROXY_HOPS";
 
-function envTrustedProxyHops(): number {
+/**
+ * Strictly parse RATE_LIMIT_TRUSTED_PROXY_HOPS. Returns `undefined` when unset
+ * or empty (callers decide whether that's allowed — required in production,
+ * defaults to 0 elsewhere). Throws RangeError on anything that isn't a
+ * non-negative integer, so a typo like `abc` or `-1` is never silently coerced
+ * to 0 (which would mean "no proxy" — exactly wrong behind a load balancer).
+ *
+ * `parseInt` is too lenient (`parseInt("1abc")` is 1), so we validate the raw
+ * string against a digits-only pattern.
+ */
+export function parseTrustedProxyHopsEnv(): number | undefined {
   const raw = process.env[TRUSTED_PROXY_HOPS_ENV];
-  if (raw === undefined || raw === "") return 0;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new RangeError(
+      `${TRUSTED_PROXY_HOPS_ENV} must be a non-negative integer (got "${raw}")`,
+    );
+  }
+  return parseInt(trimmed, 10);
+}
+
+/**
+ * Resolve the hop count for limiter construction (runs in every environment).
+ * Never throws: an invalid value is logged and treated as 0. In production
+ * validateRateLimitConfig() rejects an invalid value at startup before any
+ * limiter is built, so this fallback only applies in dev/test — where a loud
+ * warn is enough to surface the misconfiguration.
+ */
+function envTrustedProxyHops(): number {
+  try {
+    return parseTrustedProxyHopsEnv() ?? 0;
+  } catch {
+    logger.warn(`${TRUSTED_PROXY_HOPS_ENV} is invalid — falling back to 0 (no proxy)`, {
+      component: "rate-limit",
+      value: process.env[TRUSTED_PROXY_HOPS_ENV],
+    });
+    return 0;
+  }
 }
 
 /**
@@ -59,8 +93,17 @@ function envTrustedProxyHops(): number {
  */
 export function validateRateLimitConfig(): void {
   if (process.env.NODE_ENV !== "production") return;
-  const raw = process.env[TRUSTED_PROXY_HOPS_ENV];
-  if (raw === undefined || raw === "") {
+  let hops: number | undefined;
+  try {
+    hops = parseTrustedProxyHopsEnv();
+  } catch (err) {
+    logger.fatal((err as Error).message, {
+      component: "rate-limit",
+      value: process.env[TRUSTED_PROXY_HOPS_ENV],
+    });
+    process.exit(1);
+  }
+  if (hops === undefined) {
     logger.fatal(
       `${TRUSTED_PROXY_HOPS_ENV} is not set; refusing to start in production with an ` +
         `undefined trust-proxy posture. Set it to the number of trusted reverse-proxy ` +
@@ -69,17 +112,9 @@ export function validateRateLimitConfig(): void {
     );
     process.exit(1);
   }
-  const n = parseInt(raw, 10);
-  if (!Number.isFinite(n) || n < 0) {
-    logger.fatal(`${TRUSTED_PROXY_HOPS_ENV} must be a non-negative integer`, {
-      component: "rate-limit",
-      value: raw,
-    });
-    process.exit(1);
-  }
   logger.info("rate-limit trust-proxy posture", {
     component: "rate-limit",
-    trusted_proxy_hops: n,
+    trusted_proxy_hops: hops,
   });
 }
 

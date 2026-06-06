@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import { rateLimit, validateRateLimitConfig } from "../../../src/api/middleware/rate-limit.js";
+import { createApp } from "../../../src/api/app.js";
 import { _setDestinationForTests } from "../../../src/logging/logger.js";
 import { CaptureStream, LogLevel, setLogLevel } from "../../helpers/capture-stream.js";
 
@@ -151,8 +152,13 @@ describe("rateLimit middleware", () => {
     });
 
     it("ignores X-Forwarded-For entirely when hops=0 (default)", async () => {
-      // No hops configured → socket peer only. In tests getConnInfo throws, so
-      // every request shares the 'unknown' bucket regardless of XFF.
+      // No hops configured → socket peer only, so XFF must be ignored.
+      // NOTE: this test depends on the no-socket test environment — Hono's
+      // app.request() has no real socket, so getConnInfo throws and BOTH
+      // requests resolve to the shared 'unknown' bucket (hence the second
+      // 429). In an environment where getConnInfo resolves a real peer, both
+      // requests would share that peer's bucket instead; either way the point
+      // — that the two distinct XFF values do NOT yield two buckets — holds.
       const app = buildApp({ limit: 1, windowMs: 60_000 });
       const r1 = await app.request("/ping", reqFrom("10.0.0.1"));
       const r2 = await app.request("/ping", reqFrom("10.0.0.2"));
@@ -160,6 +166,19 @@ describe("rateLimit middleware", () => {
       expect(r2.status).toBe(429); // XFF ignored → same shared bucket
       const warns = capture.records(LogLevel.WARN);
       expect(warns[0]).toMatchObject({ component: "rate-limit" });
+    });
+
+    it("warns and falls back to hops=0 when the env value is invalid", async () => {
+      vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "abc");
+      // Invalid env value → construction warns and treats it as hops=0, so XFF
+      // is ignored and distinct clients share the 'unknown' bucket.
+      const app = buildApp({ limit: 1, windowMs: 60_000 });
+      const r1 = await app.request("/ping", reqXff("1.1.1.1, 203.0.113.7"));
+      const r2 = await app.request("/ping", reqXff("9.9.9.9, 203.0.113.8"));
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(429);
+      const warns = capture.records(LogLevel.WARN);
+      expect(warns.some((w) => /is invalid — falling back to 0/.test(String(w.msg)))).toBe(true);
     });
 
     it("falls back to the shared bucket when hops>0 and X-Forwarded-For is missing", async () => {
@@ -323,5 +342,35 @@ describe("validateRateLimitConfig", () => {
     vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "1");
     expect(() => validateRateLimitConfig()).not.toThrow();
     expect(exitSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("createApp() rate-limit defense-in-depth (production)", () => {
+  // HAOL_API_KEY is set so the API-key guard (checked first) passes and we
+  // exercise the trust-proxy guard. createApp() builds the app graph only —
+  // no DB connection — so it's safe to construct in a unit test.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("throws when RATE_LIMIT_TRUSTED_PROXY_HOPS is unset in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("HAOL_API_KEY", "k");
+    vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "");
+    expect(() => createApp()).toThrow(/RATE_LIMIT_TRUSTED_PROXY_HOPS must be set/);
+  });
+
+  it("throws when RATE_LIMIT_TRUSTED_PROXY_HOPS is invalid in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("HAOL_API_KEY", "k");
+    vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "-1");
+    expect(() => createApp()).toThrow(/must be a non-negative integer/);
+  });
+
+  it("does not throw when a valid value is set in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("HAOL_API_KEY", "k");
+    vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "1");
+    expect(() => createApp()).not.toThrow();
   });
 });
