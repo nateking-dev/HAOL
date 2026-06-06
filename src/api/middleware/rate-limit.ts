@@ -54,9 +54,7 @@ export function parseTrustedProxyHopsEnv(): number | undefined {
   if (raw === undefined || raw.trim() === "") return undefined;
   const trimmed = raw.trim();
   if (!/^\d+$/.test(trimmed)) {
-    throw new RangeError(
-      `${TRUSTED_PROXY_HOPS_ENV} must be a non-negative integer (got "${raw}")`,
-    );
+    throw new RangeError(`${TRUSTED_PROXY_HOPS_ENV} must be a non-negative integer (got "${raw}")`);
   }
   return parseInt(trimmed, 10);
 }
