@@ -1,0 +1,16 @@
+-- Index agent_registry.status. Every routing decision filters agents by
+-- status = 'active' (agent-selection → findByCapabilities/findAll), and the
+-- table had no index on it, so each call full-scanned the registry. Cost was
+-- linear in agent count × QPS.
+--
+-- The capability filter (JSON_CONTAINS(capabilities, ?)) still cannot use an
+-- index — JSON membership is unindexable here. But with most routing queries
+-- anchored on status = 'active', this index lets the planner restrict to the
+-- active subset first and evaluate JSON_CONTAINS only on those rows instead of
+-- the whole table. Fully indexing capabilities would require normalizing into
+-- an agent_capability(agent_id, capability_key) table — deferred as a larger
+-- change; this index is the contained, high-leverage fix.
+--
+-- IF NOT EXISTS so a crash between this DDL and the migrations_applied insert
+-- recovers cleanly on re-run (Dolt-supported; see migrations 017/019).
+CREATE INDEX IF NOT EXISTS idx_agent_registry_status ON agent_registry (status);

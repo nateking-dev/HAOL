@@ -195,4 +195,54 @@ describe("task-reaper — QUEUED re-enqueue paging", () => {
     expect(enqueueSpy.mock.calls.map((c) => c[0])).toEqual(["a", "b"]);
     expect(pageSpy).toHaveBeenCalledTimes(2);
   });
+
+  it("counts duplicate enqueues separately and does not inflate reEnqueued (fix #14)", async () => {
+    process.env.WORKER_REQUEUE_PAGE_SIZE = "10";
+    stubNonQueuedWork();
+
+    const rows = [
+      makeRecord("a", "2026-06-01 00:00:01"),
+      makeRecord("b", "2026-06-01 00:00:02"),
+      makeRecord("c", "2026-06-01 00:00:03"),
+    ];
+    vi.spyOn(taskLog, "findQueuedPage").mockImplementation(pagedSource(rows));
+    vi.spyOn(worker, "canAccept").mockReturnValue(true);
+    // b was already re-queued by a live worker — enqueue refuses it as a dup.
+    const enqueueSpy = vi
+      .spyOn(worker, "enqueue")
+      .mockReturnValueOnce("ok")
+      .mockReturnValueOnce("duplicate")
+      .mockReturnValueOnce("ok");
+
+    const result = await runReaperOnce();
+
+    expect(enqueueSpy).toHaveBeenCalledTimes(3);
+    expect(result.reEnqueued).toBe(2);
+    expect(result.duplicates).toBe(1);
+  });
+
+  it("stops the drain when enqueue reports queue_full even though canAccept passed (fix #14)", async () => {
+    process.env.WORKER_REQUEUE_PAGE_SIZE = "10";
+    stubNonQueuedWork();
+
+    const rows = [
+      makeRecord("a", "2026-06-01 00:00:01"),
+      makeRecord("b", "2026-06-01 00:00:02"),
+      makeRecord("c", "2026-06-01 00:00:03"),
+    ];
+    vi.spyOn(taskLog, "findQueuedPage").mockImplementation(pagedSource(rows));
+    // canAccept is a stale pre-flight hint here: it keeps saying yes, but the
+    // queue fills between the check and the enqueue, so enqueue refuses "b".
+    vi.spyOn(worker, "canAccept").mockReturnValue(true);
+    const enqueueSpy = vi
+      .spyOn(worker, "enqueue")
+      .mockReturnValueOnce("ok")
+      .mockReturnValueOnce("queue_full");
+
+    const result = await runReaperOnce();
+
+    // Only "a" landed; the drain stopped at the queue_full without trying "c".
+    expect(result.reEnqueued).toBe(1);
+    expect(enqueueSpy.mock.calls.map((c) => c[0])).toEqual(["a", "b"]);
+  });
 });

@@ -87,6 +87,7 @@ function reconstructInput(record: taskLog.TaskLogRecord): RouterTaskInput | null
 
 export async function runReaperOnce(): Promise<{
   reEnqueued: number;
+  duplicates: number;
   failed: number;
   branchesPruned: number;
 }> {
@@ -95,11 +96,16 @@ export async function runReaperOnce(): Promise<{
 
 async function runReaperOnceInner(): Promise<{
   reEnqueued: number;
+  duplicates: number;
   failed: number;
   branchesPruned: number;
 }> {
   const ageSec = recoveryAgeSeconds();
   let reEnqueued = 0;
+  // Rows the worker refused as already queued/in-flight (the reaper raced a
+  // live worker that re-queued the same row). Counted separately so they
+  // don't inflate reEnqueued — they represent no new work.
+  let duplicates = 0;
   let failed = 0;
   let branchesPruned = 0;
 
@@ -144,8 +150,21 @@ async function runReaperOnceInner(): Promise<{
         draining = false;
         break;
       }
-      worker.enqueue(row.task_id, input);
-      reEnqueued++;
+      // canAccept() is only a pre-flight hint; enqueue()'s return is the
+      // source of truth. Branch on it so a "duplicate" (we raced a live
+      // worker that already re-queued this row) doesn't inflate reEnqueued,
+      // and a queue that filled in the canAccept→enqueue gap stops the drain
+      // rather than having the row silently dropped from this sweep.
+      const outcome = worker.enqueue(row.task_id, input);
+      if (outcome === "ok") {
+        reEnqueued++;
+      } else if (outcome === "duplicate") {
+        duplicates++;
+      } else {
+        // "queue_full" | "stopping" — the worker can't take more right now.
+        draining = false;
+        break;
+      }
     }
 
     // Stop on a short page (queue drained) or an early stop (worker full).
@@ -190,14 +209,15 @@ async function runReaperOnceInner(): Promise<{
     logger.warn("pruneSessionBranches failed", { error: (err as Error).message });
   }
 
-  if (reEnqueued > 0 || failed > 0 || branchesPruned > 0) {
+  if (reEnqueued > 0 || duplicates > 0 || failed > 0 || branchesPruned > 0) {
     logger.info("reaper sweep summary", {
       re_enqueued: reEnqueued,
+      duplicates,
       failed,
       branches_pruned: branchesPruned,
     });
   }
-  return { reEnqueued, failed, branchesPruned };
+  return { reEnqueued, duplicates, failed, branchesPruned };
 }
 
 export function startReaper(): void {
