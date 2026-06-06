@@ -2,6 +2,28 @@
 
 All notable changes to the HAOL (Heterogeneous Agent Orchestration Layer) project are documented in this file.
 
+## [v0.7.0] — 2026-06-06
+
+A hardening release: audit-driven correctness fixes across the async task pipeline and API validation surface, plus security-driven dependency bumps. No breaking changes.
+
+### Added
+
+- **Strict input validation on the API boundary** — New `src/api/request-body.ts` `parseJsonBody()` helper turns malformed JSON into a clean `400 ValidationError` instead of an unhandled exception; adopted across the `/tasks`, `/agents`, `/demo`, and `/outcomes` routes. Agent create/update inputs now enforce a closed `AgentProvider` enum (`anthropic`/`openai`/`local`), non-negative costs, positive-integer context windows, and `tier_ceiling` in 1–4. Task `constraints` are bounded (`max_tokens` 1–8192, `timeout_ms` 1000–120000, `temperature` 0–1). Read schemas are deliberately kept wider than write schemas so pre-existing DB rows (e.g. legacy providers) still deserialize instead of crashing.
+- **`WORKER_REQUEUE_PAGE_SIZE` env var** — Controls the page size for the reaper's startup re-enqueue of `QUEUED` rows (default 100).
+
+### Fixed
+
+- **Boot-time OOM in the reaper** (#16) — Startup re-enqueue replaced the unbounded `findQueued()` (which loaded the entire backlog, including every row's `prompt` LONGTEXT, into memory at once) with keyset-paged `findQueuedPage()` ordered by `(created_at, task_id)`. The reaper now drains the backlog page-by-page and stops early once the worker can't accept more, bounding peak memory under a boot-time surge of large prompts. Backed by the `idx_task_log_status_created` index from migration 019.
+- **Worker tracked-set leak / unhandled rejection** (#13) — Added a defensive `.catch()` on the `runJob` chain in `task-worker.ts` so a synchronous throw in the job body can't strand a task ID in the in-memory `tracked` set or surface as an unhandled promise rejection. The `.finally()` cleanup (`inflight--`, `tracked.delete`) is now guaranteed to run.
+- **Unsafe non-null assertions removed** (#11) — `cascade-router.ts` now uses a discriminated `EscalationOutcome` type so `tier`/`confidence` are statically known to be present when an escalation resolves, and `load()` returns the loaded state instead of relying on `this.state!`. `execution.ts` validates `maxRetries` up front and replaces the `lastRecord!` return with a typed exhaustiveness guard.
+- **Task intake no longer leaves hidden recoverable work** — On `POST /tasks`, an enqueue failure now attempts to mark the persisted row `FAILED` and returns the `task_id` plus its final status so the caller can poll or discard, rather than silently leaving a `QUEUED` row that could execute later and double-spend provider calls. Queue-full responses now return `429 Too Many Requests` (with `Retry-After`) instead of `503`.
+- **Capability validation on update** — `updateAgent` now validates capabilities against the taxonomy (previously create-only), and capability failures raise a typed `CapabilityValidationError` that the API maps to `400` instead of a generic `500`. Unrecognized providers on read are logged as a warning rather than failing the row.
+
+### Dependencies
+
+- **hono** `^4.12.7` → `^4.12.21` — clears Dependabot alerts #14–17.
+- **vitest** `^2.1.0` → `^4.1.0` — clears Dependabot alerts #9, #12, #13 (major-version upgrade).
+
 ## [v0.6.0] — 2026-05-07
 
 Async task execution, versioned API, live memory layer, and structured logging — plus a long tail of audit-driven correctness fixes.
