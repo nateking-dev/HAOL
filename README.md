@@ -740,6 +740,29 @@ The `seed:embeddings` step calls the OpenAI embeddings API once to compute vecto
 | `ANTHROPIC_API_KEY` | —           | Anthropic API key (for Claude models and Layer 2 escalation) |
 | `OPENAI_API_KEY`    | —           | OpenAI API key (for GPT models and embedding computation)    |
 | `PORT`              | `3000`      | HTTP server port                                             |
+| `RATE_LIMIT_TRUSTED_PROXY_HOPS` | `0` | Trusted reverse-proxy hops for client-IP resolution (see below). **Required in production.** |
+
+#### Rate limiting & reverse proxies
+
+Per-IP rate limiting derives the client IP from `X-Forwarded-For` by counting
+`RATE_LIMIT_TRUSTED_PROXY_HOPS` entries **from the right** — the rightmost entry
+is the address appended by the proxy nearest this server and cannot be forged by
+clients (entries a client prepends are ignored). Set it to the number of trusted
+proxies in front of the server:
+
+- `0` — direct exposure; the socket peer address is used (`X-Forwarded-For` is ignored).
+- `1` — one load balancer / reverse proxy (`client → LB → app`).
+- `2` — two hops (`client → CDN → LB → app`).
+
+This **must be set explicitly in production** — the server refuses to start
+otherwise. The reason: behind a load balancer with the value unset, every
+request shares the proxy's socket IP, so the per-IP limiter silently collapses
+into a single global bucket that one client (or attacker) can exhaust for
+everyone. Setting it to `0` is a valid, deliberate choice for direct exposure.
+
+> The limiter is in-memory and per-process. Multi-replica deployments do **not**
+> share buckets, so the effective limit is `replicas × configured`. Use a shared
+> store (e.g. Redis) for coordinated limiting across replicas.
 
 ### Running
 

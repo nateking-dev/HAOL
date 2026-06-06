@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "hono";
-import { rateLimit } from "../../../src/api/middleware/rate-limit.js";
+import { rateLimit, validateRateLimitConfig } from "../../../src/api/middleware/rate-limit.js";
+import { createApp } from "../../../src/api/app.js";
 import { _setDestinationForTests } from "../../../src/logging/logger.js";
 import { CaptureStream, LogLevel, setLogLevel } from "../../helpers/capture-stream.js";
 
 interface AppOpts {
   limit: number;
   windowMs: number;
-  trustProxy?: boolean;
+  trustedProxyHops?: number;
   global?: boolean;
 }
 
@@ -20,6 +21,10 @@ function buildApp(opts: AppOpts) {
 
 function reqFrom(ip: string) {
   return { headers: { "x-forwarded-for": ip } };
+}
+
+function reqXff(xff: string) {
+  return { headers: { "x-forwarded-for": xff } };
 }
 
 describe("rateLimit middleware", () => {
@@ -38,11 +43,12 @@ describe("rateLimit middleware", () => {
     _setDestinationForTests(undefined);
     restoreLogLevel();
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   describe("token bucket basics", () => {
     it("allows the first `limit` requests within the window", async () => {
-      const app = buildApp({ limit: 3, windowMs: 60_000, trustProxy: true });
+      const app = buildApp({ limit: 3, windowMs: 60_000, trustedProxyHops: 1 });
       for (let i = 0; i < 3; i++) {
         const res = await app.request("/ping", reqFrom("10.0.0.1"));
         expect(res.status).toBe(200);
@@ -50,7 +56,7 @@ describe("rateLimit middleware", () => {
     });
 
     it("rejects with 429 once the bucket is empty", async () => {
-      const app = buildApp({ limit: 2, windowMs: 60_000, trustProxy: true });
+      const app = buildApp({ limit: 2, windowMs: 60_000, trustedProxyHops: 1 });
       await app.request("/ping", reqFrom("10.0.0.1"));
       await app.request("/ping", reqFrom("10.0.0.1"));
       const res = await app.request("/ping", reqFrom("10.0.0.1"));
@@ -59,7 +65,7 @@ describe("rateLimit middleware", () => {
     });
 
     it("sets a Retry-After header on 429 responses", async () => {
-      const app = buildApp({ limit: 1, windowMs: 60_000, trustProxy: true });
+      const app = buildApp({ limit: 1, windowMs: 60_000, trustedProxyHops: 1 });
       await app.request("/ping", reqFrom("10.0.0.1"));
       const res = await app.request("/ping", reqFrom("10.0.0.1"));
       expect(res.status).toBe(429);
@@ -69,7 +75,7 @@ describe("rateLimit middleware", () => {
     });
 
     it("sets X-RateLimit-Limit/Remaining/Reset headers on success", async () => {
-      const app = buildApp({ limit: 5, windowMs: 60_000, trustProxy: true });
+      const app = buildApp({ limit: 5, windowMs: 60_000, trustedProxyHops: 1 });
       const res = await app.request("/ping", reqFrom("10.0.0.1"));
       expect(res.headers.get("X-RateLimit-Limit")).toBe("5");
       const remaining = Number(res.headers.get("X-RateLimit-Remaining"));
@@ -79,7 +85,7 @@ describe("rateLimit middleware", () => {
     });
 
     it("decrements X-RateLimit-Remaining on each successful request", async () => {
-      const app = buildApp({ limit: 3, windowMs: 60_000, trustProxy: true });
+      const app = buildApp({ limit: 3, windowMs: 60_000, trustedProxyHops: 1 });
       const r1 = await app.request("/ping", reqFrom("10.0.0.1"));
       const r2 = await app.request("/ping", reqFrom("10.0.0.1"));
       const r3 = await app.request("/ping", reqFrom("10.0.0.1"));
@@ -89,9 +95,9 @@ describe("rateLimit middleware", () => {
     });
   });
 
-  describe("per-IP isolation (trustProxy)", () => {
+  describe("per-IP isolation", () => {
     it("does not let one IP exhaust another's bucket", async () => {
-      const app = buildApp({ limit: 1, windowMs: 60_000, trustProxy: true });
+      const app = buildApp({ limit: 1, windowMs: 60_000, trustedProxyHops: 1 });
       const a1 = await app.request("/ping", reqFrom("10.0.0.1"));
       const a2 = await app.request("/ping", reqFrom("10.0.0.1"));
       const b1 = await app.request("/ping", reqFrom("10.0.0.2"));
@@ -99,26 +105,96 @@ describe("rateLimit middleware", () => {
       expect(a2.status).toBe(429);
       expect(b1.status).toBe(200);
     });
+  });
 
-    it("uses the first IP from a comma-separated X-Forwarded-For chain", async () => {
-      const app = buildApp({ limit: 1, windowMs: 60_000, trustProxy: true });
-      // Two requests share the leftmost IP — second should 429.
-      const r1 = await app.request("/ping", {
-        headers: { "x-forwarded-for": "10.0.0.5, 10.0.0.6, 192.168.1.1" },
-      });
-      const r2 = await app.request("/ping", {
-        headers: { "x-forwarded-for": "10.0.0.5, 192.168.1.99" },
-      });
+  describe("trusted-proxy hop resolution", () => {
+    it("reads the client IP from the right per trustedProxyHops, ignoring prepended entries (spoof-resistant)", async () => {
+      // hops=1: the real client IP is the rightmost entry (appended by our LB).
+      // An attacker who rotates the LEFTMOST (client-supplied) value must NOT
+      // get a fresh bucket — both requests share the rightmost IP.
+      const app = buildApp({ limit: 1, windowMs: 60_000, trustedProxyHops: 1 });
+      const r1 = await app.request("/ping", reqXff("1.1.1.1, 203.0.113.7"));
+      const r2 = await app.request("/ping", reqXff("9.9.9.9, 203.0.113.7"));
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(429); // same rightmost IP → same bucket
+    });
+
+    it("isolates distinct real clients by the right-anchored IP", async () => {
+      const app = buildApp({ limit: 1, windowMs: 60_000, trustedProxyHops: 1 });
+      const a = await app.request("/ping", reqXff("1.1.1.1, 203.0.113.7"));
+      const b = await app.request("/ping", reqXff("1.1.1.1, 203.0.113.8"));
+      expect(a.status).toBe(200);
+      expect(b.status).toBe(200); // different rightmost IP → different bucket
+    });
+
+    it("counts the configured number of hops from the right (hops=2)", async () => {
+      // client -> CDN -> LB -> app. XFF = "<client>, <cdn>"; the LB's own peer
+      // (cdn) is the connection, the client is 2 from the right.
+      const app = buildApp({ limit: 1, windowMs: 60_000, trustedProxyHops: 2 });
+      // Same client, different downstream proxy hop — must still share a bucket.
+      const r1 = await app.request("/ping", reqXff("198.51.100.5, 10.0.0.1"));
+      const r2 = await app.request("/ping", reqXff("198.51.100.5, 10.0.0.2"));
       expect(r1.status).toBe(200);
       expect(r2.status).toBe(429);
     });
 
-    it("falls back to a shared 'unknown' bucket when X-Forwarded-For is missing", async () => {
-      // With trustProxy=true and no header, the key resolves to 'unknown' —
-      // every client without the header shares one bucket.
-      const app = buildApp({ limit: 1, windowMs: 60_000, trustProxy: true });
+    it("falls back to the socket peer (and warns) when XFF is shorter than the hop count", async () => {
+      // hops=2 but only one XFF entry — the request didn't traverse the full
+      // chain. We must not trust the partial chain; fall back to socket (which
+      // throws in tests → 'unknown' shared bucket).
+      const app = buildApp({ limit: 1, windowMs: 60_000, trustedProxyHops: 2 });
+      const r1 = await app.request("/ping", reqXff("203.0.113.7"));
+      const r2 = await app.request("/ping", reqXff("203.0.113.9"));
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(429); // both fell back to the shared 'unknown' bucket
+      const warns = capture.records(LogLevel.WARN);
+      expect(warns.some((w) => /shorter than trustedProxyHops/.test(String(w.msg)))).toBe(true);
+    });
+
+    it("ignores X-Forwarded-For entirely when hops=0 (default)", async () => {
+      // No hops configured → socket peer only, so XFF must be ignored.
+      // NOTE: this test depends on the no-socket test environment — Hono's
+      // app.request() has no real socket, so getConnInfo throws and BOTH
+      // requests resolve to the shared 'unknown' bucket (hence the second
+      // 429). In an environment where getConnInfo resolves a real peer, both
+      // requests would share that peer's bucket instead; either way the point
+      // — that the two distinct XFF values do NOT yield two buckets — holds.
+      const app = buildApp({ limit: 1, windowMs: 60_000 });
+      const r1 = await app.request("/ping", reqFrom("10.0.0.1"));
+      const r2 = await app.request("/ping", reqFrom("10.0.0.2"));
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(429); // XFF ignored → same shared bucket
+      const warns = capture.records(LogLevel.WARN);
+      expect(warns[0]).toMatchObject({ component: "rate-limit" });
+    });
+
+    it("warns and falls back to hops=0 when the env value is invalid", async () => {
+      vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "abc");
+      // Invalid env value → construction warns and treats it as hops=0, so XFF
+      // is ignored and distinct clients share the 'unknown' bucket.
+      const app = buildApp({ limit: 1, windowMs: 60_000 });
+      const r1 = await app.request("/ping", reqXff("1.1.1.1, 203.0.113.7"));
+      const r2 = await app.request("/ping", reqXff("9.9.9.9, 203.0.113.8"));
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(429);
+      const warns = capture.records(LogLevel.WARN);
+      expect(warns.some((w) => /is invalid — falling back to 0/.test(String(w.msg)))).toBe(true);
+    });
+
+    it("falls back to the shared bucket when hops>0 and X-Forwarded-For is missing", async () => {
+      const app = buildApp({ limit: 1, windowMs: 60_000, trustedProxyHops: 1 });
       const r1 = await app.request("/ping");
       const r2 = await app.request("/ping");
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(429);
+    });
+
+    it("uses RATE_LIMIT_TRUSTED_PROXY_HOPS when trustedProxyHops is omitted", async () => {
+      vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "1");
+      const app = buildApp({ limit: 1, windowMs: 60_000 });
+      // env hops=1 → rightmost is the key; same rightmost shares a bucket.
+      const r1 = await app.request("/ping", reqXff("1.1.1.1, 203.0.113.7"));
+      const r2 = await app.request("/ping", reqXff("9.9.9.9, 203.0.113.7"));
       expect(r1.status).toBe(200);
       expect(r2.status).toBe(429);
     });
@@ -133,8 +209,8 @@ describe("rateLimit middleware", () => {
       expect(r2.status).toBe(429);
     });
 
-    it("global mode ignores X-Forwarded-For even with trustProxy unset", async () => {
-      const app = buildApp({ limit: 2, windowMs: 60_000, global: true });
+    it("global mode ignores X-Forwarded-For even with hops configured", async () => {
+      const app = buildApp({ limit: 2, windowMs: 60_000, global: true, trustedProxyHops: 1 });
       await app.request("/ping", reqFrom("10.0.0.1"));
       await app.request("/ping", reqFrom("10.0.0.2"));
       const r3 = await app.request("/ping", reqFrom("10.0.0.3"));
@@ -142,27 +218,11 @@ describe("rateLimit middleware", () => {
     });
   });
 
-  describe("default mode (no trustProxy, no socket)", () => {
-    it("falls back to a shared bucket when getConnInfo fails", async () => {
-      // Hono's app.request() has no real socket — getConnInfo throws and the
-      // middleware logs a warn, then uses the "unknown" sentinel bucket
-      // (distinct from the "global" key used by global mode).
-      const app = buildApp({ limit: 1, windowMs: 60_000 });
-      const r1 = await app.request("/ping");
-      const r2 = await app.request("/ping");
-      expect(r1.status).toBe(200);
-      expect(r2.status).toBe(429);
-      const warns = capture.records(LogLevel.WARN);
-      expect(warns.length).toBeGreaterThan(0);
-      expect(warns[0]).toMatchObject({ component: "rate-limit" });
-    });
-  });
-
   describe("token refill", () => {
     it("refills tokens proportionally to elapsed time", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date(2026, 0, 1, 0, 0, 0));
-      const app = buildApp({ limit: 4, windowMs: 4_000, trustProxy: true });
+      const app = buildApp({ limit: 4, windowMs: 4_000, trustedProxyHops: 1 });
       // Drain the bucket
       for (let i = 0; i < 4; i++) {
         await app.request("/ping", reqFrom("10.0.0.1"));
@@ -183,7 +243,7 @@ describe("rateLimit middleware", () => {
     it("caps refill at the configured limit (no token accumulation past the cap)", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date(2026, 0, 1, 0, 0, 0));
-      const app = buildApp({ limit: 2, windowMs: 1_000, trustProxy: true });
+      const app = buildApp({ limit: 2, windowMs: 1_000, trustedProxyHops: 1 });
       await app.request("/ping", reqFrom("10.0.0.1")); // 1 token left
       // Wait far longer than the window — bucket should refill to cap, not beyond.
       vi.advanceTimersByTime(10 * 60_000);
@@ -205,7 +265,7 @@ describe("rateLimit middleware", () => {
       // bucket (full quota) on its next request.
       vi.useFakeTimers();
       vi.setSystemTime(new Date(2026, 0, 1, 0, 0, 0));
-      const app = buildApp({ limit: 1, windowMs: 1_000, trustProxy: true });
+      const app = buildApp({ limit: 1, windowMs: 1_000, trustedProxyHops: 1 });
 
       const r1 = await app.request("/ping", reqFrom("10.0.0.1"));
       expect(r1.status).toBe(200);
@@ -225,5 +285,92 @@ describe("rateLimit middleware", () => {
       const r3 = await app.request("/ping", reqFrom("10.0.0.1"));
       expect(r3.status).toBe(200);
     });
+  });
+});
+
+describe("validateRateLimitConfig", () => {
+  // validateRateLimitConfig reads process.env at call time, so vi.stubEnv is
+  // enough — no module reset / re-import needed. That keeps the captured
+  // logger instance bound, so the validator's fatal/info lines never leak to
+  // the test runner's stdout.
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let restoreLogLevel: () => void;
+  let capture: CaptureStream;
+
+  beforeEach(() => {
+    restoreLogLevel = setLogLevel("trace");
+    capture = new CaptureStream();
+    _setDestinationForTests(capture);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as never);
+  });
+
+  afterEach(() => {
+    exitSpy.mockRestore();
+    restoreLogLevel();
+    vi.unstubAllEnvs();
+    _setDestinationForTests(undefined);
+  });
+
+  it("does nothing outside production", () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "");
+    expect(() => validateRateLimitConfig()).not.toThrow();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("exits in production when RATE_LIMIT_TRUSTED_PROXY_HOPS is unset", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "");
+    expect(() => validateRateLimitConfig()).toThrow(/process\.exit\(1\)/);
+    const fatals = capture.records(LogLevel.FATAL);
+    expect(fatals.length).toBeGreaterThan(0);
+    expect(fatals[0].msg).toMatch(/RATE_LIMIT_TRUSTED_PROXY_HOPS is not set/);
+  });
+
+  it("exits in production when the value is not a non-negative integer", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "-1");
+    expect(() => validateRateLimitConfig()).toThrow(/process\.exit\(1\)/);
+    const fatals = capture.records(LogLevel.FATAL);
+    expect(fatals[0].msg).toMatch(/must be a non-negative integer/);
+  });
+
+  it("does not exit in production when a valid value is set", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "1");
+    expect(() => validateRateLimitConfig()).not.toThrow();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("createApp() rate-limit defense-in-depth (production)", () => {
+  // HAOL_API_KEY is set so the API-key guard (checked first) passes and we
+  // exercise the trust-proxy guard. createApp() builds the app graph only —
+  // no DB connection — so it's safe to construct in a unit test.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("throws when RATE_LIMIT_TRUSTED_PROXY_HOPS is unset in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("HAOL_API_KEY", "k");
+    vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "");
+    expect(() => createApp()).toThrow(/RATE_LIMIT_TRUSTED_PROXY_HOPS must be set/);
+  });
+
+  it("throws when RATE_LIMIT_TRUSTED_PROXY_HOPS is invalid in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("HAOL_API_KEY", "k");
+    vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "-1");
+    expect(() => createApp()).toThrow(/must be a non-negative integer/);
+  });
+
+  it("does not throw when a valid value is set in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("HAOL_API_KEY", "k");
+    vi.stubEnv("RATE_LIMIT_TRUSTED_PROXY_HOPS", "1");
+    expect(() => createApp()).not.toThrow();
   });
 });

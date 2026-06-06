@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { requestId } from "./middleware/request-id.js";
 import { createApiKeyAuth } from "./middleware/api-key-auth.js";
-import { rateLimit } from "./middleware/rate-limit.js";
+import { rateLimit, parseTrustedProxyHopsEnv } from "./middleware/rate-limit.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { health } from "./routes/health.js";
 import { agents } from "./routes/agents.js";
@@ -26,6 +26,16 @@ export function createApp(): Hono {
   // unauthenticated in production.
   if (process.env.NODE_ENV === "production" && !process.env.HAOL_API_KEY) {
     throw new Error("HAOL_API_KEY must be set in production");
+  }
+  // Likewise refuse to serve with an undefined (or invalid) trust-proxy
+  // posture in production — an unset value silently degrades per-IP limiting
+  // to a single global bucket behind a load balancer, and an invalid value
+  // falls back to the same hops=0 footgun. Must be set explicitly (0 = direct
+  // exposure). Shares parseTrustedProxyHopsEnv() with validateRateLimitConfig()
+  // so both paths reject the same inputs; parse throws RangeError on an invalid
+  // value, undefined means unset.
+  if (process.env.NODE_ENV === "production" && parseTrustedProxyHopsEnv() === undefined) {
+    throw new Error("RATE_LIMIT_TRUSTED_PROXY_HOPS must be set in production");
   }
 
   const app = new Hono();
