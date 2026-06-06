@@ -1,4 +1,4 @@
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { logger } from "../../logging/logger.js";
 
@@ -13,11 +13,21 @@ interface RateLimitOptions {
   /** Window duration in milliseconds. */
   windowMs: number;
   /**
-   * Whether to trust the X-Forwarded-For header for client IP identification.
-   * Only enable this when running behind a trusted reverse proxy.
-   * Default: false (uses socket remote address for per-IP limiting).
+   * Number of trusted reverse-proxy hops in front of this server. The client
+   * IP used for per-IP limiting is read from `X-Forwarded-For` by counting
+   * this many entries from the RIGHT — the rightmost entry is the one appended
+   * by the proxy nearest this server, which a client cannot forge. Counting
+   * from the right means any extra addresses a client prepends are ignored, so
+   * an attacker can't rotate the leftmost value to escape their bucket.
+   *
+   *   0 → ignore `X-Forwarded-For` entirely; use the socket peer address.
+   *   1 → client → [trusted proxy] → app   (rightmost XFF entry)
+   *   2 → client → [CDN] → [LB] → app      (2nd-from-right XFF entry)
+   *
+   * When omitted, falls back to the RATE_LIMIT_TRUSTED_PROXY_HOPS env var
+   * (default 0). Ignored when `global` is set.
    */
-  trustProxy?: boolean;
+  trustedProxyHops?: number;
   /**
    * Use a single shared bucket for all clients instead of per-IP.
    * Useful for endpoints that should have a process-wide limit
@@ -27,17 +37,104 @@ interface RateLimitOptions {
   global?: boolean;
 }
 
+const TRUSTED_PROXY_HOPS_ENV = "RATE_LIMIT_TRUSTED_PROXY_HOPS";
+
+function envTrustedProxyHops(): number {
+  const raw = process.env[TRUSTED_PROXY_HOPS_ENV];
+  if (raw === undefined || raw === "") return 0;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+/**
+ * Validate rate-limiter configuration at startup. Mirrors
+ * validateApiKeyConfig(): in production we refuse to start with an *undefined*
+ * trust-proxy posture. The silent default (use the socket peer) collapses
+ * every client into one bucket when the server sits behind a load balancer —
+ * the per-IP limiter becomes a single global bucket that one noisy client, or
+ * an attacker, can exhaust for everyone. Forcing an explicit value (even 0,
+ * for direct exposure) removes that footgun.
+ *
+ * Call before binding the server.
+ */
+export function validateRateLimitConfig(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const raw = process.env[TRUSTED_PROXY_HOPS_ENV];
+  if (raw === undefined || raw === "") {
+    logger.fatal(
+      `${TRUSTED_PROXY_HOPS_ENV} is not set; refusing to start in production with an ` +
+        `undefined trust-proxy posture. Set it to the number of trusted reverse-proxy ` +
+        `hops in front of this server (0 for direct exposure).`,
+      { component: "rate-limit" },
+    );
+    process.exit(1);
+  }
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) {
+    logger.fatal(`${TRUSTED_PROXY_HOPS_ENV} must be a non-negative integer`, {
+      component: "rate-limit",
+      value: raw,
+    });
+    process.exit(1);
+  }
+  logger.info("rate-limit trust-proxy posture", {
+    component: "rate-limit",
+    trusted_proxy_hops: n,
+  });
+}
+
+/**
+ * Resolve the client IP used as the per-IP bucket key.
+ *
+ * With `hops > 0` the address is taken from `X-Forwarded-For` counting `hops`
+ * entries from the right (see RateLimitOptions.trustedProxyHops). If the header
+ * is missing or has fewer entries than the configured chain, the request did
+ * not traverse the expected proxies (a direct hit or a spoof attempt) — we do
+ * NOT trust a partial chain and fall back to the socket peer.
+ */
+function resolveClientIp(c: Context, hops: number): string {
+  if (hops > 0) {
+    const list =
+      c.req
+        .header("x-forwarded-for")
+        ?.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean) ?? [];
+    const idx = list.length - hops;
+    if (idx >= 0 && idx < list.length) return list[idx];
+    logger.warn("X-Forwarded-For shorter than trustedProxyHops — using socket peer", {
+      component: "rate-limit",
+      trusted_proxy_hops: hops,
+      xff_entries: list.length,
+    });
+  }
+  try {
+    return getConnInfo(c).remote.address ?? "unknown";
+  } catch {
+    // getConnInfo fails without a real socket (tests, non-Node adapters).
+    // Fall back to a sentinel distinct from the "global" mode key so the
+    // per-IP and global buckets never collide if a bucket store is ever
+    // shared across middleware instances.
+    logger.warn("could not resolve client IP — using shared bucket", {
+      component: "rate-limit",
+    });
+    return "unknown";
+  }
+}
+
 /**
  * Simple in-memory sliding-window rate limiter (token bucket variant).
  *
  * Each unique client IP gets a bucket that refills at a constant rate.
  * When the bucket is empty the request is rejected with 429.
  *
- * NOT suitable for multi-process / clustered deployments — use Redis or
- * similar in that case. Fine for a single-process Hono server.
+ * NOT suitable for multi-process / clustered deployments: buckets live in this
+ * process only, so N replicas yield an effective limit of N × `limit`. Use a
+ * shared store (Redis or similar) for coordinated limiting across replicas.
  */
 export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
-  const { limit, windowMs, trustProxy = false, global: globalBucket = false } = opts;
+  const { limit, windowMs, global: globalBucket = false } = opts;
+  const hops = opts.trustedProxyHops ?? envTrustedProxyHops();
   const buckets = new Map<string, BucketEntry>();
 
   // Refill rate: tokens per millisecond
@@ -63,32 +160,9 @@ export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {
     const now = Date.now();
     prune(now);
 
-    // Identify the bucket key.
     // global: all clients share one bucket (for process-wide limits).
-    // trustProxy: read X-Forwarded-For from a trusted reverse proxy.
-    // default: use the socket remote address via @hono/node-server.
-    // Note: getConnInfo requires @hono/node-server; other adapters will
-    // fall back to the shared "unknown" bucket.
-    let key = "global";
-    if (!globalBucket) {
-      if (trustProxy) {
-        key = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-      } else {
-        try {
-          const info = getConnInfo(c);
-          key = info.remote.address ?? "unknown";
-        } catch {
-          // getConnInfo fails without a real socket (tests, non-Node adapters).
-          // Fall back to a sentinel distinct from the "global" mode key so
-          // the per-IP and global buckets never collide if the bucket store
-          // is ever shared across middleware instances.
-          key = "unknown";
-          logger.warn("could not resolve client IP — using shared bucket", {
-            component: "rate-limit",
-          });
-        }
-      }
-    }
+    // otherwise: per-client, keyed on the resolved client IP.
+    const key = globalBucket ? "global" : resolveClientIp(c, hops);
 
     let entry = buckets.get(key);
     if (!entry) {

@@ -27,6 +27,16 @@ export function createApp(): Hono {
   if (process.env.NODE_ENV === "production" && !process.env.HAOL_API_KEY) {
     throw new Error("HAOL_API_KEY must be set in production");
   }
+  // Likewise refuse to serve with an undefined trust-proxy posture in
+  // production — an unset value silently degrades per-IP limiting to a single
+  // global bucket behind a load balancer. Must be set explicitly (0 = direct
+  // exposure). Mirrors validateRateLimitConfig() for alternate entry points.
+  if (
+    process.env.NODE_ENV === "production" &&
+    (process.env.RATE_LIMIT_TRUSTED_PROXY_HOPS ?? "") === ""
+  ) {
+    throw new Error("RATE_LIMIT_TRUSTED_PROXY_HOPS must be set in production");
+  }
 
   const app = new Hono();
   const apiKeyAuth = createApiKeyAuth();

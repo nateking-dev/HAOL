@@ -3,13 +3,16 @@ import { loadConfig } from "./config.js";
 import { createPool, healthCheck } from "./db/connection.js";
 import { createApp } from "./api/app.js";
 import { validateApiKeyConfig } from "./api/middleware/api-key-auth.js";
+import { validateRateLimitConfig } from "./api/middleware/rate-limit.js";
 import * as worker from "./services/task-worker.js";
 import { startReaper, stopReaper, runReaperOnce } from "./services/task-reaper.js";
 import { logger } from "./logging/logger.js";
 
 async function main() {
-  // Fail fast if production auth is misconfigured — before binding the server.
+  // Fail fast if production auth or rate-limit posture is misconfigured —
+  // before binding the server.
   validateApiKeyConfig();
+  validateRateLimitConfig();
 
   const config = loadConfig();
   createPool(config.dolt);
