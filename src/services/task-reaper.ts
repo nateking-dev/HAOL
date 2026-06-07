@@ -1,5 +1,6 @@
 import * as taskLog from "../repositories/task-log.js";
 import * as worker from "./task-worker.js";
+import { purgeExpiredInputText } from "../cascade-router/reference-store.js";
 import { pruneSessionBranches } from "../memory/branch-cleanup.js";
 import type { RouterTaskInput } from "../types/router.js";
 import { logger } from "../logging/logger.js";
@@ -68,6 +69,36 @@ function sessionRetentionDays(): number {
   return days;
 }
 
+// Retention window (days) before raw prompt / input_text are nulled (#79).
+// Default 30. A value <= 0 disables the purge (opt out) — returned as null so
+// the sweep skips it. An invalid/non-numeric value falls back to the default
+// rather than silently disabling retention.
+const PROMPT_RETENTION_DEFAULT_DAYS = 30;
+function promptRetentionDays(): number | null {
+  const raw = process.env.PROMPT_RETENTION_DAYS;
+  if (!raw) return PROMPT_RETENTION_DEFAULT_DAYS;
+  // Number() rather than parseInt() so partial-garbage like "0_days" or
+  // "30days" becomes NaN and fails *safe* to the default. parseInt's
+  // leading-digit coercion ("0_days" -> 0) would otherwise hit the disable
+  // path and silently retain PII indefinitely — the opposite of what an
+  // operator who fat-fingered the value intended. Warn on invalid input so
+  // the misconfiguration is visible in logs rather than silently swallowed.
+  const parsed = Number(raw.trim());
+  if (!Number.isFinite(parsed)) {
+    logger.warn("invalid PROMPT_RETENTION_DAYS; falling back to default", {
+      value: raw,
+      default_days: PROMPT_RETENTION_DEFAULT_DAYS,
+    });
+    return PROMPT_RETENTION_DEFAULT_DAYS;
+  }
+  // Floor a fractional value toward the shorter (more privacy-protective)
+  // window so a fat-fingered "1.5" honors the 1-day intent rather than
+  // failing back to the longer 30-day default.
+  const days = Math.floor(parsed);
+  if (days <= 0) return null; // explicit opt-out (0, negative, or < 1 day)
+  return days;
+}
+
 function reconstructInput(record: taskLog.TaskLogRecord): RouterTaskInput | null {
   if (!record.prompt) return null;
   // DB columns return null for absent JSON; the Zod schema requires
@@ -85,21 +116,19 @@ function reconstructInput(record: taskLog.TaskLogRecord): RouterTaskInput | null
   return input;
 }
 
-export async function runReaperOnce(): Promise<{
+export interface ReaperResult {
   reEnqueued: number;
   duplicates: number;
   failed: number;
   branchesPruned: number;
-}> {
+  promptsPurged: number;
+}
+
+export async function runReaperOnce(): Promise<ReaperResult> {
   return runWithContext({ component: "reaper" }, () => runReaperOnceInner());
 }
 
-async function runReaperOnceInner(): Promise<{
-  reEnqueued: number;
-  duplicates: number;
-  failed: number;
-  branchesPruned: number;
-}> {
+async function runReaperOnceInner(): Promise<ReaperResult> {
   const ageSec = recoveryAgeSeconds();
   let reEnqueued = 0;
   // Rows the worker refused as already queued/in-flight (the reaper raced a
@@ -108,6 +137,7 @@ async function runReaperOnceInner(): Promise<{
   let duplicates = 0;
   let failed = 0;
   let branchesPruned = 0;
+  let promptsPurged = 0;
 
   // 1. Re-enqueue any QUEUED row regardless of age — the in-memory queue is
   // empty at startup, so anything that survived a restart needs a kick. At
@@ -209,15 +239,33 @@ async function runReaperOnceInner(): Promise<{
     logger.warn("pruneSessionBranches failed", { error: (err as Error).message });
   }
 
-  if (reEnqueued > 0 || duplicates > 0 || failed > 0 || branchesPruned > 0) {
+  // 4. PII retention: null raw prompt / input_text past the retention window
+  // (#79). Best-effort and independent — a failure on one table must not stop
+  // the other or the rest of the sweep. Skipped entirely when disabled (<= 0).
+  const retentionDays = promptRetentionDays();
+  if (retentionDays !== null) {
+    try {
+      promptsPurged += await taskLog.purgeExpiredPrompts(retentionDays);
+    } catch (err) {
+      logger.warn("purgeExpiredPrompts failed", { error: (err as Error).message });
+    }
+    try {
+      promptsPurged += await purgeExpiredInputText(retentionDays);
+    } catch (err) {
+      logger.warn("purgeExpiredInputText failed", { error: (err as Error).message });
+    }
+  }
+
+  if (reEnqueued > 0 || duplicates > 0 || failed > 0 || branchesPruned > 0 || promptsPurged > 0) {
     logger.info("reaper sweep summary", {
       re_enqueued: reEnqueued,
       duplicates,
       failed,
       branches_pruned: branchesPruned,
+      prompts_purged: promptsPurged,
     });
   }
-  return { reEnqueued, duplicates, failed, branchesPruned };
+  return { reEnqueued, duplicates, failed, branchesPruned, promptsPurged };
 }
 
 export function startReaper(): void {

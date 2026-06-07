@@ -101,14 +101,18 @@ export async function cascadeDecisionSamples(
 }
 
 export interface NearMissRow {
-  input_text: string;
+  // Null once the retention reaper has purged the raw text (#79). The
+  // fingerprint in input_text_sha256 remains available regardless.
+  input_text: string | null;
+  input_text_sha256: string | null;
   similarity_score: number;
   routed_tier: number;
   routing_layer: string;
   created_at: string;
 }
 interface NearMissRaw extends RowDataPacket {
-  input_text: string;
+  input_text: string | null;
+  input_text_sha256: string | null;
   similarity_score: string | number;
   routed_tier: number;
   routing_layer: string;
@@ -123,7 +127,7 @@ interface NearMissRaw extends RowDataPacket {
  */
 export async function cascadeNearMisses(hours: number, limit: number): Promise<NearMissRow[]> {
   const rows = await query<NearMissRaw[]>(
-    `SELECT input_text, similarity_score, routed_tier, routing_layer, created_at
+    `SELECT input_text, input_text_sha256, similarity_score, routed_tier, routing_layer, created_at
      FROM routing_log
      WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
        AND routing_layer IN ('escalation', 'fallback')
@@ -134,6 +138,7 @@ export async function cascadeNearMisses(hours: number, limit: number): Promise<N
   );
   return rows.map((r) => ({
     input_text: r.input_text,
+    input_text_sha256: r.input_text_sha256,
     similarity_score:
       typeof r.similarity_score === "string"
         ? parseFloat(r.similarity_score)

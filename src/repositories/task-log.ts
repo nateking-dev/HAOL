@@ -1,7 +1,13 @@
 import { getPool } from "../db/connection.js";
 import { query } from "../db/connection.js";
-import type { RowDataPacket } from "mysql2/promise";
+import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import type { TaskStatus } from "../types/router.js";
+
+// Bounded batch for the retention purge. A first catch-up run over a large
+// backlog must not null every matching row in a single UPDATE — that would
+// hold row locks for the whole set and stall concurrent writers. Each pass
+// nulls at most this many rows; the loop repeats until a short batch.
+export const PURGE_BATCH_SIZE = 1000;
 
 interface TaskLogRow extends RowDataPacket {
   task_id: string;
@@ -376,6 +382,43 @@ export async function updateRoutingConfidence(
     `UPDATE task_log SET routing_confidence = ?, routing_layer = ? WHERE task_id = ?`,
     [confidence, layer ?? null, taskId],
   );
+}
+
+/**
+ * PII retention (#79): null the raw `prompt` of task_log rows older than
+ * `retentionDays`. The separate `prompt_hash` column is left intact so audit
+ * trails and dedup still work without retaining the raw text. Returns the
+ * total number of rows purged across all batches.
+ *
+ * Purged in `batchSize`-row passes (LIMIT) to bound row-lock duration on a
+ * large first run. The loop converges because each nulled row drops out of
+ * the `prompt IS NOT NULL` predicate. The `created_at` range is index-backed
+ * by `idx_task_log_created_at` (migration 017).
+ *
+ * Uses `pool.query` directly rather than the `execute()` helper because we
+ * need the `ResultSetHeader.affectedRows` count back (execute() returns void);
+ * execute() adds no retry/logging this would otherwise skip, and the other
+ * mutations in this module use `pool.query` likewise.
+ */
+export async function purgeExpiredPrompts(
+  retentionDays: number,
+  batchSize: number = PURGE_BATCH_SIZE,
+): Promise<number> {
+  const pool = getPool();
+  let total = 0;
+  for (;;) {
+    const [result] = await pool.query<ResultSetHeader>(
+      `UPDATE task_log
+         SET prompt = NULL
+       WHERE prompt IS NOT NULL
+         AND created_at < (NOW() - INTERVAL ? DAY)
+       LIMIT ?`,
+      [retentionDays, batchSize],
+    );
+    total += result.affectedRows;
+    if (result.affectedRows < batchSize) break;
+  }
+  return total;
 }
 
 export async function updateExpectedFormat(

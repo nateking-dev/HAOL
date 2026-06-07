@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import * as taskLog from "../../src/repositories/task-log.js";
 import * as worker from "../../src/services/task-worker.js";
 import * as branchCleanup from "../../src/memory/branch-cleanup.js";
+import * as referenceStore from "../../src/cascade-router/reference-store.js";
 import { runReaperOnce } from "../../src/services/task-reaper.js";
 
 // --- Unit tests for the QUEUED re-enqueue paging drain (no DB required). ---
@@ -66,14 +67,18 @@ function pagedSource(all: taskLog.TaskLogRecord[]) {
 }
 
 function stubNonQueuedWork() {
-  // Isolate the QUEUED re-enqueue path: no stale rows, no branch pruning.
+  // Isolate the QUEUED re-enqueue path: no stale rows, no branch pruning, no
+  // retention purge (otherwise it would reach for a real DB pool).
   vi.spyOn(taskLog, "findStale").mockResolvedValue([]);
   vi.spyOn(branchCleanup, "pruneSessionBranches").mockResolvedValue([]);
+  vi.spyOn(taskLog, "purgeExpiredPrompts").mockResolvedValue(0);
+  vi.spyOn(referenceStore, "purgeExpiredInputText").mockResolvedValue(0);
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
   delete process.env.WORKER_REQUEUE_PAGE_SIZE;
+  delete process.env.PROMPT_RETENTION_DAYS;
 });
 
 describe("task-reaper — QUEUED re-enqueue paging", () => {
@@ -244,5 +249,110 @@ describe("task-reaper — QUEUED re-enqueue paging", () => {
     // Only "a" landed; the drain stopped at the queue_full without trying "c".
     expect(result.reEnqueued).toBe(1);
     expect(enqueueSpy.mock.calls.map((c) => c[0])).toEqual(["a", "b"]);
+  });
+});
+
+// --- PII retention purge (#79). Mocks the repository layer so we assert the
+// reaper passes the configured window through and isolates purge failures. ---
+
+describe("task-reaper — PII retention purge", () => {
+  // Isolate the purge step: empty queue, no stale rows, no branch pruning.
+  function stubOtherWork() {
+    vi.spyOn(taskLog, "findQueuedPage").mockResolvedValue([]);
+    vi.spyOn(taskLog, "findStale").mockResolvedValue([]);
+    vi.spyOn(branchCleanup, "pruneSessionBranches").mockResolvedValue([]);
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.PROMPT_RETENTION_DAYS;
+  });
+
+  it("purges expired prompt + input_text with the default 30-day window", async () => {
+    stubOtherWork();
+    const prompts = vi.spyOn(taskLog, "purgeExpiredPrompts").mockResolvedValue(3);
+    const inputs = vi.spyOn(referenceStore, "purgeExpiredInputText").mockResolvedValue(2);
+
+    const result = await runReaperOnce();
+
+    expect(prompts).toHaveBeenCalledWith(30);
+    expect(inputs).toHaveBeenCalledWith(30);
+    // Both tables roll up into a single counter.
+    expect(result.promptsPurged).toBe(5);
+  });
+
+  it("honors a custom PROMPT_RETENTION_DAYS", async () => {
+    process.env.PROMPT_RETENTION_DAYS = "7";
+    stubOtherWork();
+    const prompts = vi.spyOn(taskLog, "purgeExpiredPrompts").mockResolvedValue(0);
+    const inputs = vi.spyOn(referenceStore, "purgeExpiredInputText").mockResolvedValue(0);
+
+    await runReaperOnce();
+
+    expect(prompts).toHaveBeenCalledWith(7);
+    expect(inputs).toHaveBeenCalledWith(7);
+  });
+
+  it("disables the purge when PROMPT_RETENTION_DAYS <= 0", async () => {
+    process.env.PROMPT_RETENTION_DAYS = "0";
+    stubOtherWork();
+    const prompts = vi.spyOn(taskLog, "purgeExpiredPrompts").mockResolvedValue(0);
+    const inputs = vi.spyOn(referenceStore, "purgeExpiredInputText").mockResolvedValue(0);
+
+    const result = await runReaperOnce();
+
+    expect(prompts).not.toHaveBeenCalled();
+    expect(inputs).not.toHaveBeenCalled();
+    expect(result.promptsPurged).toBe(0);
+  });
+
+  it("falls back to the default for a non-numeric PROMPT_RETENTION_DAYS", async () => {
+    process.env.PROMPT_RETENTION_DAYS = "not-a-number";
+    stubOtherWork();
+    const prompts = vi.spyOn(taskLog, "purgeExpiredPrompts").mockResolvedValue(0);
+    vi.spyOn(referenceStore, "purgeExpiredInputText").mockResolvedValue(0);
+
+    await runReaperOnce();
+
+    expect(prompts).toHaveBeenCalledWith(30);
+  });
+
+  it("floors a fractional PROMPT_RETENTION_DAYS toward the shorter window", async () => {
+    // "1.5" should honor a 1-day intent, not fail back to the 30-day default.
+    process.env.PROMPT_RETENTION_DAYS = "1.5";
+    stubOtherWork();
+    const prompts = vi.spyOn(taskLog, "purgeExpiredPrompts").mockResolvedValue(0);
+    const inputs = vi.spyOn(referenceStore, "purgeExpiredInputText").mockResolvedValue(0);
+
+    await runReaperOnce();
+
+    expect(prompts).toHaveBeenCalledWith(1);
+    expect(inputs).toHaveBeenCalledWith(1);
+  });
+
+  it("fails safe to the default (not disable) for leading-digit garbage like '0_days'", async () => {
+    // parseInt("0_days") === 0 would have hit the disable path and silently
+    // retained PII; Number() makes it NaN -> default. Guards against that.
+    process.env.PROMPT_RETENTION_DAYS = "0_days";
+    stubOtherWork();
+    const prompts = vi.spyOn(taskLog, "purgeExpiredPrompts").mockResolvedValue(0);
+    const inputs = vi.spyOn(referenceStore, "purgeExpiredInputText").mockResolvedValue(0);
+
+    await runReaperOnce();
+
+    expect(prompts).toHaveBeenCalledWith(30);
+    expect(inputs).toHaveBeenCalledWith(30);
+  });
+
+  it("isolates a failure in one purge from the other and the rest of the sweep", async () => {
+    stubOtherWork();
+    vi.spyOn(taskLog, "purgeExpiredPrompts").mockRejectedValue(new Error("db gone"));
+    const inputs = vi.spyOn(referenceStore, "purgeExpiredInputText").mockResolvedValue(4);
+
+    const result = await runReaperOnce();
+
+    // The prompt purge threw, but input_text purge still ran and counted.
+    expect(inputs).toHaveBeenCalledWith(30);
+    expect(result.promptsPurged).toBe(4);
   });
 });
