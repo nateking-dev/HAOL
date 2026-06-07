@@ -317,6 +317,19 @@ describe("task-reaper — PII retention purge", () => {
     expect(prompts).toHaveBeenCalledWith(30);
   });
 
+  it("floors a fractional PROMPT_RETENTION_DAYS toward the shorter window", async () => {
+    // "1.5" should honor a 1-day intent, not fail back to the 30-day default.
+    process.env.PROMPT_RETENTION_DAYS = "1.5";
+    stubOtherWork();
+    const prompts = vi.spyOn(taskLog, "purgeExpiredPrompts").mockResolvedValue(0);
+    const inputs = vi.spyOn(referenceStore, "purgeExpiredInputText").mockResolvedValue(0);
+
+    await runReaperOnce();
+
+    expect(prompts).toHaveBeenCalledWith(1);
+    expect(inputs).toHaveBeenCalledWith(1);
+  });
+
   it("fails safe to the default (not disable) for leading-digit garbage like '0_days'", async () => {
     // parseInt("0_days") === 0 would have hit the disable path and silently
     // retained PII; Number() makes it NaN -> default. Guards against that.

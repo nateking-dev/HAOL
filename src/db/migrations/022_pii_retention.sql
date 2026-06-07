@@ -13,6 +13,24 @@
 -- Persist the hash in a dedicated column (populated going forward by
 -- logDecision and backfilled here) and relax input_text to NULL so the reaper
 -- can purge it.
+--
+-- KNOWN LIMITATION — Dolt commit history is NOT purged. Nulling a live row
+-- removes the raw text from the working set and HEAD, but every prior Dolt
+-- commit that captured the row still contains it. It remains readable via
+-- Dolt's version history (`dolt log`, `dolt diff`, `... AS OF <commit>`).
+-- This feature bounds disclosure through the SQL/API surface and the
+-- observability endpoint; it does NOT provide cryptographic erasure or
+-- right-to-be-forgotten guarantees against an operator with direct Dolt
+-- history access. Compliance regimes that require true deletion need a
+-- separate history-rewrite/retention strategy at the Dolt layer.
+--
+-- RETRY SAFETY — the three statements below are applied individually by the
+-- migration runner (src/db/migrate.ts: splitStatements + execStatementsIdempotent).
+-- If a crash/lock-timeout interrupts the UPDATE or final MODIFY, the next run
+-- re-runs the file: the duplicate ADD COLUMN is caught and skipped (errno 1060
+-- / "duplicate column name"), the UPDATE is idempotent (WHERE ... IS NULL), and
+-- re-applying the MODIFY is a no-op. (Dolt does not accept ADD COLUMN IF NOT
+-- EXISTS, so the runner's duplicate-DDL recovery is what provides idempotency.)
 
 ALTER TABLE routing_log ADD COLUMN input_text_sha256 CHAR(64) NULL;
 

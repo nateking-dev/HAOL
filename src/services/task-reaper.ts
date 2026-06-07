@@ -83,15 +83,19 @@ function promptRetentionDays(): number | null {
   // path and silently retain PII indefinitely — the opposite of what an
   // operator who fat-fingered the value intended. Warn on invalid input so
   // the misconfiguration is visible in logs rather than silently swallowed.
-  const days = Number(raw.trim());
-  if (!Number.isInteger(days)) {
+  const parsed = Number(raw.trim());
+  if (!Number.isFinite(parsed)) {
     logger.warn("invalid PROMPT_RETENTION_DAYS; falling back to default", {
       value: raw,
       default_days: PROMPT_RETENTION_DEFAULT_DAYS,
     });
     return PROMPT_RETENTION_DEFAULT_DAYS;
   }
-  if (days <= 0) return null; // explicit opt-out
+  // Floor a fractional value toward the shorter (more privacy-protective)
+  // window so a fat-fingered "1.5" honors the 1-day intent rather than
+  // failing back to the longer 30-day default.
+  const days = Math.floor(parsed);
+  if (days <= 0) return null; // explicit opt-out (0, negative, or < 1 day)
   return days;
 }
 
