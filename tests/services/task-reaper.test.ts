@@ -317,6 +317,20 @@ describe("task-reaper — PII retention purge", () => {
     expect(prompts).toHaveBeenCalledWith(30);
   });
 
+  it("fails safe to the default (not disable) for leading-digit garbage like '0_days'", async () => {
+    // parseInt("0_days") === 0 would have hit the disable path and silently
+    // retained PII; Number() makes it NaN -> default. Guards against that.
+    process.env.PROMPT_RETENTION_DAYS = "0_days";
+    stubOtherWork();
+    const prompts = vi.spyOn(taskLog, "purgeExpiredPrompts").mockResolvedValue(0);
+    const inputs = vi.spyOn(referenceStore, "purgeExpiredInputText").mockResolvedValue(0);
+
+    await runReaperOnce();
+
+    expect(prompts).toHaveBeenCalledWith(30);
+    expect(inputs).toHaveBeenCalledWith(30);
+  });
+
   it("isolates a failure in one purge from the other and the rest of the sweep", async () => {
     stubOtherWork();
     vi.spyOn(taskLog, "purgeExpiredPrompts").mockRejectedValue(new Error("db gone"));

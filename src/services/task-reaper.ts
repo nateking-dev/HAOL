@@ -77,9 +77,21 @@ const PROMPT_RETENTION_DEFAULT_DAYS = 30;
 function promptRetentionDays(): number | null {
   const raw = process.env.PROMPT_RETENTION_DAYS;
   if (!raw) return PROMPT_RETENTION_DEFAULT_DAYS;
-  const days = parseInt(raw, 10);
-  if (!Number.isFinite(days)) return PROMPT_RETENTION_DEFAULT_DAYS;
-  if (days <= 0) return null;
+  // Number() rather than parseInt() so partial-garbage like "0_days" or
+  // "30days" becomes NaN and fails *safe* to the default. parseInt's
+  // leading-digit coercion ("0_days" -> 0) would otherwise hit the disable
+  // path and silently retain PII indefinitely — the opposite of what an
+  // operator who fat-fingered the value intended. Warn on invalid input so
+  // the misconfiguration is visible in logs rather than silently swallowed.
+  const days = Number(raw.trim());
+  if (!Number.isInteger(days)) {
+    logger.warn("invalid PROMPT_RETENTION_DAYS; falling back to default", {
+      value: raw,
+      default_days: PROMPT_RETENTION_DEFAULT_DAYS,
+    });
+    return PROMPT_RETENTION_DEFAULT_DAYS;
+  }
+  if (days <= 0) return null; // explicit opt-out
   return days;
 }
 
