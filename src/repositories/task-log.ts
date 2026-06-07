@@ -378,6 +378,24 @@ export async function updateRoutingConfidence(
   );
 }
 
+/**
+ * PII retention (#79): null the raw `prompt` of task_log rows older than
+ * `retentionDays`. The separate `prompt_hash` column is left intact so audit
+ * trails and dedup still work without retaining the raw text. Returns the
+ * number of rows purged.
+ */
+export async function purgeExpiredPrompts(retentionDays: number): Promise<number> {
+  const pool = getPool();
+  const [result] = await pool.query(
+    `UPDATE task_log
+       SET prompt = NULL
+     WHERE prompt IS NOT NULL
+       AND created_at < (NOW() - INTERVAL ? DAY)`,
+    [retentionDays],
+  );
+  return (result as { affectedRows: number }).affectedRows;
+}
+
 export async function updateExpectedFormat(
   taskId: string,
   formatSpec: Record<string, unknown>,

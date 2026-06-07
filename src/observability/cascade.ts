@@ -47,10 +47,12 @@ export interface PercentileBlock {
 }
 
 export interface NearMissEntry {
-  // SHA-256 of the original input_text. Always present so consumers can
-  // dedupe identical near-misses across calls without ever seeing the
-  // prompt content.
-  input_text_sha256: string;
+  // SHA-256 of the original input_text — persisted at write time so it
+  // survives the retention purge, letting consumers dedupe identical
+  // near-misses across calls without ever seeing the prompt content. Null
+  // only for legacy rows that predate the fingerprint column and have since
+  // had their raw text purged.
+  input_text_sha256: string | null;
   // Raw input prompt (truncated). Only populated when the caller passes
   // includeText: true. Default omits it so that observability access
   // (already auth-gated) doesn't double as a PII firehose for whoever
@@ -214,14 +216,22 @@ export async function getCascadeSnapshot(
     confidence: confidences.length === 0 ? null : percentileBlock(confidences),
     similarity_score: similarities.length === 0 ? null : percentileBlock(similarities),
     near_misses: nearMisses.map((n) => {
+      // Prefer the persisted fingerprint (always set since migration 022);
+      // fall back to hashing the raw text for any legacy row that predates it.
+      const fingerprint =
+        n.input_text_sha256 ?? (n.input_text !== null ? sha256(n.input_text) : null);
       const entry: NearMissEntry = {
-        input_text_sha256: sha256(n.input_text),
+        input_text_sha256: fingerprint,
         similarity_score: n.similarity_score,
         routed_tier: n.routed_tier,
         routing_layer: n.routing_layer,
         created_at: n.created_at,
       };
-      if (opts.includeText) entry.input_text = truncate(n.input_text, NEAR_MISS_TEXT_MAX);
+      // Raw text is null once purged by the retention reaper (#79); only
+      // surface it when present and explicitly opted into.
+      if (opts.includeText && n.input_text !== null) {
+        entry.input_text = truncate(n.input_text, NEAR_MISS_TEXT_MAX);
+      }
       return entry;
     }),
     sample_size: samples.length,

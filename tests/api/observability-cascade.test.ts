@@ -147,21 +147,57 @@ describe("GET /observability/cascade", () => {
     expect(body.near_misses[0].input_text).toBeUndefined();
   });
 
-  it("opts into raw input_text only when include_text=true", async ({ skip }) => {
+  it("opts into raw input_text only when include_text=true AND disclosure is enabled", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
 
     const pool = getPool();
     await pool.query("DELETE FROM routing_log WHERE input_text LIKE ?", [`${TEST_INPUT_PREFIX}%`]);
     await seedRoutingLog([{ layer: "escalation", tier: 3, latency: 450, conf: 0.85, sim: 0.4 }]);
 
-    const res = await app.request("/v1/observability/cascade?hours=1&include_text=true");
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      near_misses: Array<{ input_text_sha256: string; input_text?: string }>;
-    };
-    expect(body.near_misses.length).toBe(1);
-    expect(body.near_misses[0].input_text_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(body.near_misses[0].input_text).toBe(`${TEST_INPUT_PREFIX}escalation-3`);
+    const prev = process.env.ALLOW_PROMPT_DISCLOSURE;
+    process.env.ALLOW_PROMPT_DISCLOSURE = "1";
+    try {
+      const res = await app.request("/v1/observability/cascade?hours=1&include_text=true");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        near_misses: Array<{ input_text_sha256: string; input_text?: string }>;
+      };
+      expect(body.near_misses.length).toBe(1);
+      expect(body.near_misses[0].input_text_sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(body.near_misses[0].input_text).toBe(`${TEST_INPUT_PREFIX}escalation-3`);
+    } finally {
+      if (prev === undefined) delete process.env.ALLOW_PROMPT_DISCLOSURE;
+      else process.env.ALLOW_PROMPT_DISCLOSURE = prev;
+    }
+  });
+
+  it("fails closed: include_text=true is ignored without ALLOW_PROMPT_DISCLOSURE", async ({
+    skip,
+  }) => {
+    if (!doltAvailable) skip();
+
+    const pool = getPool();
+    await pool.query("DELETE FROM routing_log WHERE input_text LIKE ?", [`${TEST_INPUT_PREFIX}%`]);
+    await seedRoutingLog([{ layer: "escalation", tier: 3, latency: 450, conf: 0.85, sim: 0.4 }]);
+
+    const prev = process.env.ALLOW_PROMPT_DISCLOSURE;
+    delete process.env.ALLOW_PROMPT_DISCLOSURE;
+    try {
+      const res = await app.request("/v1/observability/cascade?hours=1&include_text=true");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        near_misses: Array<{ input_text_sha256: string; input_text?: string }>;
+      };
+      expect(body.near_misses.length).toBe(1);
+      // Fingerprint still present, but the raw text is withheld.
+      expect(body.near_misses[0].input_text_sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(body.near_misses[0].input_text).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.ALLOW_PROMPT_DISCLOSURE;
+      else process.env.ALLOW_PROMPT_DISCLOSURE = prev;
+    }
   });
 
   it("clamps the hours parameter to the valid range", async ({ skip }) => {

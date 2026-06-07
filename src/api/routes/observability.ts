@@ -97,8 +97,12 @@ observability.get("/stats/orphaned-pending", async (c) => {
 observability.get("/cascade", async (c) => {
   const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
   // include_text=true opts into raw prompt content in near_misses. Default
-  // false so observability access doesn't double as a PII firehose.
-  const includeText = c.req.query("include_text") === "true";
+  // false so observability access doesn't double as a PII firehose. The
+  // server must also be explicitly configured to permit disclosure
+  // (ALLOW_PROMPT_DISCLOSURE=1) — otherwise the request fails closed and only
+  // the SHA-256 fingerprints are returned (#79).
+  const includeText =
+    c.req.query("include_text") === "true" && process.env.ALLOW_PROMPT_DISCLOSURE === "1";
   const data = await getCascadeSnapshot(hours, { includeText });
   return c.json(data, 200);
 });
