@@ -1,6 +1,7 @@
 import { query, execute, getPool } from "../db/connection.js";
 import { uuidv7, sha256 } from "../types/task.js";
-import type { RowDataPacket } from "mysql2/promise";
+import { PURGE_BATCH_SIZE } from "../repositories/task-log.js";
+import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import type {
   CascadeTrace,
   RoutingRule,
@@ -191,18 +192,34 @@ export async function logDecision(
  * PII retention (#79): null the raw `input_text` of routing_log rows older
  * than `retentionDays`. The non-reversible `input_text_sha256` fingerprint is
  * left intact so observability (near-misses dedup) keeps working. Returns the
- * number of rows purged.
+ * total number of rows purged across all batches.
+ *
+ * Purged in `batchSize`-row passes (LIMIT) to bound row-lock duration on a
+ * large first run; the loop converges because each nulled row drops out of
+ * the `input_text IS NOT NULL` predicate. The `created_at` range is
+ * index-backed by `idx_log_created` (migration 009). Uses `pool.query`
+ * directly to read `ResultSetHeader.affectedRows` (the `execute()` helper
+ * returns void and adds no retry/logging this would skip).
  */
-export async function purgeExpiredInputText(retentionDays: number): Promise<number> {
+export async function purgeExpiredInputText(
+  retentionDays: number,
+  batchSize: number = PURGE_BATCH_SIZE,
+): Promise<number> {
   const pool = getPool();
-  const [result] = await pool.query(
-    `UPDATE routing_log
-       SET input_text = NULL
-     WHERE input_text IS NOT NULL
-       AND created_at < (NOW() - INTERVAL ? DAY)`,
-    [retentionDays],
-  );
-  return (result as { affectedRows: number }).affectedRows;
+  let total = 0;
+  for (;;) {
+    const [result] = await pool.query<ResultSetHeader>(
+      `UPDATE routing_log
+         SET input_text = NULL
+       WHERE input_text IS NOT NULL
+         AND created_at < (NOW() - INTERVAL ? DAY)
+       LIMIT ?`,
+      [retentionDays, batchSize],
+    );
+    total += result.affectedRows;
+    if (result.affectedRows < batchSize) break;
+  }
+  return total;
 }
 
 export async function findTraceByTaskId(taskId: string): Promise<CascadeTrace | null> {

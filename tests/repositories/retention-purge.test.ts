@@ -94,6 +94,34 @@ describe("purgeExpiredPrompts", () => {
     expect(freshRows[0].prompt).toBe("FRESH_PROMPT");
   });
 
+  it("purges in multiple batches and converges when batchSize < matching rows", async ({
+    skip,
+  }) => {
+    if (!doltAvailable) skip();
+    const pool = getPool();
+
+    // Seed 3 aged rows, then purge with batchSize=2 -> expect two passes
+    // (2 + 1) summing to 3, exercising the loop rather than a single UPDATE.
+    const ids = [uuidv7(), uuidv7(), uuidv7()];
+    for (const id of ids) {
+      await pool.query(
+        `INSERT INTO task_log (task_id, created_at, status, prompt_hash, prompt)
+         VALUES (?, NOW() - INTERVAL 40 DAY, 'COMPLETED', ?, 'SECRET')`,
+        [id, `${PROMPT_TAG}_batch`],
+      );
+    }
+
+    const purged = await purgeExpiredPrompts(30, 2);
+    // At least our 3 (other aged rows in a shared dev DB may add to this).
+    expect(purged).toBeGreaterThanOrEqual(3);
+
+    const [rows] = (await pool.query("SELECT prompt FROM task_log WHERE prompt_hash = ?", [
+      `${PROMPT_TAG}_batch`,
+    ])) as [Array<{ prompt: string | null }>, unknown];
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.prompt === null)).toBe(true);
+  });
+
   it("is idempotent — a second pass purges nothing new", async ({ skip }) => {
     if (!doltAvailable) skip();
     const pool = getPool();
