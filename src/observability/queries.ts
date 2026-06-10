@@ -431,17 +431,22 @@ export async function costSavings(hours: number): Promise<CostSavingsRow> {
 
 // --- Helpers ---
 
-function parseDurationToHours(duration: string): number {
+// Hard ceiling on any observability time window. Bounds the worst-case scan:
+// routing_log/execution_log slices, and especially the dolt_log date scans
+// (commitHistory / agentRegistryDiff) that cannot be indexed. See issue #74.
+export const MAX_WINDOW_HOURS = 2160; // 90 days
+
+export function parseDurationToHours(duration: string): number {
   const match = duration.match(/^(\d+)([dhm])$/);
   if (!match) return 24; // default to 24 hours
   const value = parseInt(match[1], 10);
   switch (match[2]) {
     case "d":
-      return value * 24;
+      return Math.min(value * 24, MAX_WINDOW_HOURS);
     case "h":
-      return value;
+      return Math.min(value, MAX_WINDOW_HOURS);
     case "m":
-      return value / 60;
+      return Math.min(value / 60, MAX_WINDOW_HOURS);
     default:
       return 24;
   }

@@ -10,6 +10,7 @@ import {
   outcomeSignalRates,
   routingAccuracyByAgent,
   costSavings,
+  MAX_WINDOW_HOURS,
 } from "../../observability/queries.js";
 import { getDashboard } from "../../observability/dashboard.js";
 import { getCascadeSnapshot, getCascadeTimeseries } from "../../observability/cascade.js";
@@ -23,8 +24,6 @@ import { logger } from "../../logging/logger.js";
 
 const observability = new Hono();
 
-const MAX_HOURS = 8760; // 1 year
-
 function parseIntParam(val: string | undefined, def: number, min: number, max: number): number {
   const n = parseInt(val ?? String(def), 10);
   if (isNaN(n)) return def;
@@ -34,31 +33,31 @@ function parseIntParam(val: string | undefined, def: number, min: number, max: n
 // --- Stats routes ---
 
 observability.get("/stats", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_WINDOW_HOURS);
   const dashboard = await getDashboard(hours);
   return c.json(dashboard, 200);
 });
 
 observability.get("/stats/cost", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_WINDOW_HOURS);
   const data = await costByAgent(hours);
   return c.json(data, 200);
 });
 
 observability.get("/stats/latency", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_WINDOW_HOURS);
   const data = await avgLatencyByAgent(hours);
   return c.json(data, 200);
 });
 
 observability.get("/stats/failures", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_WINDOW_HOURS);
   const data = await failureRate(hours);
   return c.json(data, 200);
 });
 
 observability.get("/stats/tiers", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_WINDOW_HOURS);
   const data = await tasksByTier(hours);
   return c.json(data, 200);
 });
@@ -69,25 +68,25 @@ observability.get("/stats/breaches", async (c) => {
 });
 
 observability.get("/stats/outcomes", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_WINDOW_HOURS);
   const data = await outcomeSignalRates(hours);
   return c.json(data, 200);
 });
 
 observability.get("/stats/routing-accuracy", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_WINDOW_HOURS);
   const data = await routingAccuracyByAgent(hours);
   return c.json(data, 200);
 });
 
 observability.get("/stats/savings", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_WINDOW_HOURS);
   const data = await costSavings(hours);
   return c.json(data, 200);
 });
 
 observability.get("/stats/orphaned-pending", async (c) => {
-  const maxAgeHours = parseIntParam(c.req.query("max_age_hours"), 24, 1, MAX_HOURS);
+  const maxAgeHours = parseIntParam(c.req.query("max_age_hours"), 24, 1, MAX_WINDOW_HOURS);
   const count = await countOrphanedPendingRecords(maxAgeHours);
   return c.json({ orphaned_pending: count, max_age_hours: maxAgeHours }, 200);
 });
@@ -95,7 +94,7 @@ observability.get("/stats/orphaned-pending", async (c) => {
 // --- Cascade router routes ---
 
 observability.get("/cascade", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_WINDOW_HOURS);
   // include_text=true opts into raw prompt content in near_misses. Default
   // false so observability access doesn't double as a PII firehose. The
   // server must also be explicitly configured to permit disclosure
@@ -108,7 +107,7 @@ observability.get("/cascade", async (c) => {
 });
 
 observability.get("/cascade/timeseries", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 24, 1, MAX_WINDOW_HOURS);
   const bucketRaw = c.req.query("bucket") ?? "hour";
   // Normalize bucket to a number of hours. Reject anything else with 400 so
   // callers can't accidentally request unsupported bucket sizes.
@@ -123,7 +122,7 @@ observability.get("/cascade/timeseries", async (c) => {
 // --- Maintenance routes ---
 
 observability.post("/maintenance/cleanup-pending", async (c) => {
-  const maxAgeHours = parseIntParam(c.req.query("max_age_hours"), 24, 1, MAX_HOURS);
+  const maxAgeHours = parseIntParam(c.req.query("max_age_hours"), 24, 1, MAX_WINDOW_HOURS);
   const deleted = await cleanupOrphanedPendingRecords(maxAgeHours);
   let committed: boolean | null = null;
   if (deleted > 0) {
@@ -147,7 +146,7 @@ observability.post("/maintenance/cleanup-pending", async (c) => {
 // --- Tuning routes ---
 
 observability.post("/tune", async (c) => {
-  const hours = parseIntParam(c.req.query("hours"), 72, 1, MAX_HOURS);
+  const hours = parseIntParam(c.req.query("hours"), 72, 1, MAX_WINDOW_HOURS);
   const dryRun = c.req.query("dry_run") === "true";
   try {
     const result = await tune({ hours, dryRun });

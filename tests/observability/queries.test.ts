@@ -12,6 +12,8 @@ import {
   agentRegistryDiff,
   outcomeSignalRates,
   costSavings,
+  parseDurationToHours,
+  MAX_WINDOW_HOURS,
 } from "../../src/observability/queries.js";
 
 let doltAvailable = false;
@@ -76,6 +78,28 @@ afterAll(async () => {
     await pool.query(`DELETE FROM task_log WHERE task_id LIKE '${prefix}-%'`);
   }
   await destroy();
+});
+
+describe("parseDurationToHours", () => {
+  it("parses day/hour/minute suffixes", () => {
+    expect(parseDurationToHours("3d")).toBe(72);
+    expect(parseDurationToHours("12h")).toBe(12);
+    expect(parseDurationToHours("30m")).toBe(0.5);
+  });
+
+  it("defaults to 24h on malformed input", () => {
+    expect(parseDurationToHours("garbage")).toBe(24);
+    expect(parseDurationToHours("")).toBe(24);
+  });
+
+  it("caps the window at MAX_WINDOW_HOURS (90 days)", () => {
+    // dolt_log date scans can't be indexed, so an unbounded `since` must not
+    // open an arbitrarily wide window. See issue #74.
+    expect(parseDurationToHours("9999d")).toBe(MAX_WINDOW_HOURS);
+    expect(parseDurationToHours("100000h")).toBe(MAX_WINDOW_HOURS);
+    expect(parseDurationToHours("9999999m")).toBe(MAX_WINDOW_HOURS);
+    expect(MAX_WINDOW_HOURS).toBe(2160);
+  });
 });
 
 describe("costByAgent", () => {
