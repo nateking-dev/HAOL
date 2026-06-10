@@ -1,0 +1,21 @@
+-- Index task_outcome (signal_type, task_id) for the orphan-pending cleanup
+-- sweep (cleanupOrphanedPendingRecords / countOrphanedPendingRecords).
+--
+-- Both queries filter task_outcome by signal_type and then probe a second set
+-- of rows keyed on task_id:
+--   - the outer scan finds signal_type = 'evaluation_pending' rows;
+--   - the inner subquery does SELECT DISTINCT task_id WHERE signal_type IN
+--     ('evaluation_complete','evaluation_failed').
+-- With only the existing single-column idx_outcome_signal (signal_type), the
+-- inner DISTINCT had to read task_id from each matching row. The composite
+-- (signal_type, task_id) is covering for that subquery — task_id comes
+-- straight from the index — and the cleanup DELETE batches no longer rescan
+-- the table per batch.
+--
+-- This composite supersedes idx_outcome_signal for these queries (signal_type
+-- is its leftmost column), but that single-column index is left in place;
+-- dropping it is deferred cleanup, not required for the perf fix.
+--
+-- IF NOT EXISTS so a crash between this DDL and the migrations_applied insert
+-- recovers cleanly on re-run (Dolt-supported; see migrations 017/019/021).
+CREATE INDEX IF NOT EXISTS idx_outcome_signal_task ON task_outcome (signal_type, task_id);
