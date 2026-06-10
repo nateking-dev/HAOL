@@ -1,0 +1,23 @@
+-- Index routing_log (routing_layer, similarity_score DESC) for the cascade
+-- near-miss query (cascadeNearMisses in cascade-queries.ts):
+--
+--   SELECT ... FROM routing_log
+--   WHERE created_at >= ? AND routing_layer IN ('escalation','fallback')
+--     AND similarity_score IS NOT NULL
+--   ORDER BY similarity_score DESC LIMIT ?
+--
+-- With only idx_log_layer (routing_layer) the planner filtered by layer but
+-- then filesorted the whole time-window slice on similarity_score, spilling to
+-- disk at scale. The composite lets it walk the layer partitions already
+-- ordered by similarity_score, so the ORDER BY ... LIMIT is served from the
+-- index. similarity_score DESC matches the query's sort direction (Dolt 2.1.4
+-- accepts the descending index; an ascending one would also serve it via a
+-- backward scan).
+--
+-- dolt_log date scans (commitHistory / agentRegistryDiff) remain unindexable —
+-- the hours window is now capped server-side and a materialized commit_index
+-- is the deferred long-term fix (see issue #74).
+--
+-- IF NOT EXISTS so a crash between this DDL and the migrations_applied insert
+-- recovers cleanly on re-run (Dolt-supported; see migrations 017/019/021/023).
+CREATE INDEX IF NOT EXISTS idx_log_layer_sim ON routing_log (routing_layer, similarity_score DESC);

@@ -10,6 +10,7 @@ import {
   outcomeSignalRates,
   routingAccuracyByAgent,
   costSavings,
+  MAX_WINDOW_HOURS,
 } from "../../observability/queries.js";
 import { getDashboard } from "../../observability/dashboard.js";
 import { getCascadeSnapshot, getCascadeTimeseries } from "../../observability/cascade.js";
@@ -23,7 +24,7 @@ import { logger } from "../../logging/logger.js";
 
 const observability = new Hono();
 
-const MAX_HOURS = 8760; // 1 year
+const MAX_HOURS = MAX_WINDOW_HOURS; // 90 days — bounds worst-case scan windows (issue #74)
 
 function parseIntParam(val: string | undefined, def: number, min: number, max: number): number {
   const n = parseInt(val ?? String(def), 10);
