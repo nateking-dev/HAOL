@@ -205,7 +205,7 @@ describe("GET /observability/cascade", () => {
     const res = await app.request("/v1/observability/cascade?hours=999999999");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { window_hours: number };
-    expect(body.window_hours).toBe(2160); // MAX_HOURS — 90 days
+    expect(body.window_hours).toBe(2160); // MAX_WINDOW_HOURS — 90 days
   });
 });
 

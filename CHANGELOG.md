@@ -2,6 +2,12 @@
 
 All notable changes to the HAOL (Heterogeneous Agent Orchestration Layer) project are documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **Observability time windows are now capped at 90 days** (#74) — All `/v1/observability/*` endpoints that accept a time window (the `hours` query param and the `since` duration string on `/audit/agents`) now clamp to `MAX_WINDOW_HOURS` (2160 hours / 90 days). This bounds the worst-case scan for the `dolt_log` date scans (which cannot be indexed) and the `routing_log` near-miss query. **Behavior change for API consumers:** a request for `hours` greater than 2160 returns data for exactly 2160 hours instead of erroring — the clamping is silent, but the response echoes the effective `window_hours` so callers can detect it.
+
 ## [v0.7.0] — 2026-06-06
 
 A hardening release: audit-driven correctness fixes across the async task pipeline and API validation surface, plus security-driven dependency bumps. No breaking changes.
