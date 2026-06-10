@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { z } from "zod";
 import { logger } from "../../logging/logger.js";
 
 export class ValidationError extends Error {
@@ -6,6 +7,20 @@ export class ValidationError extends Error {
     super(message);
     this.name = "ValidationError";
   }
+}
+
+/**
+ * Convert a Zod validation failure into a client-safe ValidationError. The
+ * issue tree echoes input fragments back to the caller and exposes internal
+ * schema structure, so we log it server-side only and throw a generic
+ * message. See issue #72 (audit M17).
+ */
+export function rejectInvalidBody(error: z.ZodError): never {
+  logger.warn("request body validation failed", {
+    component: "http",
+    issues: error.issues,
+  });
+  throw new ValidationError("invalid request body");
 }
 
 export class NotFoundError extends Error {
@@ -23,14 +38,19 @@ export class NoAgentAvailableError extends Error {
 }
 
 export function errorHandler(err: Error, c: Context) {
-  if (err instanceof ValidationError || err.name === "ZodError") {
-    return c.json(
-      {
-        error: err.message,
-        details: "details" in err ? (err as Record<string, unknown>).details : undefined,
-      },
-      400,
-    );
+  // A raw ZodError should never reach here — routes are expected to funnel
+  // validation failures through rejectInvalidBody — but if one slips past
+  // (e.g. a .parse() somewhere), fail closed: log the tree, return generic.
+  if (err instanceof z.ZodError) {
+    logger.warn("unhandled zod validation error", {
+      component: "http",
+      issues: err.issues,
+    });
+    return c.json({ error: "invalid request body" }, 400);
+  }
+
+  if (err instanceof ValidationError) {
+    return c.json({ error: err.message }, 400);
   }
 
   if (err instanceof NotFoundError) {

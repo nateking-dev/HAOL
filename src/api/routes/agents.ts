@@ -8,7 +8,7 @@ import {
   CapabilityValidationError,
 } from "../../services/agent-registry.js";
 import { CreateAgentInput, UpdateAgentInput } from "../../types/agent.js";
-import { NotFoundError, ValidationError } from "../middleware/error-handler.js";
+import { NotFoundError, ValidationError, rejectInvalidBody } from "../middleware/error-handler.js";
 import { parseJsonBody } from "../request-body.js";
 
 const agents = new Hono();
@@ -35,7 +35,7 @@ agents.post("/agents", async (c) => {
   const body = await parseJsonBody(c);
   const parsed = CreateAgentInput.safeParse(body);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.message);
+    rejectInvalidBody(parsed.error);
   }
 
   const agent = await createAgent(parsed.data).catch(mapCapabilityValidationError);
@@ -47,7 +47,7 @@ agents.put("/agents/:id", async (c) => {
   const body = await parseJsonBody(c);
   const parsed = UpdateAgentInput.safeParse(body);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.message);
+    rejectInvalidBody(parsed.error);
   }
 
   const existing = await getAgent(agentId);
