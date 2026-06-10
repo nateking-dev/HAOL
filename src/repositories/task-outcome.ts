@@ -218,6 +218,7 @@ export async function cleanupOrphanedPendingRecords(
       component: "task-outcome",
       deleted: totalDeleted,
       batch_size: batchSize,
+      iterations,
       max_iterations: maxIterations,
     });
   }
