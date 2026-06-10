@@ -133,7 +133,19 @@ async function runJobInner(job: Job): Promise<void> {
   try {
     claimed = await taskLog.claimQueued(job.taskId);
   } catch (err) {
-    logger.warn("claimQueued failed", { error: (err as Error).message });
+    // A DB outage during the claim leaves the row in QUEUED, where a polling
+    // client sees no progress until the next reaper sweep. Best-effort mark
+    // it FAILED so GET /tasks/:id reaches a terminal state promptly; if this
+    // write also fails (DB still down) the reaper remains the backstop.
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn("claimQueued failed", { error: message });
+    try {
+      await taskLog.recordWorkerError(job.taskId, `claim_failed: ${message}`);
+    } catch (writeErr) {
+      logger.error("failed to record claim_failed worker_error", {
+        error: (writeErr as Error).message,
+      });
+    }
     return;
   }
   if (!claimed) return;

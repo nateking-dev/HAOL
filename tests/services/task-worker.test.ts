@@ -181,6 +181,39 @@ describe("task-worker", () => {
     const count = (rows as unknown as Array<{ n: number }>)[0].n;
     expect(Number(count)).toBe(1);
   });
+
+  it("claimQueued DB error → row reaches FAILED with claim_failed worker_error", async ({
+    skip,
+  }) => {
+    if (!doltAvailable) skip();
+    mockProviderSuccess("should-not-run");
+
+    const taskId = uuidv7();
+    const prompt = `${TEST_PROMPT_PREFIX}claim failure`;
+    await taskLog.createQueued(taskId, sha256(prompt), { prompt });
+
+    // Simulate a DB outage during the claim. The row must not be left stuck
+    // in QUEUED — the worker should mark it FAILED so polling clients see a
+    // terminal state without waiting for the reaper.
+    const claimSpy = vi
+      .spyOn(taskLog, "claimQueued")
+      .mockRejectedValueOnce(new Error("connection lost"));
+    try {
+      worker.enqueue(taskId, { prompt });
+      const finished = await pollUntilDone(taskId);
+      expect(finished.status).toBe("FAILED");
+      expect(finished.worker_error).toMatch(/^claim_failed: connection lost/);
+      // routeTask must never have run for this task.
+      const pool = getPool();
+      const [rows] = await pool.query<RowDataPacket[]>(
+        "SELECT COUNT(*) AS n FROM execution_log WHERE task_id = ?",
+        [taskId],
+      );
+      expect(Number(rows[0].n)).toBe(0);
+    } finally {
+      claimSpy.mockRestore();
+    }
+  });
 });
 
 describe("task-reaper", () => {
