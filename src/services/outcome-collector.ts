@@ -251,12 +251,17 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
     const signalValue = parseEvaluationResponse(responseText);
 
     // Transition the pending row to complete in place (see finalizeEvaluation).
-    await outcomeRepo.finalizeEvaluation(pendingRecord.outcome_id, "evaluation_complete", signalValue, {
-      complexity_tier: task.complexity_tier,
-      routing_layer: task.routing_layer,
-      selected_agent_id: task.selected_agent_id,
-      llm_reason: extractReason(responseText),
-    });
+    await outcomeRepo.finalizeEvaluation(
+      pendingRecord.outcome_id,
+      "evaluation_complete",
+      signalValue,
+      {
+        complexity_tier: task.complexity_tier,
+        routing_layer: task.routing_layer,
+        selected_agent_id: task.selected_agent_id,
+        llm_reason: extractReason(responseText),
+      },
+    );
   } catch (err) {
     // Transition the same pending row to failed in place so it is never left
     // orphaned. Truly best-effort — if the update also fails (DB down), the
