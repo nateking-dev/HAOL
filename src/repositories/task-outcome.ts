@@ -2,6 +2,7 @@ import { getPool } from "../db/connection.js";
 import { query } from "../db/connection.js";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { TaskOutcomeRecord } from "../types/outcome.js";
+import { logger } from "../logging/logger.js";
 
 interface TaskOutcomeRow extends RowDataPacket {
   outcome_id: string;
@@ -83,6 +84,42 @@ export async function insertBatch(records: TaskOutcomeRecord[]): Promise<void> {
      VALUES ${placeholders}`,
     values.flat(),
   );
+}
+
+/**
+ * Transition an existing tier-2 evaluation_pending row to its terminal
+ * signal_type (evaluation_complete / evaluation_failed) in place. Updating
+ * the same row — rather than inserting a second record — means a process
+ * death during the LLM call can never leave a pending row paired with a
+ * separate complete row; at worst the single pending row survives for the
+ * cleanup sweep. See issue #77 (audit M22).
+ */
+export async function finalizeEvaluation(
+  outcomeId: string,
+  signalType: "evaluation_complete" | "evaluation_failed",
+  signalValue: 0 | 1 | null,
+  detail: Record<string, unknown> | null,
+): Promise<void> {
+  const pool = getPool();
+  const [result] = await pool.query<ResultSetHeader>(
+    `UPDATE task_outcome
+       SET signal_type = ?, signal_value = ?, detail = ?
+     WHERE outcome_id = ?
+       AND signal_type = 'evaluation_pending'`,
+    [signalType, signalValue, detail ? JSON.stringify(detail) : null, outcomeId],
+  );
+  // A zero-row update means the pending row was already gone (e.g. reaped by
+  // the cleanup sweep, its insert never landed, or finalize was called twice
+  // on the same row). The signal_type guard keeps this a loggable no-op rather
+  // than a silent overwrite. Best-effort, but surface it so a discarded
+  // evaluation result is observable.
+  if ((result.affectedRows ?? 0) === 0) {
+    logger.warn("finalizeEvaluation matched no row; evaluation result discarded", {
+      component: "task-outcome",
+      outcome_id: outcomeId,
+      signal_type: signalType,
+    });
+  }
 }
 
 export async function findByTaskId(taskId: string): Promise<TaskOutcomeRecord[]> {
