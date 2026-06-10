@@ -6,6 +6,7 @@ import {
   ValidationError,
   NotFoundError,
   NoAgentAvailableError,
+  rejectInvalidBody,
 } from "../../../src/api/middleware/error-handler.js";
 import { _setDestinationForTests } from "../../../src/logging/logger.js";
 import { CaptureStream, LogLevel, setLogLevel } from "../../helpers/capture-stream.js";
@@ -39,37 +40,51 @@ describe("errorHandler", () => {
     const app = buildAppThatThrows(new ValidationError("bad input shape"));
     const res = await app.request("/boom");
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "bad input shape", details: undefined });
+    expect(await res.json()).toEqual({ error: "bad input shape" });
   });
 
-  it("maps a ZodError (by name) to 400", async () => {
-    // The handler matches by err.name === "ZodError" so it works whether the
-    // app throws a real ZodError or a wrapped one with the same name.
-    const schema = z.object({ count: z.number() });
-    const parsed = schema.safeParse({ count: "nope" });
-    expect(parsed.success).toBe(false);
+  it("fails closed on a raw ZodError: generic message, issue tree logged not returned", async () => {
+    // Routes should funnel validation through rejectInvalidBody, but if a raw
+    // ZodError ever bubbles up we must not echo the issue tree to the client.
+    const schema = z.object({ secretField: z.number() });
+    const parsed = schema.safeParse({ secretField: "nope" });
     const zodError = parsed.success ? null : parsed.error;
-    expect(zodError?.name).toBe("ZodError");
+    expect(zodError).toBeInstanceOf(z.ZodError);
 
     const app = buildAppThatThrows(zodError);
     const res = await app.request("/boom");
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(typeof body.error).toBe("string");
+    const body = (await res.json()) as { error: string; details?: unknown };
+    expect(body.error).toBe("invalid request body");
+    // The internal schema/field names must not leak in the response.
+    expect(JSON.stringify(body)).not.toMatch(/secretField/);
+    expect(body.details).toBeUndefined();
+    // But the tree is logged server-side for operators.
+    const warns = capture.records(LogLevel.WARN);
+    expect(warns.some((r) => r.msg === "unhandled zod validation error")).toBe(true);
   });
 
-  it("forwards a `details` field on validation errors when present", async () => {
-    class DetailedValidationError extends ValidationError {
-      details: unknown;
-      constructor(message: string, details: unknown) {
-        super(message);
-        this.details = details;
-      }
-    }
-    const app = buildAppThatThrows(new DetailedValidationError("bad", { field: "x" }));
+  it("rejectInvalidBody throws a generic ValidationError and logs the issue tree", async () => {
+    const schema = z.object({ promptField: z.string() });
+    const parsed = schema.safeParse({ promptField: 123 });
+    const zodError = parsed.success ? null : parsed.error;
+
+    const app = new Hono();
+    app.get("/boom", () => {
+      rejectInvalidBody(zodError!);
+    });
+    app.onError(errorHandler);
+
     const res = await app.request("/boom");
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "bad", details: { field: "x" } });
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("invalid request body");
+    expect(JSON.stringify(body)).not.toMatch(/promptField/);
+    // Detailed issues are logged for debugging, not returned.
+    const warns = capture.records(LogLevel.WARN);
+    const rec = warns.find((r) => r.msg === "request body validation failed");
+    expect(rec).toBeDefined();
+    expect(JSON.stringify(rec)).toMatch(/promptField/);
   });
 
   it("maps NotFoundError to 404", async () => {

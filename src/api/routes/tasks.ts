@@ -5,7 +5,7 @@ import { findTraceByTaskId } from "../../cascade-router/reference-store.js";
 import { RouterTaskInput } from "../../types/router.js";
 import { uuidv7, sha256 } from "../../types/task.js";
 import * as worker from "../../services/task-worker.js";
-import { NotFoundError, ValidationError } from "../middleware/error-handler.js";
+import { NotFoundError, rejectInvalidBody } from "../middleware/error-handler.js";
 import { parseJsonBody } from "../request-body.js";
 import type { HonoEnv } from "../types.js";
 import { logger } from "../../logging/logger.js";
@@ -23,7 +23,7 @@ tasks.post("/tasks", async (c) => {
   const body = await parseJsonBody(c);
   const parsed = RouterTaskInput.safeParse(body);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.message);
+    rejectInvalidBody(parsed.error);
   }
 
   // Backpressure: refuse intake before writing a QUEUED row when the

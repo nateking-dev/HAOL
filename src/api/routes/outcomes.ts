@@ -5,6 +5,7 @@ import * as outcomeRepo from "../../repositories/task-outcome.js";
 import * as taskLog from "../../repositories/task-log.js";
 import type { OutcomeSummary } from "../../types/outcome.js";
 import { parseJsonBody } from "../request-body.js";
+import { rejectInvalidBody } from "../middleware/error-handler.js";
 
 const outcomes = new Hono();
 
@@ -15,7 +16,7 @@ outcomes.post("/tasks/:id/outcome", async (c) => {
 
   const result = DownstreamOutcomeInput.safeParse(body);
   if (!result.success) {
-    return c.json({ error: result.error.flatten() }, 400);
+    rejectInvalidBody(result.error);
   }
 
   try {

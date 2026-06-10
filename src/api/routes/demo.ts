@@ -3,6 +3,7 @@ import { routeTask } from "../../router/router.js";
 import { RouterTaskInput } from "../../types/router.js";
 import { costSavings } from "../../observability/queries.js";
 import { parseJsonBody } from "../request-body.js";
+import { rejectInvalidBody } from "../middleware/error-handler.js";
 
 const demo = new Hono();
 
@@ -18,7 +19,7 @@ demo.post("/demo/api/task", async (c) => {
   const body = await parseJsonBody(c);
   const parsed = RouterTaskInput.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: parsed.error.message }, 400);
+    rejectInvalidBody(parsed.error);
   }
 
   const input = parsed.data;
