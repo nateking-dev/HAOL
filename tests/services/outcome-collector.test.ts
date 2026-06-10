@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
 import { loadConfig } from "../../src/config.js";
 import { runMigrations } from "../../src/db/migrate.js";
@@ -413,6 +413,66 @@ describe("evaluateRoutingDecision — failure handling", () => {
     expect(failedSignal!.signal_value).toBeNull();
     expect(failedSignal!.detail).toBeDefined();
     expect((failedSignal!.detail as Record<string, unknown>).error).toBeDefined();
+  });
+});
+
+describe("evaluateRoutingDecision — success handling", () => {
+  const testId = `test-oco-evalok-${Date.now()}`;
+  const originalFetch = globalThis.fetch;
+
+  beforeAll(async () => {
+    if (!doltAvailable) return;
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO task_log (task_id, status, prompt_hash, routing_confidence, complexity_tier, routing_layer)
+       VALUES (?, 'COMPLETED', 'hash-evalok', 0.4, 2, 'semantic')`,
+      [testId],
+    );
+  });
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("transitions the pending row to evaluation_complete in place when the LLM call succeeds", async ({
+    skip,
+  }) => {
+    if (!doltAvailable) skip();
+    // Mock the Anthropic call so the evaluation reaches the success path.
+    globalThis.fetch = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({
+        content: [{ text: '{"verdict":"YES","reason":"tier matches capabilities"}' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+        model: "mock",
+        stop_reason: "end_turn",
+      }),
+    })) as unknown as typeof fetch;
+
+    const originalKey = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-test-key";
+    try {
+      await evaluateRoutingDecision(testId);
+    } finally {
+      if (originalKey) {
+        process.env.ANTHROPIC_API_KEY = originalKey;
+      } else {
+        delete process.env.ANTHROPIC_API_KEY;
+      }
+    }
+
+    const signals = await outcomeRepo.findByTaskIdAndTier(testId, 2);
+    // Symmetric to the failure path: exactly one tier-2 row, terminal complete
+    // state, no lingering pending row. See issue #77.
+    expect(signals).toHaveLength(1);
+    expect(signals.find((s) => s.signal_type === "evaluation_pending")).toBeUndefined();
+
+    const completeSignal = signals.find((s) => s.signal_type === "evaluation_complete");
+    expect(completeSignal).toBeDefined();
+    expect(completeSignal!.signal_value).toBe(1);
+    expect((completeSignal!.detail as Record<string, unknown>).llm_reason).toBe(
+      "tier matches capabilities",
+    );
   });
 });
 

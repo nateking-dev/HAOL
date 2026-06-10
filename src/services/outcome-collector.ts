@@ -200,6 +200,11 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
   const task = await taskLog.findById(taskId);
   if (!task) return;
 
+  // Bail before writing the pending row when we can't evaluate at all — an
+  // unconditional insert here would leave a permanent orphan for the cleanup
+  // sweep every time the key is unset.
+  if (!process.env.ANTHROPIC_API_KEY) return;
+
   // Insert a pending record so there's an audit trail that evaluation was attempted
   const pendingRecord: TaskOutcomeRecord = {
     outcome_id: uuidv7(),
@@ -220,10 +225,6 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
 
   // Perform LLM evaluation via Claude Haiku using the provider abstraction
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return; // Cannot evaluate without API key
-    }
-
     // Gather execution data for this task
     const execRecords = await execRepo.findByTaskId(taskId);
     const successRecord = execRecords.find((r) => r.outcome === "SUCCESS");

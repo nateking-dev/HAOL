@@ -2,6 +2,7 @@ import { getPool } from "../db/connection.js";
 import { query } from "../db/connection.js";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { TaskOutcomeRecord } from "../types/outcome.js";
+import { logger } from "../logging/logger.js";
 
 interface TaskOutcomeRow extends RowDataPacket {
   outcome_id: string;
@@ -100,12 +101,22 @@ export async function finalizeEvaluation(
   detail: Record<string, unknown> | null,
 ): Promise<void> {
   const pool = getPool();
-  await pool.query(
+  const [result] = await pool.query<ResultSetHeader>(
     `UPDATE task_outcome
        SET signal_type = ?, signal_value = ?, detail = ?
      WHERE outcome_id = ?`,
     [signalType, signalValue, detail ? JSON.stringify(detail) : null, outcomeId],
   );
+  // A zero-row update means the pending row was already gone (e.g. reaped by
+  // the cleanup sweep, or its insert never landed). Best-effort, but surface
+  // it so a silently discarded evaluation result is observable.
+  if ((result.affectedRows ?? 0) === 0) {
+    logger.warn("finalizeEvaluation matched no row; evaluation result discarded", {
+      component: "task-outcome",
+      outcome_id: outcomeId,
+      signal_type: signalType,
+    });
+  }
 }
 
 export async function findByTaskId(taskId: string): Promise<TaskOutcomeRecord[]> {
