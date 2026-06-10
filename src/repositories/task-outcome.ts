@@ -172,19 +172,25 @@ export async function findTasksWithoutTier2Eval(
  * Deletes evaluation_pending records older than maxAgeHours that have
  * no matching evaluation_complete or evaluation_failed record.
  * Deletes in batches of `batchSize` (default 1000) to avoid long-running
- * table-locking transactions. Returns the total number of rows deleted.
+ * table-locking transactions. The loop is bounded at `maxIterations`
+ * (default 1000) so a pathological backlog or a bug that keeps matching the
+ * same rows can never spin forever — at the cap it stops and warns, and the
+ * next scheduled sweep continues. Returns the total number of rows deleted.
  */
 export async function cleanupOrphanedPendingRecords(
   maxAgeHours: number,
   batchSize: number = 1000,
+  maxIterations: number = 1000,
 ): Promise<number> {
   const pool = getPool();
   // The derived table (subquery wrapped in FROM (...) AS t2) is required because
   // MySQL/Dolt forbids a correlated NOT EXISTS that references the same table
   // being deleted from. The count query uses a plain NOT EXISTS since SELECT
-  // doesn't have this restriction.
+  // doesn't have this restriction. idx_outcome_signal_task (signal_type,
+  // task_id) makes the inner DISTINCT scan covering. See migration 023.
   let totalDeleted = 0;
   let batchDeleted: number;
+  let iterations = 0;
   do {
     const [result] = await pool.query<ResultSetHeader>(
       `DELETE FROM task_outcome
@@ -202,7 +208,19 @@ export async function cleanupOrphanedPendingRecords(
     );
     batchDeleted = result.affectedRows ?? 0;
     totalDeleted += batchDeleted;
-  } while (batchDeleted === batchSize);
+    iterations++;
+  } while (batchDeleted === batchSize && iterations < maxIterations);
+
+  // A full final batch means there was more to delete but we stopped on the
+  // cap, not because the backlog drained. Surface it; the next sweep resumes.
+  if (batchDeleted === batchSize && iterations >= maxIterations) {
+    logger.warn("cleanupOrphanedPendingRecords hit iteration cap; backlog remains for next sweep", {
+      component: "task-outcome",
+      deleted: totalDeleted,
+      batch_size: batchSize,
+      max_iterations: maxIterations,
+    });
+  }
   return totalDeleted;
 }
 

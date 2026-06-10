@@ -46,16 +46,16 @@ afterAll(async () => {
 describe("migrations", () => {
   it("applies all migration files without error", async ({ skip }) => {
     if (!doltAvailable) skip();
-    // First call either runs all 22 (fresh DB) or backfills tracking from
+    // First call either runs all 23 (fresh DB) or backfills tracking from
     // an existing populated DB and returns an empty list. Either way the
     // post-condition is "every file recorded in migrations_applied."
     await runMigrations();
     const rows = await query<{ filename: string }>(
       "SELECT filename FROM migrations_applied ORDER BY filename",
     );
-    expect(rows.length).toBe(22);
+    expect(rows.length).toBe(23);
     expect(rows[0].filename).toBe("001_create_agent_registry.sql");
-    expect(rows[21].filename).toBe("022_pii_retention.sql");
+    expect(rows[22].filename).toBe("023_add_outcome_signal_task_index.sql");
   });
 
   it("is idempotent — second run does no work", async ({ skip }) => {

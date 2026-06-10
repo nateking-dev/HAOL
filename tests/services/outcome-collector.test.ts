@@ -531,6 +531,41 @@ describe("cleanupOrphanedPendingRecords", () => {
   });
 });
 
+describe("cleanupOrphanedPendingRecords — iteration cap", () => {
+  const ts = Date.now().toString(36);
+  const taskIds = [0, 1, 2].map((i) => `test-oco-cap${i}-${ts}`);
+
+  beforeAll(async () => {
+    if (!doltAvailable) return;
+    const pool = getPool();
+    // Three distinct old orphaned pending rows so a batchSize=1 sweep needs
+    // more iterations than the cap allows.
+    for (let i = 0; i < taskIds.length; i++) {
+      await pool.query(
+        `INSERT INTO task_log (task_id, status, prompt_hash) VALUES (?, 'COMPLETED', ?)`,
+        [taskIds[i], `hash-cap${i}`],
+      );
+      await pool.query(
+        `INSERT INTO task_outcome (outcome_id, task_id, tier, source, signal_type, signal_value, confidence, detail, reported_by, created_at)
+         VALUES (?, ?, 2, 'routing_eval', 'evaluation_pending', NULL, 0.4, NULL, NULL, DATE_SUB(NOW(), INTERVAL 48 HOUR))`,
+        [`test-oco-capoid${i}-${ts}`, taskIds[i]],
+      );
+    }
+  });
+
+  it("stops at maxIterations and leaves the backlog for the next sweep", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    // batchSize=1, maxIterations=2 → delete exactly 2 even though ≥3 orphans
+    // match, proving the loop is bounded rather than draining everything.
+    const deleted = await outcomeRepo.cleanupOrphanedPendingRecords(24, 1, 2);
+    expect(deleted).toBe(2);
+    // Backlog remains; an unbounded follow-up call drains it.
+    expect(await outcomeRepo.countOrphanedPendingRecords(24)).toBeGreaterThanOrEqual(1);
+    const remaining = await outcomeRepo.cleanupOrphanedPendingRecords(24);
+    expect(remaining).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe("countOrphanedPendingRecords", () => {
   const ts = Date.now().toString(36);
   const orphanId = `test-oco-cnt-${ts}`;
