@@ -250,44 +250,23 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
     const responseText = llmResponse.content;
     const signalValue = parseEvaluationResponse(responseText);
 
-    // Insert the completed evaluation as a separate record
-    const evalRecord: TaskOutcomeRecord = {
-      outcome_id: uuidv7(),
-      task_id: taskId,
-      tier: 2,
-      source: "routing_eval",
-      signal_type: "evaluation_complete",
-      signal_value: signalValue,
-      confidence: task.routing_confidence,
-      detail: {
-        complexity_tier: task.complexity_tier,
-        routing_layer: task.routing_layer,
-        selected_agent_id: task.selected_agent_id,
-        llm_reason: extractReason(responseText),
-      },
-      reported_by: null,
-    };
-
-    await outcomeRepo.insert(evalRecord);
+    // Transition the pending row to complete in place (see finalizeEvaluation).
+    await outcomeRepo.finalizeEvaluation(pendingRecord.outcome_id, "evaluation_complete", signalValue, {
+      complexity_tier: task.complexity_tier,
+      routing_layer: task.routing_layer,
+      selected_agent_id: task.selected_agent_id,
+      llm_reason: extractReason(responseText),
+    });
   } catch (err) {
-    // Record the failure so the pending record doesn't become orphaned
-    const failedRecord: TaskOutcomeRecord = {
-      outcome_id: uuidv7(),
-      task_id: taskId,
-      tier: 2,
-      source: "routing_eval",
-      signal_type: "evaluation_failed",
-      signal_value: null,
-      confidence: task.routing_confidence,
-      detail: {
-        error: err instanceof Error ? err.message : "unknown",
-      },
-      reported_by: null,
-    };
+    // Transition the same pending row to failed in place so it is never left
+    // orphaned. Truly best-effort — if the update also fails (DB down), the
+    // cleanup sweep collects the still-pending row.
     try {
-      await outcomeRepo.insert(failedRecord);
+      await outcomeRepo.finalizeEvaluation(pendingRecord.outcome_id, "evaluation_failed", null, {
+        error: err instanceof Error ? err.message : "unknown",
+      });
     } catch {
-      // truly best-effort — if DB insert also fails, nothing to do
+      // truly best-effort — if the update also fails, nothing to do
     }
   }
 

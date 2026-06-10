@@ -384,7 +384,9 @@ describe("evaluateRoutingDecision — failure handling", () => {
     );
   });
 
-  it("inserts evaluation_failed record when LLM call fails", async ({ skip }) => {
+  it("transitions the pending row to evaluation_failed in place when the LLM call fails", async ({
+    skip,
+  }) => {
     if (!doltAvailable) skip();
     // Set an invalid API key to force the provider to fail
     const originalKey = process.env.ANTHROPIC_API_KEY;
@@ -400,8 +402,11 @@ describe("evaluateRoutingDecision — failure handling", () => {
     }
 
     const signals = await outcomeRepo.findByTaskIdAndTier(testId, 2);
-    const pendingSignal = signals.find((s) => s.signal_type === "evaluation_pending");
-    expect(pendingSignal).toBeDefined();
+    // The pending row is updated in place, not paired with a second record:
+    // exactly one tier-2 row exists and it is the failed terminal state, with
+    // no lingering evaluation_pending row to orphan. See issue #77.
+    expect(signals).toHaveLength(1);
+    expect(signals.find((s) => s.signal_type === "evaluation_pending")).toBeUndefined();
 
     const failedSignal = signals.find((s) => s.signal_type === "evaluation_failed");
     expect(failedSignal).toBeDefined();
