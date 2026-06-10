@@ -104,12 +104,15 @@ export async function finalizeEvaluation(
   const [result] = await pool.query<ResultSetHeader>(
     `UPDATE task_outcome
        SET signal_type = ?, signal_value = ?, detail = ?
-     WHERE outcome_id = ?`,
+     WHERE outcome_id = ?
+       AND signal_type = 'evaluation_pending'`,
     [signalType, signalValue, detail ? JSON.stringify(detail) : null, outcomeId],
   );
   // A zero-row update means the pending row was already gone (e.g. reaped by
-  // the cleanup sweep, or its insert never landed). Best-effort, but surface
-  // it so a silently discarded evaluation result is observable.
+  // the cleanup sweep, its insert never landed, or finalize was called twice
+  // on the same row). The signal_type guard keeps this a loggable no-op rather
+  // than a silent overwrite. Best-effort, but surface it so a discarded
+  // evaluation result is observable.
   if ((result.affectedRows ?? 0) === 0) {
     logger.warn("finalizeEvaluation matched no row; evaluation result discarded", {
       component: "task-outcome",
