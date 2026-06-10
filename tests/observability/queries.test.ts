@@ -97,6 +97,7 @@ describe("parseDurationToHours", () => {
     // open an arbitrarily wide window. See issue #74.
     expect(parseDurationToHours("9999d")).toBe(MAX_WINDOW_HOURS);
     expect(parseDurationToHours("100000h")).toBe(MAX_WINDOW_HOURS);
+    expect(parseDurationToHours("9999999m")).toBe(MAX_WINDOW_HOURS);
     expect(MAX_WINDOW_HOURS).toBe(2160);
   });
 });

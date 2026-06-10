@@ -446,7 +446,7 @@ export function parseDurationToHours(duration: string): number {
     case "h":
       return Math.min(value, MAX_WINDOW_HOURS);
     case "m":
-      return value / 60;
+      return Math.min(value / 60, MAX_WINDOW_HOURS);
     default:
       return 24;
   }
