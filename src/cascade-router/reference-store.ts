@@ -11,6 +11,7 @@ import type {
   TierId,
 } from "./types.js";
 import { CascadeTraceSchema } from "./types.js";
+import { META_MODEL_ID } from "./constants.js";
 
 interface RuleRow extends RowDataPacket {
   rule_id: string;
@@ -92,7 +93,7 @@ export const CONFIG_DEFAULTS: RouterConfig = {
   embedding_dimensions: 512,
   similarity_threshold: 0.72,
   escalation_threshold: 0.55,
-  escalation_model: "claude-haiku-4-5-20251001",
+  escalation_model: META_MODEL_ID,
   default_tier: 3 as TierId,
   top_k: 5,
   enable_escalation: true,

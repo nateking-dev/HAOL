@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EscalationProvider, TierDefinition, TierId } from "./types.js";
+import { META_MODEL_ID } from "./constants.js";
 
 const EscalationResponse = z.object({
   tier: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
@@ -14,7 +15,7 @@ export class AnthropicEscalationProvider implements EscalationProvider {
 
   constructor(opts: { apiKey?: string; modelId?: string; timeoutMs?: number } = {}) {
     this.apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
-    this.modelId = opts.modelId ?? "claude-haiku-4-5-20251001";
+    this.modelId = opts.modelId ?? META_MODEL_ID;
     this.timeoutMs = opts.timeoutMs ?? 15_000;
   }
 
