@@ -44,6 +44,7 @@ vi.mock("../../src/db/connection.js", () => ({
 }));
 
 import * as store from "../../src/cascade-router/reference-store.js";
+import { META_MODEL_ID } from "../../src/cascade-router/constants.js";
 
 const mockLoadRules = vi.mocked(store.loadRules);
 const mockLoadUtterances = vi.mocked(store.loadUtterances);
@@ -55,7 +56,7 @@ const defaultConfig = {
   embedding_dimensions: 512,
   similarity_threshold: 0.72,
   escalation_threshold: 0.55,
-  escalation_model: "claude-haiku-4-5-20251001",
+  escalation_model: META_MODEL_ID,
   default_tier: 3 as TierId,
   top_k: 5,
   enable_escalation: true,

@@ -9,6 +9,8 @@ import {
   evaluateRoutingDecision,
   recordDownstreamOutcome,
 } from "../../src/services/outcome-collector.js";
+import { clearConfigCache } from "../../src/cascade-router/reference-store.js";
+import { META_MODEL_ID } from "../../src/cascade-router/constants.js";
 import * as outcomeRepo from "../../src/repositories/task-outcome.js";
 import * as taskLog from "../../src/repositories/task-log.js";
 import type { ExecutionRecord } from "../../src/types/execution.js";
@@ -473,6 +475,89 @@ describe("evaluateRoutingDecision — success handling", () => {
     expect((completeSignal!.detail as Record<string, unknown>).llm_reason).toBe(
       "tier matches capabilities",
     );
+  });
+});
+
+describe("evaluateRoutingDecision — uses configured escalation model", () => {
+  const testId = `test-oco-evalmodel-${Date.now()}`;
+  const originalFetch = globalThis.fetch;
+  // A value distinct from META_MODEL_ID so the assertion proves the model came
+  // from router_config, not the hardcoded default / constant.
+  const CUSTOM_MODEL = "claude-test-custom-meta-model";
+
+  beforeAll(async () => {
+    if (!doltAvailable) return;
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO task_log (task_id, status, prompt_hash, routing_confidence, complexity_tier, routing_layer)
+       VALUES (?, 'COMPLETED', 'hash-evalmodel', 0.4, 2, 'semantic')`,
+      [testId],
+    );
+  });
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("forwards router_config.escalation_model to the provider", async ({ skip }) => {
+    if (!doltAvailable) skip();
+    expect(CUSTOM_MODEL).not.toBe(META_MODEL_ID);
+
+    const pool = getPool();
+    // Snapshot the existing escalation_model row so we can restore exact prior
+    // state (the row may be absent if this DB was migrated but not seeded).
+    const [priorRows] = (await pool.query(
+      "SELECT config_value FROM router_config WHERE config_key = 'escalation_model'",
+    )) as [Array<{ config_value: string }>, unknown];
+    const prior = priorRows[0]?.config_value ?? null;
+
+    await pool.query(
+      `INSERT INTO router_config (config_key, config_value, description)
+       VALUES ('escalation_model', ?, 'test override')
+       ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)`,
+      [CUSTOM_MODEL],
+    );
+    // loadConfig caches for 60s — force a re-read of the override.
+    clearConfigCache();
+
+    // Capture the model id sent in the Anthropic request body.
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({
+        content: [{ text: '{"verdict":"YES","reason":"ok"}' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+        model: "mock",
+        stop_reason: "end_turn",
+      }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const originalKey = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-test-key";
+    try {
+      await evaluateRoutingDecision(testId);
+    } finally {
+      if (originalKey) {
+        process.env.ANTHROPIC_API_KEY = originalKey;
+      } else {
+        delete process.env.ANTHROPIC_API_KEY;
+      }
+      // Restore router_config to its prior state and drop the cached override.
+      if (prior === null) {
+        await pool.query("DELETE FROM router_config WHERE config_key = 'escalation_model'");
+      } else {
+        await pool.query(
+          "UPDATE router_config SET config_value = ? WHERE config_key = 'escalation_model'",
+          [prior],
+        );
+      }
+      clearConfigCache();
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const body = JSON.parse(init.body) as { model: string };
+    expect(body.model).toBe(CUSTOM_MODEL);
   });
 });
 
