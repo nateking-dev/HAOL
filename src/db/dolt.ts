@@ -1,4 +1,4 @@
-import { getPool, withConnection, type Queryable } from "./connection.js";
+import { getPool, withConnection, noteConnectionBranch, type Queryable } from "./connection.js";
 
 export interface DoltCommitOptions {
   message: string;
@@ -57,6 +57,9 @@ export async function doltCommit(opts: DoltCommitOptions, conn?: Queryable): Pro
  */
 export async function doltCheckout(branch: string, conn: Queryable): Promise<void> {
   await conn.query("CALL DOLT_CHECKOUT(?)", [branch]);
+  // Record the switch so withBranchConnection can skip a redundant checkout to
+  // the default branch on release when the connection ends back on it.
+  noteConnectionBranch(conn, branch);
 }
 
 export interface DoltBranchOptions {
