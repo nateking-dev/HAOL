@@ -1,6 +1,7 @@
 import { loadConfig } from "../config.js";
 import { createPool, getPool, destroy } from "./connection.js";
 import { doltCommit } from "./dolt.js";
+import { META_MODEL_ID } from "../cascade-router/constants.js";
 
 const SEED_ROUTING_TIERS = `
 INSERT IGNORE INTO routing_tiers (tier_id, tier_name, description, default_agent) VALUES
@@ -33,7 +34,7 @@ INSERT IGNORE INTO router_config (config_key, config_value, description) VALUES
   ('embedding_dimensions', '512', 'Shortened embedding dimensionality'),
   ('similarity_threshold', '0.72', 'Min cosine similarity to accept a route'),
   ('escalation_threshold', '0.55', 'Below this, escalate to LLM classifier'),
-  ('escalation_model', 'claude-haiku-4-5-20251001', 'Model for Layer 2 escalation'),
+  ('escalation_model', '${META_MODEL_ID}', 'Model for Layer 2 escalation'),
   ('default_tier', '3', 'Fallback tier when routing is uncertain'),
   ('top_k', '5', 'Number of nearest utterances to consider'),
   ('enable_escalation', 'true', 'Whether Layer 2 LLM escalation is active'),

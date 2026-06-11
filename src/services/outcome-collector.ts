@@ -5,7 +5,7 @@ import * as execRepo from "../repositories/execution-log.js";
 import { query } from "../db/connection.js";
 import { doltCommit } from "../db/dolt.js";
 import { AnthropicProvider } from "../providers/anthropic.js";
-import { CONFIG_DEFAULTS } from "../cascade-router/reference-store.js";
+import { CONFIG_DEFAULTS, loadConfig } from "../cascade-router/reference-store.js";
 import type { TaskOutcomeRecord } from "../types/outcome.js";
 import type { ExecutionRecord } from "../types/execution.js";
 import type { TaskLogRecord } from "../repositories/task-log.js";
@@ -230,7 +230,12 @@ export async function evaluateRoutingDecision(taskId: string): Promise<void> {
     const successRecord = execRecords.find((r) => r.outcome === "SUCCESS");
 
     const evalPrompt = buildEvaluationPrompt(task, execRecords, successRecord);
-    const provider = new AnthropicProvider("claude-haiku-4-5-20251001");
+    // Evaluate with the configured meta model rather than a hardcoded id, so
+    // routing-eval honors router_config.escalation_model (falling back to
+    // META_MODEL_ID via CONFIG_DEFAULTS) and stays in sync with the Layer 2
+    // escalation classifier instead of drifting independently.
+    const { escalation_model } = await loadConfig();
+    const provider = new AnthropicProvider(escalation_model);
 
     const llmResponse = await provider.invoke({
       task_id: taskId,
