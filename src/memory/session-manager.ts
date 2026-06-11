@@ -1,4 +1,10 @@
-import { getPool, withBranchConnection, DEFAULT_BRANCH, type Queryable } from "../db/connection.js";
+import {
+  getPool,
+  withBranchConnection,
+  setAutocommit,
+  DEFAULT_BRANCH,
+  type Queryable,
+} from "../db/connection.js";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import {
   doltBranch,
@@ -104,7 +110,7 @@ export async function createSession(taskId: string): Promise<SessionHandle> {
     // autocommit=0 do not persist when the connection is released without
     // an explicit COMMIT — force autocommit on for the lifetime of this
     // call so DOLT_BRANCH actually creates the branch.
-    await conn.query("SET @@autocommit = 1");
+    await setAutocommit(conn, true);
     await ensureOnMain(conn);
     await doltBranch({ name: branch }, conn);
   });
@@ -122,14 +128,14 @@ export async function writeContext(
     // the server's --no-auto-commit default means a connection can arrive
     // in autocommit=0 with pending writes that would otherwise contaminate
     // ours, and our writes would be discarded on release.
-    await conn.query("SET @@autocommit = 1");
+    await setAutocommit(conn, true);
     await doltCheckout(session.branch, conn);
     try {
       // Drop to autocommit=0 so the upsert stays in the working set and
       // our explicit DOLT_COMMIT below captures it as a single Dolt commit
       // with a descriptive message — instead of the per-statement implicit
       // commit producing an anonymous one.
-      await conn.query("SET @@autocommit = 0");
+      await setAutocommit(conn, false);
       await sessionRepo.upsert(session.taskId, key, value, conn);
       await doltCommit(
         {
@@ -147,7 +153,7 @@ export async function writeContext(
       await conn.query("ROLLBACK");
       throw err;
     } finally {
-      await conn.query("SET @@autocommit = 1");
+      await setAutocommit(conn, true);
       await ensureOnMain(conn);
     }
   });
@@ -184,7 +190,7 @@ export async function commitSession(session: SessionHandle): Promise<void> {
     // the connection is released. The server's --no-auto-commit default
     // otherwise leaves these procedure calls in an uncommitted state and
     // Dolt rolls them back on release, leaving the session branch behind.
-    await conn.query("SET @@autocommit = 1");
+    await setAutocommit(conn, true);
     await ensureOnMain(conn);
 
     // Serialize main-branch operations across concurrent tasks. The working

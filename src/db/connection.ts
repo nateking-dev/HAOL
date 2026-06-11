@@ -17,6 +17,84 @@ export const DEFAULT_BRANCH = process.env.DOLT_DEFAULT_BRANCH ?? "main";
 
 let pool: Pool | null = null;
 
+// Per-connection record of the state that withBranchConnection must restore on
+// release: whether the connection currently sits off the default branch, and
+// whether autocommit is disabled. Keyed by the PoolConnection object, which
+// mysql2 reuses across acquire/release cycles, so the record persists for the
+// connection's lifetime.
+//
+// A connection with no record is treated conservatively as dirty (both resets
+// run) — that matches the original always-reset behavior for any connection we
+// haven't observed. Once observed, the resets are skipped whenever the tracked
+// state says the connection is already clean. Real callers create a record on
+// entry (every withBranchConnection callback calls setAutocommit first), so
+// they always get the fast path; the conservative default only covers
+// connections mutated outside the tracked helpers.
+//
+// Contract: inside a withBranchConnection callback, branch switches MUST go
+// through doltCheckout (which calls noteConnectionBranch) and autocommit
+// changes through setAutocommit. A raw conn.query that bypasses these leaves
+// the tracking stale and can skip a needed reset.
+interface BranchConnState {
+  offDefaultBranch: boolean;
+  autocommitDisabled: boolean;
+}
+const branchConnState = new WeakMap<PoolConnection, BranchConnState>();
+
+function isPoolConnection(conn: Queryable): conn is PoolConnection {
+  return typeof (conn as PoolConnection).release === "function";
+}
+
+function stateFor(conn: PoolConnection): BranchConnState {
+  let state = branchConnState.get(conn);
+  if (!state) {
+    state = { offDefaultBranch: false, autocommitDisabled: false };
+    branchConnState.set(conn, state);
+  }
+  return state;
+}
+
+/**
+ * Record that `conn` was checked out onto `branch`, so withBranchConnection can
+ * skip a redundant DOLT_CHECKOUT on release when the connection is already on
+ * the default branch. No-op for a Pool (tracking applies to single
+ * connections only). Called by doltCheckout — callers don't invoke it directly.
+ */
+export function noteConnectionBranch(conn: Queryable, branch: string): void {
+  if (!isPoolConnection(conn)) return;
+  stateFor(conn).offDefaultBranch = branch !== DEFAULT_BRANCH;
+}
+
+/**
+ * Set autocommit on `conn` and record the new state, so withBranchConnection
+ * can skip a redundant `SET @@autocommit = 1` on release. Use this instead of a
+ * raw `conn.query("SET @@autocommit = ...")` inside a branch-connection
+ * callback, otherwise the tracking goes stale.
+ */
+export async function setAutocommit(conn: PoolConnection, enabled: boolean): Promise<void> {
+  await conn.query(`SET @@autocommit = ${enabled ? 1 : 0}`);
+  stateFor(conn).autocommitDisabled = !enabled;
+}
+
+/**
+ * Which resets withBranchConnection must perform before releasing `conn`.
+ * Untracked connections are conservatively reported as needing both.
+ */
+export function connectionNeedsReset(conn: PoolConnection): {
+  autocommit: boolean;
+  checkout: boolean;
+} {
+  const state = branchConnState.get(conn);
+  if (!state) return { autocommit: true, checkout: true };
+  return { autocommit: state.autocommitDisabled, checkout: state.offDefaultBranch };
+}
+
+function markConnectionClean(conn: PoolConnection): void {
+  const state = stateFor(conn);
+  state.offDefaultBranch = false;
+  state.autocommitDisabled = false;
+}
+
 export function createPool(config: DoltConfig): Pool {
   const opts: PoolOptions = {
     host: config.host,
@@ -119,20 +197,36 @@ export async function withBranchConnection<T>(
     return await fn(conn);
   } finally {
     // Centralized invariant: every connection released by this helper is
-    // returned to the pool with autocommit=1. Callers that drop autocommit
-    // for a grouped Dolt commit (e.g. writeContext) no longer have to
-    // remember to restore it themselves, and a future caller that forgets
-    // can't silently leak autocommit=0 to the next pool consumer.
-    try {
-      await conn.query("SET @@autocommit = 1");
-    } catch {
-      // Connection may be broken; release it anyway.
+    // returned to the pool with autocommit=1 and on the default branch.
+    // Callers that drop autocommit for a grouped Dolt commit (e.g.
+    // writeContext) no longer have to remember to restore it themselves, and a
+    // future caller that forgets can't silently leak autocommit=0 to the next
+    // pool consumer.
+    //
+    // The resets are skipped when per-connection tracking shows the callback
+    // already left the connection clean (the common case — every memory caller
+    // restores autocommit=1 and checks out main before returning), avoiding two
+    // round-trips per release. See connectionNeedsReset / the branchConnState
+    // tracking above.
+    const needs = connectionNeedsReset(conn);
+    if (needs.autocommit) {
+      try {
+        await conn.query("SET @@autocommit = 1");
+      } catch {
+        // Connection may be broken; release it anyway.
+      }
     }
-    try {
-      await conn.query("CALL DOLT_CHECKOUT(?)", [DEFAULT_BRANCH]);
-    } catch {
-      // Already on default or connection broken.
+    if (needs.checkout) {
+      try {
+        await conn.query("CALL DOLT_CHECKOUT(?)", [DEFAULT_BRANCH]);
+      } catch {
+        // Already on default or connection broken.
+      }
     }
+    // The connection is now (best-effort) on the default branch with
+    // autocommit=1; record that so the next acquisition starts from accurate
+    // state rather than the conservative untracked default.
+    markConnectionClean(conn);
     conn.release();
   }
 }
