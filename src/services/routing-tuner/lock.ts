@@ -1,6 +1,6 @@
 import { execute, getPool } from "../../db/connection.js";
 import { logger } from "../../logging/logger.js";
-import type { RowDataPacket } from "mysql2/promise";
+import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import type { TuneResult } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -14,34 +14,51 @@ const LOCK_NAME = "haol_tuner";
  * 'running' records left by crashed processes, and inserts a fresh
  * 'running' tuning_run row.
  *
- * GET_LOCK is truly atomic — the DB serializes callers. Throws if another
- * run currently holds the lock.
+ * MySQL's GET_LOCK is **session-scoped**: the lock is owned by the single
+ * connection that acquired it, only that connection can release it, and it
+ * stays held only while that connection is alive. Issuing RELEASE_LOCK on a
+ * different pooled connection is a silent no-op that orphans the lock (#105).
+ *
+ * So the lock is bound to one dedicated connection, checked out from the pool
+ * for the whole run. This function returns that held connection; the caller
+ * MUST pass it to releaseTunerLock, which runs RELEASE_LOCK on it and returns
+ * it to the pool. Throws (after releasing the connection) if another run holds
+ * the lock.
  */
-export async function acquireTunerLock(runId: string, hours: number): Promise<void> {
-  const pool = getPool();
+export async function acquireTunerLock(runId: string, hours: number): Promise<PoolConnection> {
+  const conn = await getPool().getConnection();
 
-  // GET_LOCK returns 1 if acquired, 0 if timed out. Timeout of 0
-  // means fail immediately if another session holds the lock.
-  const [lockRows] = await pool.query<RowDataPacket[]>(`SELECT GET_LOCK(?, 0) AS acquired`, [
-    LOCK_NAME,
-  ]);
-  const acquired = (lockRows as Record<string, unknown>[])[0]?.acquired;
-  if (acquired !== 1) {
-    throw new Error("Another tuning run is already in progress");
+  try {
+    // GET_LOCK returns 1 if acquired, 0 if timed out. Timeout of 0
+    // means fail immediately if another session holds the lock.
+    const [lockRows] = await conn.query<RowDataPacket[]>(`SELECT GET_LOCK(?, 0) AS acquired`, [
+      LOCK_NAME,
+    ]);
+    const acquired = (lockRows as Record<string, unknown>[])[0]?.acquired;
+    if (acquired !== 1) {
+      throw new Error("Another tuning run is already in progress");
+    }
+  } catch (err) {
+    // GET_LOCK failed or the lock was unavailable — nothing is held, so just
+    // hand the connection back to the pool.
+    conn.release();
+    throw err;
   }
 
-  // The lock is held now. If any setup below throws, release it before
-  // propagating — otherwise the advisory lock is orphaned on the pooled
-  // connection and every subsequent run bails with "already in progress".
+  // The lock is held on `conn` now. All setup below runs on the same
+  // connection so it stays alive (and thus the lock stays held). If anything
+  // throws, release the lock on this connection before propagating —
+  // otherwise the lock is orphaned and every subsequent run bails with
+  // "already in progress".
   try {
     // Also check for stale 'running' records from crashed processes
-    const [staleRows] = await pool.query<RowDataPacket[]>(
+    const [staleRows] = await conn.query<RowDataPacket[]>(
       `SELECT run_id FROM tuning_run
        WHERE status = 'running'
          AND started_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
     );
     for (const row of staleRows as Record<string, unknown>[]) {
-      await pool.query(
+      await conn.query(
         `UPDATE tuning_run SET status = 'failed', completed_at = NOW(),
                 error_message = 'Marked stale by subsequent run'
          WHERE run_id = ?`,
@@ -49,22 +66,31 @@ export async function acquireTunerLock(runId: string, hours: number): Promise<vo
       );
     }
 
-    await execute(
+    await conn.query(
       `INSERT INTO tuning_run (run_id, status, hours_window) VALUES (?, 'running', ?)`,
       [runId, hours],
     );
   } catch (err) {
-    await releaseTunerLock();
+    await releaseTunerLock(conn);
     throw err;
   }
+
+  return conn;
 }
 
-/** Releases the advisory lock. Best-effort — it auto-releases on disconnect. */
-export async function releaseTunerLock(): Promise<void> {
+/**
+ * Releases the advisory lock on the connection that acquired it and returns
+ * that connection to the pool. Best-effort on the RELEASE_LOCK itself (the
+ * lock also auto-releases when the connection closes), but the connection is
+ * always released back to the pool.
+ */
+export async function releaseTunerLock(conn: PoolConnection): Promise<void> {
   try {
-    await execute(`SELECT RELEASE_LOCK(?)`, [LOCK_NAME]);
+    await conn.query(`SELECT RELEASE_LOCK(?)`, [LOCK_NAME]);
   } catch {
     // Lock release is best-effort — it auto-releases on disconnect
+  } finally {
+    conn.release();
   }
 }
 

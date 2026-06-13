@@ -10,6 +10,7 @@ import {
   recentTuningRuns,
   DEFAULT_TUNE_OPTIONS,
 } from "../../src/services/routing-tuner.js";
+import { acquireTunerLock, releaseTunerLock } from "../../src/services/routing-tuner/lock.js";
 
 let doltAvailable = false;
 
@@ -218,6 +219,49 @@ describe("tune (live run)", () => {
 
     // Cleanup
     await getPool().query("DELETE FROM tuning_run WHERE run_id = ?", [result.run_id]);
+  });
+});
+
+describe("tuner advisory lock (connection affinity, #105)", () => {
+  it("holds the lock on its own connection and frees it on release", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    // Hold the lock on its dedicated connection. Because that connection is
+    // checked out from the pool, every assertion below runs on a DIFFERENT
+    // pooled connection — so IS_FREE_LOCK (which is session-independent)
+    // genuinely reflects cross-connection state, not the holder's own.
+    const conn = await acquireTunerLock("test-tune-lock-affinity", 1);
+    try {
+      const held = await query<any[]>(`SELECT IS_FREE_LOCK('haol_tuner') AS free`);
+      expect(Number(held[0].free)).toBe(0); // lock is held by `conn`
+    } finally {
+      await releaseTunerLock(conn);
+    }
+
+    // After release the lock must be free. Before the #105 fix, RELEASE_LOCK
+    // ran on a pooled connection that often differed from the acquiring one,
+    // making it a silent no-op — this would still report 0 (held/orphaned).
+    const freed = await query<any[]>(`SELECT IS_FREE_LOCK('haol_tuner') AS free`);
+    expect(Number(freed[0].free)).toBe(1);
+
+    await getPool().query("DELETE FROM tuning_run WHERE run_id = ?", ["test-tune-lock-affinity"]);
+  });
+
+  it("frees the lock after a run so a subsequent run can acquire it", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
+    const first = await tune({ dryRun: false, hours: 1 });
+    // If the first run leaked its lock, this second run would throw
+    // "Another tuning run is already in progress".
+    const second = await tune({ dryRun: false, hours: 1 });
+
+    expect(first.status).toBe("completed");
+    expect(second.status).toBe("completed");
+
+    await getPool().query("DELETE FROM tuning_run WHERE run_id IN (?, ?)", [
+      first.run_id,
+      second.run_id,
+    ]);
   });
 });
 
