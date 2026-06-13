@@ -22,12 +22,7 @@ import {
   recordTunerFailure,
   releaseTunerLock,
 } from "./lock.js";
-import type {
-  CrystallizedRule,
-  PromotedUtterance,
-  TuneOptions,
-  TuneResult,
-} from "./types.js";
+import type { CrystallizedRule, PromotedUtterance, TuneOptions, TuneResult } from "./types.js";
 
 const MIN_UTTERANCE_LENGTH = 20;
 

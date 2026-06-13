@@ -22,7 +22,9 @@ export async function acquireTunerLock(runId: string, hours: number): Promise<vo
 
   // GET_LOCK returns 1 if acquired, 0 if timed out. Timeout of 0
   // means fail immediately if another session holds the lock.
-  const [lockRows] = await pool.query<RowDataPacket[]>(`SELECT GET_LOCK('${LOCK_NAME}', 0) AS acquired`);
+  const [lockRows] = await pool.query<RowDataPacket[]>(
+    `SELECT GET_LOCK('${LOCK_NAME}', 0) AS acquired`,
+  );
   const acquired = (lockRows as Record<string, unknown>[])[0]?.acquired;
   if (acquired !== 1) {
     throw new Error("Another tuning run is already in progress");
