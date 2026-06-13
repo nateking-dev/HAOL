@@ -1,7 +1,7 @@
 import { execute, getPool } from "../../db/connection.js";
 import { doltCommit } from "../../db/dolt.js";
 import { uuidv7 } from "../../types/task.js";
-import type { ResultSetHeader } from "mysql2/promise";
+import type { PoolConnection, ResultSetHeader } from "mysql2/promise";
 import type { TierId } from "../../cascade-router/types.js";
 import { logger } from "../../logging/logger.js";
 import {
@@ -169,9 +169,12 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
   const runId = uuidv7();
 
   // Acquire an advisory lock to prevent concurrent tuning runs. Runs older
-  // than 1 hour with status='running' are treated as stale (crashed).
+  // than 1 hour with status='running' are treated as stale (crashed). The
+  // lock is bound to a dedicated connection held for the whole run (#105);
+  // releaseTunerLock returns it to the pool in the finally below.
+  let lockConn: PoolConnection | null = null;
   if (!options.dryRun) {
-    await acquireTunerLock(runId, options.hours);
+    lockConn = await acquireTunerLock(runId, options.hours);
   }
 
   try {
@@ -246,8 +249,8 @@ export async function tune(opts: Partial<TuneOptions> = {}): Promise<TuneResult>
     }
     throw err;
   } finally {
-    if (!options.dryRun) {
-      await releaseTunerLock();
+    if (lockConn) {
+      await releaseTunerLock(lockConn);
     }
   }
 }
