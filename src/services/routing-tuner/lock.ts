@@ -22,39 +22,47 @@ export async function acquireTunerLock(runId: string, hours: number): Promise<vo
 
   // GET_LOCK returns 1 if acquired, 0 if timed out. Timeout of 0
   // means fail immediately if another session holds the lock.
-  const [lockRows] = await pool.query<RowDataPacket[]>(
-    `SELECT GET_LOCK('${LOCK_NAME}', 0) AS acquired`,
-  );
+  const [lockRows] = await pool.query<RowDataPacket[]>(`SELECT GET_LOCK(?, 0) AS acquired`, [
+    LOCK_NAME,
+  ]);
   const acquired = (lockRows as Record<string, unknown>[])[0]?.acquired;
   if (acquired !== 1) {
     throw new Error("Another tuning run is already in progress");
   }
 
-  // Also check for stale 'running' records from crashed processes
-  const [staleRows] = await pool.query<RowDataPacket[]>(
-    `SELECT run_id FROM tuning_run
-     WHERE status = 'running'
-       AND started_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
-  );
-  for (const row of staleRows as Record<string, unknown>[]) {
-    await pool.query(
-      `UPDATE tuning_run SET status = 'failed', completed_at = NOW(),
-              error_message = 'Marked stale by subsequent run'
-       WHERE run_id = ?`,
-      [row.run_id],
+  // The lock is held now. If any setup below throws, release it before
+  // propagating — otherwise the advisory lock is orphaned on the pooled
+  // connection and every subsequent run bails with "already in progress".
+  try {
+    // Also check for stale 'running' records from crashed processes
+    const [staleRows] = await pool.query<RowDataPacket[]>(
+      `SELECT run_id FROM tuning_run
+       WHERE status = 'running'
+         AND started_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
     );
-  }
+    for (const row of staleRows as Record<string, unknown>[]) {
+      await pool.query(
+        `UPDATE tuning_run SET status = 'failed', completed_at = NOW(),
+                error_message = 'Marked stale by subsequent run'
+         WHERE run_id = ?`,
+        [row.run_id],
+      );
+    }
 
-  await execute(`INSERT INTO tuning_run (run_id, status, hours_window) VALUES (?, 'running', ?)`, [
-    runId,
-    hours,
-  ]);
+    await execute(
+      `INSERT INTO tuning_run (run_id, status, hours_window) VALUES (?, 'running', ?)`,
+      [runId, hours],
+    );
+  } catch (err) {
+    await releaseTunerLock();
+    throw err;
+  }
 }
 
 /** Releases the advisory lock. Best-effort — it auto-releases on disconnect. */
 export async function releaseTunerLock(): Promise<void> {
   try {
-    await execute(`SELECT RELEASE_LOCK('${LOCK_NAME}')`);
+    await execute(`SELECT RELEASE_LOCK(?)`, [LOCK_NAME]);
   } catch {
     // Lock release is best-effort — it auto-releases on disconnect
   }
