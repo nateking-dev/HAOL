@@ -1,0 +1,20 @@
+#!/bin/sh
+# Pre-commit: verify staged files are Prettier-formatted.
+#
+# Wired via `git config core.hooksPath .githooks`, which the npm "prepare"
+# script runs automatically on `npm install`. Checks only staged files
+# (add/copy/modify) and honors .prettierrc / .prettierignore, matching the
+# `format:check` step in CI.
+
+# Nothing staged for add/copy/modify -> nothing to check.
+git diff --cached --name-only --diff-filter=ACM | grep -q . || exit 0
+
+# NUL-delimited names so paths with spaces survive. --ignore-unknown lets
+# Prettier silently skip files it doesn't handle (e.g. .lock, images).
+if ! git diff --cached --name-only --diff-filter=ACM -z |
+  xargs -0 npx prettier --check --ignore-unknown; then
+  echo
+  echo "Prettier check failed. Fix with:  npm run format"
+  echo "then re-stage the changed files and commit again."
+  exit 1
+fi
