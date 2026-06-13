@@ -19,7 +19,8 @@
     "load-test": "tsx scripts/load-test.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "audit": "npm audit --audit-level=moderate --omit=dev"
+    "audit": "npm audit --audit-level=moderate --omit=dev",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "engines": {
     "node": ">=20.0.0"
