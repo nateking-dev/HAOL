@@ -28,7 +28,7 @@
   "dependencies": {
     "@hono/node-server": "^1.19.10",
     "dotenv": "^16.4.0",
-    "hono": "^4.12.21",
+    "hono": "^4.12.25",
     "mysql2": "^3.11.0",
     "pino": "^10.3.1",
     "safe-regex": "^2.1.1",
@@ -38,11 +38,11 @@
     "@types/node": "^22.0.0",
     "@types/safe-regex": "^1.1.6",
     "prettier": "^3.8.1",
-    "tsx": "^4.19.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.5.0",
     "vitest": "^4.1.0"
   },
   "overrides": {
-    "esbuild": ">=0.25.0"
+    "esbuild": ">=0.28.1"
   }
 }
