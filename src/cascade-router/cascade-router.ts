@@ -24,7 +24,7 @@ import type { RowDataPacket } from "mysql2";
 interface TierRowRaw extends RowDataPacket {
   tier_id: number;
   tier_name: string;
-  description: string;
+  description: string | null; // routing_tiers.description is TEXT (nullable)
   default_agent: string;
 }
 

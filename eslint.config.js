@@ -36,21 +36,28 @@ export default tseslint.config(
     files: ["scripts/**/*.ts"],
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
-      "@typescript-eslint/no-unused-expressions": "off",
+      // Allow the `cond ? ok() : warn()` reporting pattern, but keep the rule
+      // on so bare `cond && fn()` statement bugs are still caught.
+      "@typescript-eslint/no-unused-expressions": ["error", { allowTernary: true }],
     },
   },
   {
-    // Static browser assets — vanilla JS with browser globals, where
-    // top-level classes/consts are consumed by inline <script> tags / other files.
+    // Static browser assets — vanilla JS with browser globals, plus the small,
+    // stable set of cross-file globals shared via <script> tags.
     files: ["public/**/*.js"],
     languageOptions: {
-      globals: { ...globals.browser },
+      globals: {
+        ...globals.browser,
+        API: "readonly", // public/js/api.js
+        CascadeViz: "readonly", // public/js/cascade-viz.js
+        DEMO_PROMPTS: "readonly", // public/js/prompts.js
+      },
     },
     rules: {
-      // Top-level consts/classes are shared across files via <script> tags,
-      // so unused-in-file and undefined-in-file are expected here.
+      // Top-level consts/classes are consumed by sibling scripts, so
+      // unused-in-file is expected; no-undef stays on (only the known
+      // cross-file globals above are whitelisted).
       "no-unused-vars": "off",
-      "no-undef": "off",
       "@typescript-eslint/no-unused-vars": "off",
     },
   },
