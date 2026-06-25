@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createPool, getPool, query, destroy } from "../../src/db/connection.js";
-import { runMigrations, sha256, splitStatements } from "../../src/db/migrate.js";
+import { runMigrations, splitStatements } from "../../src/db/migrate.js";
 import { loadConfig } from "../../src/config.js";
 
 let doltAvailable = false;

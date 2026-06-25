@@ -12,7 +12,6 @@ import {
 import { clearConfigCache } from "../../src/cascade-router/reference-store.js";
 import { META_MODEL_ID } from "../../src/cascade-router/constants.js";
 import * as outcomeRepo from "../../src/repositories/task-outcome.js";
-import * as taskLog from "../../src/repositories/task-log.js";
 import type { ExecutionRecord } from "../../src/types/execution.js";
 import type { TaskLogRecord } from "../../src/repositories/task-log.js";
 

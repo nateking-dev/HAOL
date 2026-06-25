@@ -4,7 +4,6 @@ import type {
   EmbeddingProvider,
   EscalationProvider,
   TierId,
-  LayerAttempt,
   CascadeTrace,
 } from "../../src/cascade-router/types.js";
 

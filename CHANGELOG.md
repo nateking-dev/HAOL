@@ -4,6 +4,14 @@ All notable changes to the HAOL (Heterogeneous Agent Orchestration Layer) projec
 
 ## [Unreleased]
 
+## [v1.0.0] — 2026-06-24
+
+The first stable release. Every hard blocker tracked in the [`1.0 blockers`](https://github.com/nateking-dev/HAOL/milestone/1) milestone is closed: production rate-limiter trust-proxy posture (#73), PII retention for `prompt`/`input_text` (#79), the `routing_policy` exactly-one-active constraint (#76), the `claimQueued` stranded-row fix (#80), and the Zod-issue-tree information-disclosure fix (#72). No breaking changes since v0.7.0.
+
+### Added
+
+- **`typecheck` and `lint` scripts plus CI gates** (#88) — A new `npm run typecheck` (`tsc --noEmit` via `tsconfig.typecheck.json`) now covers `src`, `tests`, and `scripts`, closing the gap where broken types in tests were only caught at runtime. ESLint is configured (flat config in `eslint.config.js`, `typescript-eslint` recommended) with `npm run lint`. Both run in CI ahead of the build, so type and lint regressions fail the pipeline.
+
 ### Changed
 
 - **Meta/escalation model id is now defined once** (#81) — The Layer 2 escalation model id (`claude-haiku-4-5-20251001`) was hardcoded in four places (`reference-store.ts` config defaults, `escalation.ts` constructor default, `outcome-collector.ts` routing-eval, and the `seed.ts` `router_config` row), so a model bump risked silent drift. It now comes from a single `META_MODEL_ID` constant (`src/cascade-router/constants.ts`); the config default and seed reference it, and routing-eval in `outcome-collector.ts` reads the effective value from `loadConfig().escalation_model` (DB-configurable, falling back to the constant) so it stays in sync with the escalation classifier instead of bypassing config. No behavior change with default config.

@@ -19,6 +19,14 @@ import * as store from "./reference-store.js";
 import { rankBySimilarity, weightedTierVote } from "./similarity.js";
 import safe from "safe-regex";
 import { logger } from "../logging/logger.js";
+import type { RowDataPacket } from "mysql2";
+
+interface TierRowRaw extends RowDataPacket {
+  tier_id: number;
+  tier_name: string;
+  description: string;
+  default_agent: string;
+}
 
 export interface CascadeRouterOpts {
   embeddingProvider?: EmbeddingProvider;
@@ -72,10 +80,10 @@ export class CascadeRouter {
 
     // Load tier definitions from DB
     const { query } = await import("../db/connection.js");
-    const tierRows = await query<any[]>(
+    const tierRows = await query<TierRowRaw[]>(
       `SELECT tier_id, tier_name, description, default_agent FROM routing_tiers ORDER BY tier_id`,
     );
-    const tiers: TierDefinition[] = tierRows.map((r: any) => ({
+    const tiers: TierDefinition[] = tierRows.map((r) => ({
       tier_id: r.tier_id as TierId,
       tier_name: r.tier_name,
       description: r.description,

@@ -6,7 +6,6 @@ import type {
   EmbeddingProvider,
   EscalationProvider,
   TierId,
-  TierDefinition,
 } from "../../src/cascade-router/types.js";
 
 // Mock DB layer
