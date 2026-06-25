@@ -1,6 +1,6 @@
 {
   "name": "haol",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "description": "Heterogeneous Agent Orchestration Layer",
   "type": "module",
   "main": "dist/index.js",
@@ -12,6 +12,8 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "lint": "eslint .",
     "migrate": "tsx src/db/migrate.ts",
     "seed": "tsx src/db/seed.ts",
     "seed:embeddings": "tsx src/cascade-router/seed-embeddings.ts",
@@ -35,11 +37,15 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^22.0.0",
     "@types/safe-regex": "^1.1.6",
+    "eslint": "^9.39.4",
+    "globals": "^17.7.0",
     "prettier": "^3.8.1",
     "tsx": "^4.22.4",
     "typescript": "^5.5.0",
+    "typescript-eslint": "^8.62.0",
     "vitest": "^4.1.0"
   },
   "overrides": {
