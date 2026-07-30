@@ -5,3 +5,4 @@ dist/
 .doltcfg/
 .DS_Store
 haol/
+graphify-out/
