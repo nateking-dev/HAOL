@@ -65,3 +65,25 @@ Tests mirror `src/` structure in `tests/`. Tests skip gracefully when Dolt is un
 ## Environment
 
 Requires `.env` with `DOLT_HOST`, `DOLT_PORT`, `DOLT_USER`, `DOLT_PASSWORD`, `DOLT_DATABASE`, plus `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` for provider adapters. See `.env.example`.
+
+## Verifying your work
+
+- Build: npm run build (tsc clean, zero errors)
+- Test: npm run test (all green; never skip or delete a failing test)
+
+Run both before reporting any task complete, and paste the output.
+If a test fails, fix the code, not the test. Tests that skip because
+Dolt is unavailable are not passes — say so explicitly.
+
+## Conventions
+
+- All inputs validated with Zod. No hand-rolled validation, no `as` casts
+  past a schema boundary.
+- Every mutation is a Dolt commit with telemetry in the message.
+- Memory is best-effort: a Dolt branching failure logs and continues,
+  never fails the task.
+- Selection weights (0.5 / 0.3 / 0.2) are policy, not literals to tune
+  into a passing test.
+
+## Things Claude gets wrong
+(empty — add on second occurrence)
