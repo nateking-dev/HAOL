@@ -36,7 +36,9 @@ afterAll(async () => {
 beforeEach(() => clearConfigCache());
 
 describe("reference-store", () => {
-  it.skipIf(!doltAvailable)("loadConfig returns valid config shape", async () => {
+  it("loadConfig returns valid config shape", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
     const { loadConfig: loadRouterConfig } =
       await import("../../src/cascade-router/reference-store.js");
     const config = await loadRouterConfig();
@@ -52,25 +54,33 @@ describe("reference-store", () => {
     expect(config.confidence_threshold).toBeLessThanOrEqual(1);
   });
 
-  it.skipIf(!doltAvailable)("loadRules returns an array", async () => {
+  it("loadRules returns an array", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
     const { loadRules } = await import("../../src/cascade-router/reference-store.js");
     const rules = await loadRules();
     expect(Array.isArray(rules)).toBe(true);
   });
 
-  it.skipIf(!doltAvailable)("loadUtterances returns an array", async () => {
+  it("loadUtterances returns an array", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
     const { loadUtterances } = await import("../../src/cascade-router/reference-store.js");
     const utterances = await loadUtterances();
     expect(Array.isArray(utterances)).toBe(true);
   });
 
-  it.skipIf(!doltAvailable)("hasEmbeddings returns a boolean", async () => {
+  it("hasEmbeddings returns a boolean", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
     const { hasEmbeddings } = await import("../../src/cascade-router/reference-store.js");
     const result = await hasEmbeddings();
     expect(typeof result).toBe("boolean");
   });
 
-  it.skipIf(!doltAvailable)("loadConfig returns cached value on second call", async () => {
+  it("loadConfig returns cached value on second call", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
     const { loadConfig: loadRouterConfig } =
       await import("../../src/cascade-router/reference-store.js");
     clearConfigCache();
@@ -80,7 +90,9 @@ describe("reference-store", () => {
     expect(second).toBe(first);
   });
 
-  it.skipIf(!doltAvailable)("loadConfig re-fetches after cache is cleared", async () => {
+  it("loadConfig re-fetches after cache is cleared", async ({ skip }) => {
+    if (!doltAvailable) skip();
+
     const { loadConfig: loadRouterConfig } =
       await import("../../src/cascade-router/reference-store.js");
     clearConfigCache();
