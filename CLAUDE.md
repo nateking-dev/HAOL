@@ -75,6 +75,24 @@ Run both before reporting any task complete, and paste the output.
 If a test fails, fix the code, not the test. Tests that skip because
 Dolt is unavailable are not passes — say so explicitly.
 
+With Dolt up, migrated and seeded, the full suite is 571 passed / 0
+skipped. Zero is the expected skip count, so any non-zero count is an
+anomaly to investigate, not background noise — a skip line reads as
+"Dolt isn't running" and will happily hide a test that never executes.
+Gate Dolt-backed tests at *runtime*, the way every file in `tests/`
+now does:
+
+```ts
+it("...", async ({ skip }) => {
+  if (!doltAvailable) skip();
+  ...
+});
+```
+
+Not `it.skipIf(!doltAvailable)` — Vitest evaluates that at collection
+time, before `beforeAll` sets `doltAvailable`, so the test is skipped
+unconditionally whether or not Dolt is up (fixed in PR #112).
+
 ## Conventions
 
 - All inputs validated with Zod. No hand-rolled validation, no `as` casts
